@@ -1,0 +1,32 @@
+.PHONY: test lint coverage init upgrade upgrade-check clean help
+
+# ── Development ──────────────────────────────────────────────────────────────
+
+test: ## Run ShellCheck + Bats (no kcov — fast dev loop)
+	./script/ci/ci.sh
+
+lint: ## Run ShellCheck only
+	./script/ci/ci.sh --lint-only
+
+coverage: ## Run ShellCheck + Bats + Kcov coverage (slow; CI / release)
+	./script/ci/ci.sh --coverage
+
+clean: ## Remove coverage reports
+	rm -rf coverage/
+
+# ── Repo setup ──────────────────────────────────────────────────────────────
+
+init: ## Initialize repo (new or existing)
+	./init.sh
+
+upgrade: ## Upgrade template subtree (optional VERSION=vX.Y.Z; defaults to latest)
+	./upgrade.sh $(VERSION)
+
+upgrade-check: ## Check if a newer template version is available
+	@./upgrade.sh --check || [ $$? -eq 1 ]
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'

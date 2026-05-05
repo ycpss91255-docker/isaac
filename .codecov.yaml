@@ -1,0 +1,24 @@
+coverage:
+  status:
+    project:
+      default:
+        # Total project coverage must not drop. Allow a small wiggle for noise.
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # Patch coverage is reported but never blocks merges. Many bash
+        # branches (case ;; arms, /lint fallback blocks, child-bash guards)
+        # are intentionally not exercised by tests, and refactor PRs that
+        # only move covered code around would otherwise be blocked. The
+        # project-level status above still guards against regressions.
+        informational: true
+
+ignore:
+  - "test/**/*"
+  - ".github/**/*"
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
