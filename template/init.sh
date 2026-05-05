@@ -1,0 +1,399 @@
+#!/usr/bin/env bash
+# init.sh - Initialize a repo with template
+#
+# Full setup from scratch (git subtree add needs HEAD, so an initial commit is
+# required before adding the subtree):
+#   mkdir <repo_name> && cd <repo_name>
+#   git init
+#   git commit --allow-empty -m "chore: initial commit"
+#   git subtree add --prefix=template \
+#       https://github.com/ycpss91255-docker/template.git main --squash
+#   ./template/init.sh
+#
+# (Substitute `git@github.com:...` for SSH if you have a key configured.)
+#
+# Auto-detects:
+#   - Has Dockerfile → existing repo: create symlinks
+#   - No Dockerfile → new repo: generate full project structure
+
+# Only set strict mode when running directly; when sourced, respect caller's settings
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
+
+TEMPLATE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly TEMPLATE_DIR
+REPO_ROOT="$(cd -- "${TEMPLATE_DIR}/.." && pwd -P)"
+readonly REPO_ROOT
+TEMPLATE_REL="template"
+readonly TEMPLATE_REL
+
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/script/docker/lib/gitignore.sh"
+
+_log() { printf "[init] %s\n" "$*"; }
+
+# ── Symlink helper ──────────────────────────────────────────────────────────
+
+_symlink() {
+  local target="$1" link="$2"
+  if [[ -L "${link}" || -f "${link}" ]]; then
+    rm -f "${link}"
+  fi
+  ln -sf "${target}" "${link}"
+  _log "  ${link} -> ${target}"
+}
+
+_create_symlinks() {
+  _log "Creating symlinks:"
+  _symlink "${TEMPLATE_REL}/script/docker/build.sh" "build.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/run.sh" "run.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/exec.sh" "exec.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/stop.sh" "stop.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/setup.sh" "setup.sh"
+  _symlink "${TEMPLATE_REL}/script/docker/setup_tui.sh" "setup_tui.sh"
+  # Upgrade hygiene: drop the pre-rename `tui.sh` symlink if present
+  # so we don't leave a dangling pointer after the file was renamed.
+  if [[ -L tui.sh ]]; then
+    rm -f tui.sh
+    _log "  Removed stale tui.sh symlink (renamed to setup_tui.sh)"
+  fi
+  _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
+
+  if [[ ! -f .hadolint.yaml ]] \
+    || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" \
+      >/dev/null 2>&1; then
+    _symlink "${TEMPLATE_REL}/.hadolint.yaml" ".hadolint.yaml"
+  else
+    _log "  Keeping custom .hadolint.yaml (differs from template)"
+  fi
+
+  _populate_config
+}
+
+# _populate_config
+#
+# On first init (no <repo>/config/), copy `template/config/` out as a
+# real directory the user owns and can edit freely. Rationale:
+#   * a symlink would make edits spill into the subtree and fight
+#     `git subtree pull`;
+#   * a plain Dockerfile COPY from `template/config/` would deny the
+#     user any per-repo override path at all.
+# Copy gives the user a clean, repo-local editing surface; subsequent
+# template upgrades leave this directory untouched and `upgrade.sh`
+# prints a diff hint when the upstream baseline moves so the user can
+# reconcile manually.
+_populate_config() {
+  # User already has a real config/ — preserve (contains their edits).
+  if [[ -d config && ! -L config ]]; then
+    _log "  Keeping existing config/ directory"
+    return 0
+  fi
+  # Stale symlink from an earlier init.sh version — drop it before
+  # copying. Without rm, `cp -r` would dereference and write INTO the
+  # symlink's target (i.e. pollute the subtree).
+  if [[ -L config ]]; then
+    rm -f config
+  fi
+  if [[ ! -d "${TEMPLATE_REL}/config" ]]; then
+    _log "  Skipping config/ seed (${TEMPLATE_REL}/config not found)"
+    return 0
+  fi
+  cp -r "${TEMPLATE_REL}/config" config
+  _log "  Copied config/ from ${TEMPLATE_REL}/config (yours to edit)"
+}
+
+_detect_template_version() {
+  # Prefer .version file inside template (auto-synced by subtree pull)
+  local version_file="${TEMPLATE_DIR}/.version"
+  if [[ -f "${version_file}" ]]; then
+    tr -d '[:space:]' < "${version_file}"
+    return 0
+  fi
+  # Fallback: query remote tags (for fresh subtree add before .version existed).
+  # HTTPS by default so fresh clones / CI runners without an SSH key still
+  # work. Override via TEMPLATE_REMOTE env var (e.g. SSH for private forks).
+  local _remote="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
+  git ls-remote --tags --sort=-v:refname \
+    "${_remote}" 2>/dev/null \
+    | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' \
+    | head -1 \
+    | sed 's|refs/tags/||' || true
+}
+
+# ── New repo scaffolding ────────────────────────────────────────────────────
+
+_detect_repo_name() {
+  basename "${REPO_ROOT}"
+}
+
+_create_new_repo() {
+  local ref="${1:-main}"
+  local name=""
+  name="$(_detect_repo_name)"
+  _log "Creating new repo: ${name}"
+
+  # Dockerfile
+  cp "${TEMPLATE_DIR}/dockerfile/Dockerfile.example" Dockerfile
+  _log "  Created Dockerfile (from template)"
+
+  # compose.yaml is a derived artifact generated by setup.sh based on
+  # setup.conf; _call_setup at the end of this flow will emit it.
+
+  # script/entrypoint.sh
+  mkdir -p script
+  cat > script/entrypoint.sh <<'ENTRY'
+#!/usr/bin/env bash
+
+exec "${@}"
+ENTRY
+  chmod +x script/entrypoint.sh
+  _log "  Created script/entrypoint.sh"
+
+  # test/smoke/<name>_env.bats
+  mkdir -p test/smoke
+  cat > "test/smoke/${name}_env.bats" <<BATS
+#!/usr/bin/env bats
+#
+# Repo-specific runtime smoke tests. Exercise the \`devel\` image built
+# from this repo's Dockerfile, via the \`test\` stage. Use the shared
+# helpers in test_helper.bash (assert_cmd_installed, assert_file_exists,
+# assert_dir_exists, assert_file_owned_by, assert_pip_pkg, ...) to keep
+# assertions terse. Add one assertion per meaningful installation
+# artifact.
+
+setup() {
+  load "\${BATS_TEST_DIRNAME}/test_helper"
+}
+
+@test "entrypoint.sh is installed and executable" {
+  assert_file_exists /entrypoint.sh
+  assert [ -x /entrypoint.sh ]
+}
+
+@test "bash is available on PATH" {
+  assert_cmd_installed bash
+}
+BATS
+  _log "  Created test/smoke/${name}_env.bats"
+
+  # .github/workflows/main.yaml
+  mkdir -p .github/workflows
+  cat > .github/workflows/main.yaml <<YAML
+name: Main CI/CD
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+# call-release uses softprops/action-gh-release@v2 which needs
+# contents: write to create a GitHub Release. Reusable workflow
+# permissions intersect with the caller's, and GitHub Actions'
+# default GITHUB_TOKEN is read-only, so this grant must live here
+# (release-worker.yaml declaring it upstream is not enough).
+permissions:
+  contents: write
+
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@${ref}
+    with:
+      image_name: ${name}
+
+  call-release:
+    needs: call-docker-build
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@${ref}
+    with:
+      archive_name_prefix: ${name}
+YAML
+  _log "  Created .github/workflows/main.yaml"
+
+  # .gitignore: source canonical set from lib/gitignore.sh so future
+  # template-added derived artifacts propagate via the existing-repo
+  # sync path on next upgrade (#172).
+  _sync_gitignore "${REPO_ROOT}/.gitignore"
+  _log "  Created .gitignore"
+
+  # doc/
+  mkdir -p doc/test doc/changelog
+  cat > README.md <<MD
+# ${name}
+
+**[English](README.md)** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
+
+## Quick Start
+
+\`\`\`bash
+./build.sh && ./run.sh
+\`\`\`
+
+## Smoke Tests
+
+See [TEST.md](doc/test/TEST.md) for details.
+MD
+
+  for lang_file in "README.zh-TW.md" "README.zh-CN.md" "README.ja.md"; do
+    cat > "doc/${lang_file}" <<MD
+# ${name}
+
+**[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
+MD
+  done
+  _log "  Created README.md + doc/ translations"
+
+  cat > doc/test/TEST.md <<MD
+# TEST.md
+
+**1 test** total.
+
+## test/smoke/${name}_env.bats (1)
+
+| Test | Description |
+|------|-------------|
+| \`entrypoint.sh exists and is executable\` | Entrypoint check |
+MD
+  _log "  Created doc/test/TEST.md"
+
+  cat > doc/changelog/CHANGELOG.md <<MD
+# Changelog
+
+## [Unreleased]
+
+### Added
+- Initial release
+MD
+  _log "  Created doc/changelog/CHANGELOG.md"
+}
+
+# ── Existing repo initialization ────────────────────────────────────────────
+
+_init_existing_repo() {
+  _log "Existing repo detected (Dockerfile found)"
+  _create_symlinks
+  _sync_existing_gitignore
+}
+
+# _sync_existing_gitignore
+#   On existing-repo init / upgrade, append any canonical entries the
+#   user's .gitignore is missing AND `git rm --cached` any tracked
+#   files that have since become derived artifacts. Heals the 15-repo
+#   drift documented in #172 in one shot — no separate sweep PR needed.
+_sync_existing_gitignore() {
+  _sync_gitignore "${REPO_ROOT}/.gitignore"
+  _untrack_canonical_in_repo "${REPO_ROOT}"
+}
+
+# ── Generate per-repo setup.conf ────────────────────────────────────────────
+#
+# Copies template/setup.conf to repo root so the user can override any section.
+# Replace strategy: a section present in the per-repo file fully replaces the
+# template's corresponding section; omitted sections fall back to template.
+
+_gen_setup_conf() {
+  local _src="${TEMPLATE_DIR}/setup.conf"
+  local _dst="${REPO_ROOT}/setup.conf"
+  local _force="${1:-false}"
+  if [[ ! -f "${_src}" ]]; then
+    _error "Template setup.conf not found at ${_src}"
+  fi
+  if [[ -f "${_dst}" ]]; then
+    if [[ "${_force}" != "true" ]]; then
+      _error "setup.conf already exists at ${_dst}. Remove it first or edit directly."
+    fi
+    # --force path: back up the existing conf (and .env, since a reset
+    # will regenerate it from the new conf baseline) to *.bak siblings
+    # before overwriting. `.gitignore` ignores these so they never get
+    # committed by accident.
+    local _bak="${_dst}.bak"
+    cp -f "${_dst}" "${_bak}"
+    _log "Backed up existing setup.conf → ${_bak}"
+    if [[ -f "${REPO_ROOT}/.env" ]]; then
+      local _env_bak="${REPO_ROOT}/.env.bak"
+      cp -f "${REPO_ROOT}/.env" "${_env_bak}"
+      _log "Backed up existing .env → ${_env_bak}"
+    fi
+  fi
+  cp -f "${_src}" "${_dst}"
+  _log "Created ${_dst}"
+  _log "Edit it to customize runtime settings for this repo."
+}
+
+# ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
+
+_call_setup() {
+  local _setup="${TEMPLATE_DIR}/script/docker/setup.sh"
+  if [[ ! -f "${_setup}" ]]; then
+    _log "Skipping setup.sh (${_setup} not found)"
+    return 0
+  fi
+  _log "Running setup.sh to generate .env + compose.yaml"
+  if ! bash "${_setup}" apply --base-path "${REPO_ROOT}" >/dev/null; then
+    _log "WARNING: setup.sh exited non-zero; inspect manually and rerun ./build.sh --setup"
+  fi
+}
+
+_error() { printf "[init] ERROR: %s\n" "$*" >&2; exit 1; }
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+main() {
+  if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    cat >&2 <<'EOF'
+Usage: ./template/init.sh [--gen-conf [--force]]
+
+Initialize a repo with template. Auto-detects:
+  - Has Dockerfile → create symlinks, then run setup.sh
+  - No Dockerfile  → generate full project structure, then run setup.sh
+
+Version is tracked in template/.version (auto-synced by subtree pull).
+
+Options:
+  --gen-conf         Copy template/setup.conf to <repo>/setup.conf so the
+                     user can override any section (image / build / deploy /
+                     gui / network / volumes). Refuses to overwrite an
+                     existing per-repo setup.conf unless --force is given.
+  --force            With --gen-conf: overwrite existing setup.conf,
+                     backing up the previous setup.conf to setup.conf.bak
+                     and .env to .env.bak first.
+
+Run from the repo root after:
+  git subtree add --prefix=template \
+      https://github.com/ycpss91255-docker/template.git <version> --squash
+EOF
+    return 0
+  fi
+
+  cd "${REPO_ROOT}"
+
+  if [[ "${1:-}" == "--gen-conf" ]]; then
+    local _force=false
+    [[ "${2:-}" == "--force" ]] && _force=true
+    _gen_setup_conf "${_force}"
+    return 0
+  fi
+
+  local template_version=""
+  template_version="$(_detect_template_version)"
+
+  if [[ -f Dockerfile ]]; then
+    _init_existing_repo
+  else
+    _create_new_repo "${template_version:-main}"
+    _create_symlinks
+  fi
+
+  _call_setup
+
+  _log ""
+  _log "Done!"
+}
+
+# Guard: only run main when executed directly, not when sourced (for testing)
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
+fi
