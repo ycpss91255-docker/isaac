@@ -1,6 +1,14 @@
 # TEST.md
 
-Template self-tests: **935 tests** total (881 unit + 54 integration).
+Template self-tests: **969 tests** total (915 unit + 54 integration).
+
+> Counted scope is the `make -f Makefile.ci test` self-test suite —
+> what runs in the `Self Test` CI job. The 27 shared smoke tests under
+> `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
+> build time (via `./build.sh test`) inside both this repo and every
+> downstream repo, and are documented in [Smoke Tests](#smoke-tests)
+> below. They are **not** included in the 969 figure because they are
+> build-time assertions, not self-tests.
 
 ## Test Files
 
@@ -37,7 +45,7 @@ Template self-tests: **935 tests** total (881 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (206)
+### test/unit/setup_spec.bats (232)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -71,6 +79,10 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
 | Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 25 |
+| `_validate_stage_name` (#215: format / baseline / reserved exit codes) | 4 |
+| `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection) | 6 |
+| `_compute_dockerfile_hash` (#215: stable / add / remove / non-FROM-AS edits / missing) | 5 |
+| `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 
 ### test/unit/tui_spec.bats (92)
 
@@ -172,7 +184,7 @@ build invocation, and **runtime log-line i18n** (bootstrap /
 drift-regen / err_no_env messages translate in all four languages via
 the local `_msg()` table; English remains the default).
 
-### test/unit/run_sh_spec.bats (33)
+### test/unit/run_sh_spec.bats (41)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -184,8 +196,12 @@ bootstrap staying non-interactive (setup.sh, not TUI), defensive guard
 when setup produces no `.env`, `--detach`, devel vs non-devel TARGET
 routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
-branches, and **runtime log-line i18n** (bootstrap + already-running
-error translate in all four languages via the local `_msg()` table).
+branches, **runtime log-line i18n** (bootstrap + already-running
+error translate in all four languages via the local `_msg()` table),
+and **#216 auto-build soft guard / `--build` opt-in** (image
+present → silent, image absent + TTY → INFO, image absent + no TTY →
+silent, per-target image inspect, `--build` invokes `./build.sh test`
+before compose up, `--build` after check-drift).
 
 ### test/unit/exec_sh_spec.bats (18)
 
@@ -345,11 +361,10 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `exec.sh -h works when i18n.sh is missing` | i18n fallback |
 | `stop.sh -h works when i18n.sh is missing` | i18n fallback |
 | `setup.sh does not redefine _detect_lang` | No duplication |
-| `VERSION file exists in template root` | Version file check |
-| `upgrade.sh reads version from template/VERSION` | VERSION path |
-| `upgrade.sh does not write .template_version` | No legacy write |
+| `.version file exists in template root` | Version file check |
+| `upgrade.sh reads version from template/.version` | .version path |
+| `upgrade.sh does not reference legacy VERSION or .template_version` | Legacy refs purged |
 | `upgrade.sh runs init.sh after subtree pull` | Sync symlinks |
-| `upgrade.sh cleans up legacy .template_version` | Legacy cleanup |
 | `upgrade.sh supports --gen-conf flag` | Flag exists |
 | `upgrade.sh --gen-conf delegates to init.sh --gen-conf` | Delegation |
 | `upgrade.sh --help mentions --gen-conf` | Help text |
@@ -445,15 +460,13 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_detect_template_version: returns empty when git ls-remote fails` | Network-down fallback |
 | `_detect_template_version: returns empty when no v*.*.* tags exist` | Nothing to match |
 | `_detect_template_version: ignores non-semver tags (e.g. rc suffixes)` | Regex filters rc / pre-release |
-| `_detect_template_version: reads VERSION file when present (no network)` | VERSION file priority |
-| `_detect_template_version: VERSION file takes priority over git ls-remote` | Local-first resolution |
-| `init.sh removes legacy .template_version when present` | Legacy cleanup |
-| `init.sh succeeds when no legacy .template_version exists` | Clean state |
+| `_detect_template_version: reads .version file when present (no network)` | .version file priority |
+| `_detect_template_version: .version file takes priority over git ls-remote` | Local-first resolution |
 | `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
-| `_create_new_repo: generates .env.example with IMAGE_NAME=<repo>` | Fallback image name |
-| `_create_symlinks: produces all five docker-script symlinks` | Symlink set |
+| `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
+| `_create_symlinks: produces all seven docker-script symlinks` | Symlink set |
 | `_create_symlinks: replaces a stale file at the symlink path` | Re-init over existing files |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
 
@@ -637,7 +650,7 @@ which has access to a Docker daemon on the host runner.
 | `init.sh detects empty dir and creates new repo skeleton` | Smoke |
 | `new repo: Dockerfile is copied from template` | Dockerfile gen |
 | `new repo: compose.yaml exists and references the repo name` | compose gen |
-| `new repo: .env.example contains IMAGE_NAME=<reponame>` | env fallback |
+| `new repo: .env.example is NOT generated (image name via setup.conf rules)` | setup.conf rules drive IMAGE_NAME |
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
 | `new repo: .github/workflows/main.yaml exists with reusable workflow ref` | CI gen |
@@ -647,7 +660,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink → template/script/docker/build.sh` | symlink target |
 | `new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct` | symlink set |
-| `new repo: template/VERSION exists (no legacy .template_version)` | version file |
+| `new repo: template/.version exists (no legacy VERSION / .template_version)` | version file |
 | `new repo: re-running init.sh on the result is idempotent` | idempotent |
 | `new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)` | post-rename symlink |
 | `new repo: init.sh removes stale tui.sh symlink from earlier versions` | upgrade cleanup |
@@ -660,7 +673,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: .gitignore contains compose.yaml (derived artifact)` | gitignore compose.yaml |
 | `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
-| `new repo: per-repo setup.conf not created by default` | template default usage |
+| `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
 
 ### test/integration/fresh_clone_portability_spec.bats (2)
 
@@ -716,3 +729,79 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+## Smoke Tests
+
+Shared specs that ship with `template/test/smoke/` and run at Dockerfile
+`test`-stage build time (i.e. during `./build.sh test`) inside both this
+repo and every downstream repo that consumes the template. They assert
+the integrity of the generated `compose.yaml` + the wrapper scripts'
+`-h` / `--help` paths. **Not** part of the 935-test self-test count
+(those run via `make -f Makefile.ci test` and never enter the build
+graph).
+
+How they reach downstream repos: each `Dockerfile`'s `test` stage does
+
+```dockerfile
+COPY template/test/smoke/ /smoke_test/
+COPY test/smoke/ /smoke_test/
+RUN bats /smoke_test/
+```
+
+so the shared specs and any per-repo `test/smoke/` overlay execute
+together. `display_env.bats` self-skips on headless repos by detecting
+the absence of GUI lines in the generated `compose.yaml`.
+
+### test/smoke/script_help.bats (16)
+
+Locks the `-h` / `--help` invariants on the four wrapper scripts
+(`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
+auto-detection rules in `build.sh` (`LANG=zh_TW.UTF-8` → zh, `ja_JP`
+→ ja, `en_US` → en, `SETUP_LANG` overrides `LANG`).
+
+| Test | Description |
+|------|-------------|
+| `build.sh -h exits 0` | Wrapper smoke |
+| `build.sh --help exits 0` | Long flag |
+| `build.sh -h prints usage` | Output sanity |
+| `run.sh -h exits 0` | Wrapper smoke |
+| `run.sh --help exits 0` | Long flag |
+| `run.sh -h prints usage` | Output sanity |
+| `exec.sh -h exits 0` | Wrapper smoke |
+| `exec.sh --help exits 0` | Long flag |
+| `exec.sh -h prints usage` | Output sanity |
+| `stop.sh -h exits 0` | Wrapper smoke |
+| `stop.sh --help exits 0` | Long flag |
+| `stop.sh -h prints usage` | Output sanity |
+| `build.sh detects zh from LANG=zh_TW.UTF-8` | i18n detect — zh-TW |
+| `build.sh detects ja from LANG=ja_JP.UTF-8` | i18n detect — ja |
+| `build.sh defaults to en for LANG=en_US.UTF-8` | i18n detect — en default |
+| `build.sh SETUP_LANG overrides LANG` | i18n env override |
+
+### test/smoke/display_env.bats (11)
+
+Asserts the generated `compose.yaml` carries the X11 / Wayland env
++ volume block expected by GUI containers, and that `run.sh` runs the
+right `xhost` command per session type. Auto-skipped when the repo's
+`compose.yaml` has no GUI block (headless repos like `multi_run`).
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml contains WAYLAND_DISPLAY env` | Wayland env line |
+| `compose.yaml contains XDG_RUNTIME_DIR env` | Wayland session dir env |
+| `compose.yaml contains XAUTHORITY env` | X11 auth env |
+| `compose.yaml mounts XDG_RUNTIME_DIR as rw` | Wayland socket mount |
+| `compose.yaml mounts XAUTHORITY volume` | X11 auth mount |
+| `compose.yaml has no consecutive duplicate keys` | YAML hygiene |
+| `compose.yaml mounts X11-unix volume` | X11 socket mount |
+| `run.sh contains XDG_SESSION_TYPE check` | Session-type branch |
+| `run.sh calls xhost +SI:localuser on wayland` | Wayland xhost path |
+| `run.sh calls xhost +local: on X11` | X11 xhost path |
+| `run.sh defaults to X11 xhost when XDG_SESSION_TYPE unset` | Fallback path |
+
+### test/smoke/test_helper.bash
+
+Not a spec — runtime helper (`assert_compose_has` / `skip_if_headless`
+etc.) loaded by every smoke spec via `load "${BATS_TEST_DIRNAME}/test_helper"`.
+Asserts in this file are exercised via `test/unit/smoke_helper_spec.bats`
+(which IS in the 935 self-test count).

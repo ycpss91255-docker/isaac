@@ -58,6 +58,9 @@ _setup_msg() {
         reset_needs_yes)  echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
         warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
         warn_empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
+        stage_invalid_format) echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
+        stage_baseline_collision) echo "Dockerfile stage 名稱與 template 內建 stage 衝突，請改名" ;;
+        stage_reserved_tag) echo "Dockerfile stage 名稱使用 template 控制的 image tag namespace，請改名" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -80,6 +83,9 @@ _setup_msg() {
         reset_needs_yes)  echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
         warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
         warn_empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
+        stage_invalid_format) echo "Dockerfile stage 名称格式无效，已跳过该 stage" ;;
+        stage_baseline_collision) echo "Dockerfile stage 名称与 template 内建 stage 冲突，请改名" ;;
+        stage_reserved_tag) echo "Dockerfile stage 名称使用 template 控制的 image tag namespace，请改名" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -102,6 +108,9 @@ _setup_msg() {
         reset_needs_yes)  echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
         warn_no_repo_conf) echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
         warn_empty_repo_conf) echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+        stage_invalid_format) echo "Dockerfile stage 名のフォーマットが無効です。該当 stage はスキップされます" ;;
+        stage_baseline_collision) echo "Dockerfile stage 名が template 管理の stage と衝突しています。改名してください" ;;
+        stage_reserved_tag) echo "Dockerfile stage 名が template が管理する image tag namespace を使用しています。改名してください" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -124,6 +133,9 @@ _setup_msg() {
         reset_needs_yes)  echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
         warn_no_repo_conf) echo "no per-repo setup.conf — using template defaults for all sections" ;;
         warn_empty_repo_conf) echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
+        stage_invalid_format) echo "invalid Dockerfile stage name format; stage skipped" ;;
+        stage_baseline_collision) echo "Dockerfile stage name collides with a template-managed baseline stage; rename it" ;;
+        stage_reserved_tag) echo "Dockerfile stage name uses a template-controlled image tag namespace; rename it" ;;
       esac ;;
   esac
 }
@@ -818,6 +830,115 @@ _compute_conf_hash() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Stage helpers (#215)
+# ════════════════════════════════════════════════════════════════════
+
+# _validate_stage_name <stage>
+#
+# Returns:
+#   0 — valid; auto-emit as compose service
+#   1 — invalid format (caller WARNs + skips, continues parsing other stages)
+#   2 — collides with template-managed baseline {sys, base, devel, test};
+#       hard error (caller exits non-zero)
+#   3 — collides with template-controlled image-tag namespace
+#       ({latest} | v[0-9]*); hard error
+#
+# Exit codes are distinct so the parser/emitter can react differently
+# (skip-with-warn vs abort) without re-validating.
+_validate_stage_name() {
+  local _stage="$1"
+  # Order matters: collision / reserved checks fire BEFORE format check
+  # so a name that matches both a reserved pattern AND has a format
+  # quirk (e.g. `v1.2` — dotted, but still in v[0-9]* reserved
+  # namespace) gets the more severe verdict (hard error 3) instead of
+  # the milder format-only verdict (skip 1). Same name should not
+  # silently drop as "invalid format" if its real problem is namespace
+  # collision.
+
+  # 1. baseline collision (template-managed stages)
+  case "${_stage}" in
+    sys|base|devel|test) return 2 ;;
+  esac
+  # 2. reserved tag namespace (template-controlled tag slots)
+  case "${_stage}" in
+    latest)   return 3 ;;
+    v[0-9]*)  return 3 ;;
+  esac
+  # 3. format check (lowercase, leading letter, [a-z0-9_-])
+  [[ "${_stage}" =~ ^[a-z][a-z0-9_-]*$ ]] || return 1
+  return 0
+}
+
+# _parse_dockerfile_stages <dockerfile_path>
+#
+# Reads `^FROM <base> AS <stage>` lines from the Dockerfile, dedups,
+# filters out the baseline blocklist {sys, base, devel, test}, and
+# echoes the surviving stages one per line preserving file order.
+#
+# Match rules:
+#   - Line must start with `FROM` (case-sensitive — Docker spec is
+#     case-insensitive but tooling convention is uppercase)
+#   - `AS` keyword must be uppercase (lowercase `as` is technically valid
+#     but treated as user typo / hand-edited and ignored)
+#   - Comments (#) on the line block the match — only bare directives count
+#   - Trailing whitespace tolerated
+#
+# Missing Dockerfile → empty output (silent), exit 0. Caller decides
+# whether to treat that as "no extra stages" or an error.
+_parse_dockerfile_stages() {
+  local _dockerfile="$1"
+  [[ -f "${_dockerfile}" ]] || return 0
+  # Read the Dockerfile directly (no grep|awk pipe) so an empty match
+  # set under `set -o pipefail` does not propagate exit 1 back through
+  # process substitution. BASH_REMATCH captures the stage name from
+  # the same regex shape grep used.
+  local _line _stage _seen=" "
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+)[[:space:]]*$ ]] || continue
+    _stage="${BASH_REMATCH[1]}"
+    case "${_stage}" in
+      sys|base|devel|test) continue ;;
+    esac
+    case "${_seen}" in
+      *" ${_stage} "*) continue ;;  # already emitted (dedup)
+    esac
+    _seen+="${_stage} "
+    printf '%s\n' "${_stage}"
+  done < "${_dockerfile}"
+  return 0
+}
+
+# _compute_dockerfile_hash <base_path> <outvar>
+#
+# sha256 of the Dockerfile's stage-list projection (just `FROM ... AS
+# <stage>` lines), NOT the whole Dockerfile. Drift detection scope:
+# adding/removing a stage changes which compose services exist, so the
+# hash must change on those edits — but unrelated `RUN apt-get install`
+# changes must not, otherwise every Dockerfile edit triggers a full
+# compose regen.
+#
+# Empty output if Dockerfile is missing (caller decides what to do).
+_compute_dockerfile_hash() {
+  local _base="${1:?}"
+  local -n _cdh_out="${2:?}"
+  local _dockerfile="${_base}/Dockerfile"
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _cdh_out=""
+    return 0
+  fi
+  # Build the stage-list projection inline (no grep|sha256sum pipe) so
+  # an empty match set under pipefail does not propagate failure. The
+  # regex matches grep's exact shape used by _parse_dockerfile_stages.
+  local _line _stage_lines=""
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ^FROM[[:space:]]+[^[:space:]#]+[[:space:]]+AS[[:space:]]+[^[:space:]#]+[[:space:]]*$ ]] || continue
+    _stage_lines+="${_line}"$'\n'
+  done < "${_dockerfile}"
+  _cdh_out="$(printf '%s' "${_stage_lines}" | sha256sum | cut -d' ' -f1)"
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
 #                       <gpu_count> <gpu_caps> <extras_array_ref>
 #                       [<network_name>]
@@ -903,20 +1024,36 @@ generate_compose_yaml() {
     printf '    runtime: %s\n' "${_runtime}"
   }
 
-  # Detect `FROM … AS runtime` in the sibling Dockerfile — if present,
-  # emit a dedicated `runtime` compose service that extends `devel`'s
-  # baseline (same volumes / network / caps / GPU) but with its own
-  # image tag, container_name, and non-interactive tty settings so
-  # `./run.sh -t runtime` auto-runs the Dockerfile CMD (e.g. a
-  # parameter_bridge process). Absent `AS runtime` → skip emission so
-  # repos without a runtime stage don't get a broken service entry.
-  # Issue #108.
-  local _dockerfile _has_runtime=false
+  # Auto-emit any `FROM <base> AS <stage>` outside the baseline
+  # blocklist {sys, base, devel, test} as a compose service that
+  # `extends: devel` and only overrides target / image / container_name /
+  # stdin_open / tty / profiles. Issue #215 generalized the v0.10.0
+  # `runtime`-only detection (#108) so any user-added stage gets a
+  # corresponding service automatically — e.g. NVIDIA Isaac Sim's
+  # `headless` + `gui` stages share devel's baseline (GPU / network /
+  # volumes) and differ only in ENTRYPOINT.
+  #
+  # Validation: each parsed stage runs through _validate_stage_name.
+  # Returns 1 (invalid format) → WARN + skip but keep parsing.
+  # Returns 2 (baseline collision) / 3 (reserved tag namespace) →
+  # caller exits non-zero so user fixes the Dockerfile before retry.
+  # Per-stage diff (different volumes / GPU / network than devel) is
+  # out of scope v1; declare via Dockerfile ARG + conditional RUN.
+  local _dockerfile
   _dockerfile="$(dirname -- "${_out}")/Dockerfile"
-  if [[ -f "${_dockerfile}" ]] \
-     && grep -qE '^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+runtime[[:space:]]*$' "${_dockerfile}"; then
-    _has_runtime=true
-  fi
+  local -a _emit_stages=()
+  local _stage _vrc
+  while IFS= read -r _stage; do
+    [[ -z "${_stage}" ]] && continue
+    _vrc=0
+    _validate_stage_name "${_stage}" || _vrc=$?
+    case "${_vrc}" in
+      0) _emit_stages+=("${_stage}") ;;
+      1) printf '[setup] WARN: %s: %q\n' "$(_setup_msg stage_invalid_format)" "${_stage}" >&2 ;;
+      2) printf '[setup] ERROR: %s: %q\n' "$(_setup_msg stage_baseline_collision)" "${_stage}" >&2; return 1 ;;
+      3) printf '[setup] ERROR: %s: %q\n' "$(_setup_msg stage_reserved_tag)" "${_stage}" >&2; return 1 ;;
+    esac
+  done < <(_parse_dockerfile_stages "${_dockerfile}")
 
   # Convert space-separated caps to YAML array form [a, b, c]
   local -a _caps_arr=()
@@ -1105,34 +1242,46 @@ YAML
 YAML
     fi
 
-    # runtime service (when Dockerfile has `AS runtime`): extends devel's
-    # baseline (volumes, network, GPU, capabilities), overrides target +
-    # image + container_name, disables tty/stdin_open since runtime is
-    # auto-run headless (Dockerfile CMD drives). profiles: [runtime]
-    # keeps plain `compose up` scoped to devel; `compose run runtime` or
-    # `compose up runtime` still works because explicit-service targeting
-    # bypasses the profile gate.
-    if [[ "${_has_runtime}" == true ]]; then
+    # Auto-emit a service per non-baseline stage parsed from the
+    # Dockerfile (#215). Each service:
+    #   - extends `devel` (compose merges network / ipc / privileged /
+    #     cap_add / volumes / environment / deploy.resources / runtime)
+    #   - overrides build.target so docker builds the right stage
+    #   - tags `image:` and `container_name:` per stage so multiple
+    #     stages coexist locally without clobbering devel's `:devel`
+    #   - disables stdin_open / tty: stages are typically headless
+    #     entrypoints (e.g. `headless` runs runheadless.sh, `runtime`
+    #     runs CMD-driven daemons). Interactive debug uses
+    #     `./exec.sh -t <stage>` after `./run.sh -t <stage>`.
+    #   - profiles: [<stage>] keeps plain `docker compose up` scoped to
+    #     devel; explicit `compose up <stage>` or `./run.sh -t <stage>`
+    #     bypasses the profile gate.
+    #
+    # `runtime` is no longer special-cased (#108) — it falls through
+    # this loop like any other non-baseline stage, preserving its
+    # behavior since `runtime` is not in the baseline blocklist.
+    local _emit_stage
+    for _emit_stage in "${_emit_stages[@]}"; do
       cat <<YAML
 
-  runtime:
+  ${_emit_stage}:
     extends:
       service: devel
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
+      target: ${_emit_stage}
 YAML
       _emit_additional_contexts_block
       cat <<YAML
-    image: \${DOCKER_HUB_USER:-local}/${_name}:runtime
-    container_name: ${_name}-runtime\${INSTANCE_SUFFIX:-}
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
+    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
-      - runtime
+      - ${_emit_stage}
 YAML
-    fi
+    done
 
     cat <<YAML
 
@@ -1216,6 +1365,7 @@ write_env() {
   local _gpu_caps="${1}"; shift
   local _gui_detected="${1}"; shift
   local _conf_hash="${1}"; shift
+  local _dockerfile_hash="${1}"; shift
   local _network_name="${1:-}"; shift || true
   local _user_build_args="${1:-}"; shift || true
   local _target_arch="${1:-}"; shift || true
@@ -1257,6 +1407,7 @@ GPU_CAPABILITIES="${_gpu_caps}"
 
 # ── Setup metadata (drift detection — do not edit) ──
 SETUP_CONF_HASH=${_conf_hash}
+SETUP_DOCKERFILE_HASH=${_dockerfile_hash}
 SETUP_GUI_DETECTED=${_gui_detected}
 SETUP_TIMESTAMP=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')
 EOF
@@ -1316,27 +1467,31 @@ _check_setup_drift() {
   [[ -f "${_env_file}" ]] || return 0
 
   # Read stored values from .env without polluting caller's env
-  local _stored_hash="" _stored_gui="" _stored_gpu="" _stored_uid=""
-  _stored_hash="$(grep -oP '^SETUP_CONF_HASH=\K.*'    "${_env_file}" 2>/dev/null || true)"
-  _stored_gui="$( grep -oP '^SETUP_GUI_DETECTED=\K.*' "${_env_file}" 2>/dev/null || true)"
-  _stored_gpu="$( grep -oP '^GPU_ENABLED=\K.*'        "${_env_file}" 2>/dev/null || true)"
-  _stored_uid="$( grep -oP '^USER_UID=\K.*'           "${_env_file}" 2>/dev/null || true)"
+  local _stored_hash="" _stored_df_hash="" _stored_gui="" _stored_gpu="" _stored_uid=""
+  _stored_hash="$(   grep -oP '^SETUP_CONF_HASH=\K.*'       "${_env_file}" 2>/dev/null || true)"
+  _stored_df_hash="$(grep -oP '^SETUP_DOCKERFILE_HASH=\K.*' "${_env_file}" 2>/dev/null || true)"
+  _stored_gui="$(    grep -oP '^SETUP_GUI_DETECTED=\K.*'    "${_env_file}" 2>/dev/null || true)"
+  _stored_gpu="$(    grep -oP '^GPU_ENABLED=\K.*'           "${_env_file}" 2>/dev/null || true)"
+  _stored_uid="$(    grep -oP '^USER_UID=\K.*'              "${_env_file}" 2>/dev/null || true)"
 
-  local _now_hash="" _now_gui="" _now_gpu=""
-  _compute_conf_hash "${_base}" _now_hash
+  local _now_hash="" _now_df_hash="" _now_gui="" _now_gpu=""
+  _compute_conf_hash       "${_base}" _now_hash
+  _compute_dockerfile_hash "${_base}" _now_df_hash
   detect_gui _now_gui
   detect_gpu _now_gpu
   local _now_uid=""
   _now_uid="$(id -u)"
 
   local -a _drift=()
-  [[ -n "${_stored_hash}" && "${_now_hash}" != "${_stored_hash}" ]] \
+  [[ -n "${_stored_hash}"    && "${_now_hash}"    != "${_stored_hash}"    ]] \
     && _drift+=("setup.conf modified since last setup")
-  [[ -n "${_stored_gpu}"  && "${_now_gpu}"  != "${_stored_gpu}"  ]] \
+  [[ -n "${_stored_df_hash}" && "${_now_df_hash}" != "${_stored_df_hash}" ]] \
+    && _drift+=("Dockerfile stage list changed since last setup (added/removed FROM ... AS <stage>)")
+  [[ -n "${_stored_gpu}"     && "${_now_gpu}"     != "${_stored_gpu}"     ]] \
     && _drift+=("GPU detection changed: ${_stored_gpu} → ${_now_gpu}")
-  [[ -n "${_stored_gui}"  && "${_now_gui}"  != "${_stored_gui}"  ]] \
+  [[ -n "${_stored_gui}"     && "${_now_gui}"     != "${_stored_gui}"     ]] \
     && _drift+=("GUI detection changed: ${_stored_gui} → ${_now_gui}")
-  [[ -n "${_stored_uid}"  && "${_now_uid}"  != "${_stored_uid}"  ]] \
+  [[ -n "${_stored_uid}"     && "${_now_uid}"     != "${_stored_uid}"     ]] \
     && _drift+=("USER_UID changed: ${_stored_uid} → ${_now_uid}")
 
   if (( ${#_drift[@]} > 0 )); then
@@ -2554,9 +2709,14 @@ _setup_apply() {
   _resolve_gpu "${gpu_mode}" "${gpu_detected}" gpu_enabled_eff
   _resolve_gui "${gui_mode}" "${gui_detected}" gui_enabled_eff
 
-  # ── Compute hash for drift detection ──
+  # ── Compute hashes for drift detection ──
   local conf_hash=""
   _compute_conf_hash "${_base_path}" conf_hash
+  # Dockerfile hash covers the stage-list projection only — adds /
+  # removes / renames an `^FROM ... AS <stage>` line, but unrelated
+  # `RUN apt-get install` edits do not trigger compose regen.
+  local dockerfile_hash=""
+  _compute_dockerfile_hash "${_base_path}" dockerfile_hash
 
   # Join user-added build args (newline-separated) for write_env.
   local _user_build_args_str=""
@@ -2572,7 +2732,7 @@ _setup_apply() {
     "${apt_mirror_ubuntu}" "${apt_mirror_debian}" "${tz}" \
     "${net_mode}" "${ipc_mode}" "${privileged}" \
     "${gpu_count}" "${gpu_caps}" \
-    "${gui_detected}" "${conf_hash}" \
+    "${gui_detected}" "${conf_hash}" "${dockerfile_hash}" \
     "${network_name}" \
     "${_user_build_args_str}" \
     "${target_arch}" \
@@ -2581,6 +2741,10 @@ _setup_apply() {
   local runtime_resolved=""
   _resolve_runtime "${runtime_mode}" runtime_resolved
 
+  # Propagate generate_compose_yaml's exit explicitly: when sourced
+  # (no `set -e`) a hard-error return from the stage validator (#215
+  # baseline collision / reserved-tag) would otherwise be swallowed
+  # and apply would print "updated" with a half-written compose.yaml.
   generate_compose_yaml "${_base_path}/compose.yaml" "${image_name}" \
     "${gui_enabled_eff}" "${gpu_enabled_eff}" \
     "${gpu_count}" "${gpu_caps}" \
@@ -2594,7 +2758,8 @@ _setup_apply() {
     "${target_arch}" \
     "${build_network}" \
     "${runtime_resolved}" \
-    "${_additional_contexts_str}"
+    "${_additional_contexts_str}" \
+    || return $?
 
   printf "[setup] %s\n" "$(_setup_msg env_done)"
   printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \

@@ -157,6 +157,49 @@ flowchart LR
   <repo>:devel` 後會看到的內容。
 - `Dockerfile.test-tools` 建置 lint/test 工具集（bats + shellcheck + hadolint）。下游 `test` 階段透過 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 預設 `test-tools:local`（對應本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 建到 host Docker daemon）。CI 則覆寫成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的預建 multi-arch image）,buildx 直接從 registry 拉對應架構的 bats / shellcheck / hadolint binary,避開 `docker-container` buildx driver 跨 step 不共享 image store 的問題。
 
+#### 新增額外 stage（#215）
+
+任何在 baseline blocklist `{sys, base, devel, test}` 之外的
+`FROM <base> AS <stage>`，會被自動 emit 成一個 compose 服務 —
+`extends: devel`（繼承 volumes / network / GPU / GUI / cap_add /
+additional_contexts），只 override `build.target` / `image` /
+`container_name` / `stdin_open` / `tty` / `profiles`。典型用例是
+entrypoint 變體，如 NVIDIA Isaac Sim 在 `devel` 之上的
+`headless` + `gui` 兩種啟動模式。
+
+User 操作流程：
+
+```dockerfile
+# Dockerfile 加新 stage（不用動 setup.conf）
+FROM devel AS headless
+ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+CMD ["-v"]
+
+FROM devel AS gui
+ENTRYPOINT ["/isaac-sim/runapp.sh"]
+```
+
+```bash
+./build.sh                    # 重新產 compose.yaml，build 所有 stages
+./run.sh -t headless          # 跑 headless 變體
+./run.sh -t gui               # 跑 gui 變體
+./exec.sh -t headless bash    # 進入 running 的 headless container
+```
+
+限制：
+
+- Stage 名必須符合 `^[a-z][a-z0-9_-]*$` — 大寫 / 數字開頭 / 點號
+  等會被拒（WARN + 跳過，其他 stage 繼續解析）。
+- 撞到 baseline（`sys` / `base` / `devel` / `test`）`setup.sh apply`
+  hard error 退出 1。撞到 template 控制的 image tag namespace
+  （`latest`、`v[0-9]*`）也是 hard error。
+- Per-stage 差異（volumes / GPU / network 跟 `devel` 不同）目前
+  out-of-scope — 改用 Dockerfile `ARG` + 條件 `RUN` 表達。每個
+  emit 出來的 stage 共用一份 `devel` baseline。
+- 加 / 移 stage 會觸發 `setup.sh check-drift`（透過 `.env` 內的
+  `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑會自動 regen
+  `compose.yaml`。其他 `RUN apt-get install` 等修改**不會**觸發 drift。
+
 ### Smoke test helpers（供下游 repo 使用）
 
 `test/smoke/test_helper.bash`（每個 smoke spec 透過
@@ -235,6 +278,19 @@ template；沒寫的 section 則吃 template 預設。
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env` 尚未存在，
   例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶 `--setup`
+
+> **Fresh-clone lint 覆蓋率（#216）**：`./run.sh` 在本機沒 image
+> cached 時會走 Compose auto-build — 但 auto-build **只 build
+> `target: devel`**（或 `-t` 指定的 target），會跳過 `target: test`
+> 那層的 ShellCheck / Hadolint / Bats smoke。`run.sh` 偵測到這個情況
+> 會在 `compose up` 前印一段 `[run] INFO:` 提醒（只在 TTY 環境）。
+> 想要一次取得跟 CI 同樣的完整驗證，加 `--build` flag：
+>
+> ```bash
+> ./build.sh test           # 顯式跑 lint + smoke
+> ./run.sh --build          # 跑完 lint + smoke 再 compose up
+> ./run.sh                  # 預設 — 快速路徑，跳過 lint/smoke
+> ```
 
 `setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手動調過

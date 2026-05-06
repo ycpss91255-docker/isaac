@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.17.0] - 2026-05-06
+
+Minor release bundling two `setup.sh` / `run.sh` feature additions plus
+two UX polish items. Notable behavior change: `setup.sh`'s hardcoded
+`runtime` detection from v0.10.0 (#108) is removed in favor of a
+generalized stage auto-emit path (#215). `runtime` still works (it's
+not in the new baseline blocklist), but the implementation surface is
+different, hence the minor bump.
+
+The 17 existing downstream repos have no `FROM ... AS <name>` stages
+beyond the baseline `{sys, base, devel, test}` (plus the optional
+`runtime` for `app/ros1_bridge`), so this release is no-op for their
+runtime behavior — `make upgrade` just refreshes the template subtree
+and the workflow `@tag` refs. New repos seeded by `/new-repo` after
+this tag pick up the auto-emit + `--build` UX automatically.
+
 ### Added
+- **Auto-emit any non-baseline Dockerfile stage as a compose service** (#215, generalizes #108). `setup.sh` now parses every `FROM ... AS <stage>` line in the user's Dockerfile and, for any stage outside the baseline blocklist `{sys, base, devel, test}`, emits a corresponding compose service that `extends: devel` (inherits volumes / network / GPU / GUI / cap_add / additional_contexts) and overrides only `build.target` / `image` / `container_name` / `stdin_open` / `tty` / `profiles`. Use case: NVIDIA Isaac Sim's `headless` + `gui` entrypoint variants on top of `devel`. User flow: edit Dockerfile to add `FROM devel AS headless ENTRYPOINT [...]`, run any wrapper, then `./run.sh -t headless`. No `setup.conf` change required — Dockerfile is the single source of truth.
+  - **Stage name validator** (`_validate_stage_name`): rejects baseline collision (`sys` / `base` / `devel` / `test` → hard error, exit 1) and reserved image-tag namespace (`latest`, `v[0-9]*` → hard error). Invalid format (uppercase, leading digit, etc.) is WARN + skip with the rest of the parse continuing. 3 new 4-language i18n keys (`stage_invalid_format` / `stage_baseline_collision` / `stage_reserved_tag`).
+  - **Dockerfile drift hash** (`SETUP_DOCKERFILE_HASH` in `.env`): hashes just the stage-list projection (`^FROM ... AS <stage>` lines), so adding / removing a stage triggers `setup.sh check-drift` exit 1 (regenerate compose.yaml), but unrelated `RUN apt-get install` edits do not. Stored separately from `SETUP_CONF_HASH` so drift logs identify which source-of-truth changed.
+  - **`runtime` stage no longer special-cased**: the v0.10.0 hardcoded `^FROM ... AS runtime$` detection (#108) is removed. `runtime` falls through the same auto-emit path as any other non-baseline stage (it's not in the blocklist), preserving its behavior with no regressions for repos that rely on it.
+- **`run.sh` soft guard + `--build` opt-in for fresh-clone lint/smoke parity** (#216). On a fresh clone with no image cached locally, `./run.sh` previously fell through to Compose's auto-build, which only walks `target: devel` (or whatever `-t` says) and silently bypasses the `target: test` stage where ShellCheck / Hadolint / Bats smoke run. New contributors who reach for `./run.sh` first landed in a working dev container without ever hitting any of the lint/smoke gates that `./build.sh test` enforces — until CI failed downstream. Two changes:
+  - **Default behavior — soft guard**: when the image is absent locally AND stderr is a terminal, print a 3-line `[run] INFO:` block before invoking `compose up` so the user knows the auto-build will skip lint/smoke and learns about `./build.sh test` / `./run.sh --build`. No behavior change. Suppressed when stderr is not a TTY (CI / cron / piped invocations stay clean). The image inspect is parameterized on `${TARGET}` so `./run.sh -t headless` checks `${IMAGE_NAME}:headless`, not `:devel` — important under #215 auto-emitted stages. New 4-language i18n keys (`auto_build_image_missing` / `auto_build_skips_lint` / `auto_build_full_hint`).
+  - **Opt-in `--build` flag**: invokes `./build.sh test` (full lint + smoke chain) before `compose up`, ordered after `check-drift` so the build runs against freshly-regenerated `.env` / `compose.yaml`. For users who want one-command bootstrap with full local-CI parity. New `pre_build_invoking` i18n key.
+  - **Option 4 (default fallback to `./build.sh test`) explicitly rejected** — would silently turn fresh-clone first-run from a few seconds into multiple minutes; that breaks user expectations more than the gap it fixes.
 - **`build.sh` / `run.sh` config summary now prints a `Variables` block** mapping `setup.conf` `[volumes]` placeholders (`${USER_NAME}` / `${USER_UID}` / `${USER_GROUP}` / `${USER_GID}` / `${WS_PATH}`) to their detected runtime values. Pre-fix the Identity block showed resolved values under translated labels (`使用者 : alice` / `工作區 : /home/alice/work`), while the `setup.conf` dump printed the raw `${USER_NAME}` / `${WS_PATH}` placeholders, leaving the user to derive the substitution table. The new block sits between Identity and `setup.conf` in `_print_config_summary` and gives an explicit one-line-per-variable map. setup.conf stays the source of truth (placeholder form unchanged); the block adds 5 more lines to the printout. Coverage: 2 new unit tests in `lib_spec.bats` (populated case + unset-fallback case) and a new `variables` i18n key (en / zh-TW / zh-CN / ja).
+
+### Documentation
+- **`doc/test/TEST.md` cleanup**: removed 7 stale rows referencing tests that no longer exist (all referencing the obsolete `template/VERSION` / `.template_version` migration completed in v0.16) and renamed 5 rows whose underlying test was renamed (e.g. `_create_symlinks: produces all five docker-script symlinks` → `…all seven docker-script symlinks`, `_detect_template_version: reads VERSION file when present` → `…reads .version file when present`). Added a 27-test `## Smoke Tests` section documenting `test/smoke/script_help.bats` (16) and `test/smoke/display_env.bats` (11), which run at Dockerfile `test`-stage build time and are intentionally excluded from the headline self-test count. Headline now carries an explicit note clarifying scope. No code change.
+
+### Tests
+- Total: **969 tests** (915 unit + 54 integration). 34 new tests landed since v0.16.2 — 26 in `setup_spec.bats` (4 validator + 6 parser + 5 hash + 11 emit-loop integration for #215) and 8 in `run_sh_spec.bats` (#216 soft guard + `--build`).
 
 ## [v0.16.2] - 2026-05-04
 
