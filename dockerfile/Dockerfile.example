@@ -15,6 +15,17 @@
 #   devel   - Application-specific tools + entrypoint
 #   test    - Lint + smoke test (ephemeral, discarded after build)
 #   runtime - Minimal runtime image (optional)
+#
+# Adding extra stages (#215): any `FROM <base> AS <stage>` outside the
+# baseline blocklist {sys, base, devel, test} is auto-emitted as a
+# compose service that extends `devel` (inherits volumes / network /
+# GPU / GUI / cap_add / additional_contexts) and overrides only
+# build.target / image / container_name / stdin_open / tty / profiles.
+# Stage names must match `^[a-z][a-z0-9_-]*$` and must not collide
+# with `latest` / `v[0-9]*` (reserved release tag namespace). Use case:
+# entrypoint variants like `headless` + `gui` for the same baseline.
+# No setup.conf change needed; run any wrapper to regenerate
+# compose.yaml, then `./run.sh -t <stage>`.
 
 ARG BASE_IMAGE="ubuntu:24.04"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
