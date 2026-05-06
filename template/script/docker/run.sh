@@ -186,6 +186,19 @@ _devel_cleanup() {
 }
 
 main() {
+  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
+  # runs in the requested locale even when --help is the first arg.
+  # See build.sh's main() for the full rationale (#222).
+  local _i
+  for (( _i=1; _i<=$#; _i++ )); do
+    if [[ "${!_i}" == "--lang" ]]; then
+      local _next=$((_i+1))
+      _LANG="${!_next:-}"
+      _sanitize_lang _LANG "run"
+      break
+    fi
+  done
+
   local RUN_SETUP=false
   local DETACH=false
   local PRE_BUILD=false

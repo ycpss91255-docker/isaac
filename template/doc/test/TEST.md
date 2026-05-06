@@ -1,13 +1,13 @@
 # TEST.md
 
-Template self-tests: **1011 tests** total (957 unit + 54 integration).
+Template self-tests: **1012 tests** total (958 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
-> what runs in the `Self Test` CI job. The 27 shared smoke tests under
+> what runs in the `Self Test` CI job. The 36 shared smoke tests under
 > `test/smoke/` are a separate suite that runs at Dockerfile `test`-stage
 > build time (via `./build.sh test`) inside both this repo and every
 > downstream repo, and are documented in [Smoke Tests](#smoke-tests)
-> below. They are **not** included in the 969 figure because they are
+> below. They are **not** included in the 1011 figure because they are
 > build-time assertions, not self-tests.
 
 ## Test Files
@@ -45,7 +45,7 @@ Template self-tests: **1011 tests** total (957 unit + 54 integration).
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
 
-### test/unit/setup_spec.bats (259)
+### test/unit/setup_spec.bats (260)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -756,12 +756,15 @@ so the shared specs and any per-repo `test/smoke/` overlay execute
 together. `display_env.bats` self-skips on headless repos by detecting
 the absence of GUI lines in the generated `compose.yaml`.
 
-### test/smoke/script_help.bats (16)
+### test/smoke/script_help.bats (25)
 
 Locks the `-h` / `--help` invariants on the four wrapper scripts
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
 auto-detection rules in `build.sh` (`LANG=zh_TW.UTF-8` → zh, `ja_JP`
-→ ja, `en_US` → en, `SETUP_LANG` overrides `LANG`).
+→ ja, `en_US` → en, `SETUP_LANG` overrides `LANG`) plus #222
+`--help` / `--lang` order independence (pre-pass scans for `--lang`
+before main parse so `<script> --help --lang zh-TW` produces zh-TW
+usage, not English).
 
 | Test | Description |
 |------|-------------|

@@ -1533,7 +1533,12 @@ YAML
       local _has_overrides=0
       (( ${#_so_filtered_keys[@]} > 0 )) && _has_overrides=1
 
-      cat <<YAML
+      # Zero-diff path: stage with NO overrides keeps the minimal
+      # extends:devel shape from #215. Critical for the 17 existing
+      # downstream repos (no [stage:*] sections → byte-for-byte
+      # identical compose.yaml output to pre-#220).
+      if (( ! _has_overrides )); then
+        cat <<YAML
 
   ${_emit_stage}:
     extends:
@@ -1543,8 +1548,8 @@ YAML
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
-      _emit_additional_contexts_block
-      cat <<YAML
+        _emit_additional_contexts_block
+        cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
     container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
@@ -1552,13 +1557,6 @@ YAML
     profiles:
       - ${_emit_stage}
 YAML
-
-      # Zero-diff path: when stage has no overrides, the minimal block
-      # above is sufficient — compose extends inherits everything from
-      # devel. Skip the override-emit logic entirely. Critical for the
-      # 17 existing downstream repos (no [stage:*] sections → byte-for-
-      # byte identical compose.yaml output to pre-#220).
-      if (( ! _has_overrides )); then
         continue
       fi
 
@@ -1598,55 +1596,116 @@ YAML
       _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
       _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
 
-      # Did the stage's gui resolution differ from devel's? Both
-      # environment + volumes blocks must be re-emitted explicitly when
-      # gui differs (X11 env vars + X11 mounts are GUI-conditional in
-      # devel, and compose extends's child-replaces-list semantics
-      # require us to emit the full effective list here).
-      local _gui_diff=0
-      [[ "${_eff_gui}" != "${_gui}" ]] && _gui_diff=1
-      local _has_env_overrides=0 _has_volume_overrides=0 _has_port_overrides=0
-      [[ "${_eff_environment}" != "${_env_str}" ]] && _has_env_overrides=1
-      [[ "${_eff_volumes}" != "${_top_volumes_str}" ]] && _has_volume_overrides=1
-      [[ "${_eff_ports}" != "${_ports_str}" ]] && _has_port_overrides=1
+      # ── Standalone emit (#220 v0.18.1 fix) ──────────────────────────
+      #
+      # Stages with overrides drop `extends: devel` and emit a full
+      # service block. Reason: compose `extends` MERGES list fields
+      # (volumes / environment / ports / cap_add / deploy.devices) by
+      # appending child entries to parent's, not replacing them. So a
+      # stage that wants `gui.mode = off` cannot suppress devel's X11
+      # mount / DISPLAY env via extends — they merge back in. The Isaac
+      # Sim headless validation (#220 comment 2026-05-06) confirmed
+      # this. Standalone emit sidesteps the merge entirely: every list
+      # the stage touches contains exactly the resolved set of entries.
+      #
+      # Top-level fields not yet in the per-stage allowlist (`cap_add` /
+      # `cap_drop` / `security_opt` / `devices` / `cgroup_rules` /
+      # `tmpfs`) are re-emitted from the enclosing scope's top-level
+      # values so the stage still inherits those by default.
+      #
+      # Cost: a stage with even a single scalar override now produces
+      # ~150 lines of compose.yaml instead of ~10. compose.yaml is
+      # auto-generated, so the verbosity is fine; correctness wins.
 
-      # Scalar overrides — emit only when they differ from parent
-      # (i.e. would otherwise inherit the same value via extends).
+      cat <<YAML
+
+  ${_emit_stage}:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${_emit_stage}
+YAML
+      _emit_additional_contexts_block
+      _emit_build_network_line
+      cat <<YAML
+      args:
+        APT_MIRROR_UBUNTU: \${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: \${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: \${TZ:-Asia/Taipei}
+        USER_NAME: \${USER_NAME}
+        USER_GROUP: \${USER_GROUP}
+        USER_UID: \${USER_UID}
+        USER_GID: \${USER_GID}
+YAML
+      _emit_target_arch_line
+      _emit_user_build_args
+      cat <<YAML
+    image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
+    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - ${_emit_stage}
+YAML
+      # privileged: literal when stage overrides; else env-var ref
+      # (same shape devel emits — .env's PRIVILEGED applies).
       if [[ -n "${_eff_privileged}" ]]; then
         echo "    privileged: ${_eff_privileged}"
+      else
+        echo "    privileged: \${PRIVILEGED}"
       fi
+      # ipc: literal when stage overrides; else env-var ref.
       if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
         echo "    ipc: ${_eff_ipc_mode}"
+      else
+        echo "    ipc: \${IPC_MODE}"
       fi
-      # network_mode override: when stage flips bridge<->host, compose
-      # extends won't merge `networks:` and `network_mode:` cleanly, so
-      # we always emit network_mode for clarity. networks: is only
-      # re-emitted under bridge with a network_name set.
-      if [[ "${_eff_net_mode}" != "${_net_mode}" ]] || \
-         [[ "${_eff_net_name}" != "${_net_name}" ]]; then
-        if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
-          cat <<YAML
-    networks:
-      - ${_eff_net_name}
-YAML
-        else
-          echo "    network_mode: ${_eff_net_mode}"
-        fi
-      fi
-      # runtime override: only when explicitly set (empty/auto/off
-      # = no runtime line, mirroring devel's _emit_runtime_line).
-      if [[ "${_eff_runtime}" != "${_runtime}" ]] && \
-         [[ -n "${_eff_runtime}" ]] && \
+      # runtime: only when explicitly set non-empty / non-auto / non-off.
+      if [[ -n "${_eff_runtime}" ]] && \
          [[ "${_eff_runtime}" != "off" ]] && \
          [[ "${_eff_runtime}" != "auto" ]]; then
         echo "    runtime: ${_eff_runtime}"
       fi
-
-      # environment block: emit when GUI status differs OR env list
-      # differs. compose extends replaces parent's full list with this
-      # one, so we re-emit the GUI baseline (when stage's gui = true)
-      # plus the resolved env list.
-      if (( _gui_diff || _has_env_overrides )); then
+      # cap_add / cap_drop / security_opt — re-emit from top-level
+      # (not yet in per-stage allowlist; v2 may revisit).
+      if [[ -n "${_cap_add_str}" ]]; then
+        echo "    cap_add:"
+        local _sa_cap
+        while IFS= read -r _sa_cap; do
+          [[ -z "${_sa_cap}" ]] && continue
+          echo "      - ${_sa_cap}"
+        done <<< "${_cap_add_str}"
+      fi
+      if [[ -n "${_cap_drop_str}" ]]; then
+        echo "    cap_drop:"
+        local _sa_cd
+        while IFS= read -r _sa_cd; do
+          [[ -z "${_sa_cd}" ]] && continue
+          echo "      - ${_sa_cd}"
+        done <<< "${_cap_drop_str}"
+      fi
+      if [[ -n "${_sec_opt_str}" ]]; then
+        echo "    security_opt:"
+        local _sa_so
+        while IFS= read -r _sa_so; do
+          [[ -z "${_sa_so}" ]] && continue
+          echo "      - ${_sa_so}"
+        done <<< "${_sec_opt_str}"
+      fi
+      # network: literal mode + optional named network. When stage
+      # didn't override mode, fall back to env-var ref (matches devel).
+      if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
+        cat <<YAML
+    networks:
+      - ${_eff_net_name}
+YAML
+      elif [[ "${_eff_net_mode}" != "${_net_mode}" ]]; then
+        echo "    network_mode: ${_eff_net_mode}"
+      else
+        echo "    network_mode: \${NETWORK_MODE}"
+      fi
+      # environment: GUI baseline (effective gui) + effective env list.
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]]; then
         echo "    environment:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -1664,25 +1723,17 @@ YAML
           done <<< "${_eff_environment}"
         fi
       fi
-
-      # ports block: only meaningful under bridge mode. Emit when the
-      # stage flips the resolved port list. ports under host mode is
-      # silently a no-op for compose, so we still emit if the user
-      # asked for one (for clarity / future-proofing).
-      if [[ "${_eff_net_mode}" == "bridge" ]] && \
-         (( _has_port_overrides )) && [[ -n "${_eff_ports}" ]]; then
+      # ports: only under bridge mode (compose ignores it under host).
+      if [[ -n "${_eff_ports}" ]] && [[ "${_eff_net_mode}" == "bridge" ]]; then
         echo "    ports:"
-        local _p
-        while IFS= read -r _p; do
-          [[ -z "${_p}" ]] && continue
-          echo "      - \"${_p}\""
+        local _sp
+        while IFS= read -r _sp; do
+          [[ -z "${_sp}" ]] && continue
+          echo "      - \"${_sp}\""
         done <<< "${_eff_ports}"
       fi
-
-      # volumes block: emit when GUI status differs OR mount list
-      # differs. Same compose-extends list-replacement reasoning as
-      # environment above.
-      if (( _gui_diff || _has_volume_overrides )); then
+      # volumes: GUI baseline (effective gui) + effective volume list.
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]]; then
         echo "    volumes:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -1699,18 +1750,39 @@ YAML
           done <<< "${_eff_volumes}"
         fi
       fi
-
-      # deploy / GPU block: emit when gpu enabled status differs OR
-      # count/capabilities differ. v1 limitation: turning GPU off when
-      # devel has it on is not cleanly representable via compose
-      # extends (no way to "remove" parent's deploy block). For now,
-      # gpu disabled at stage means we just don't emit the block;
-      # compose extends will inherit devel's. Document as known
-      # limitation; revisit in v2 if a real use case surfaces.
-      if [[ "${_eff_gpu}" == "true" ]] && \
-         { [[ "${_eff_gpu}" != "${_gpu}" ]] || \
-           [[ "${_eff_gpu_count}" != "${_gpu_count}" ]] || \
-           [[ "${_eff_gpu_caps}" != "${_gpu_caps}" ]]; }; then
+      # devices: + cgroup_rules: from top-level (not yet per-stage).
+      if [[ -n "${_devices_str}" ]]; then
+        echo "    devices:"
+        local _sd
+        while IFS= read -r _sd; do
+          [[ -z "${_sd}" ]] && continue
+          echo "      - ${_sd}"
+        done <<< "${_devices_str}"
+      fi
+      if [[ -n "${_cgroup_rule_str}" ]]; then
+        echo "    device_cgroup_rules:"
+        local _scr
+        while IFS= read -r _scr; do
+          [[ -z "${_scr}" ]] && continue
+          echo "      - \"${_scr}\""
+        done <<< "${_cgroup_rule_str}"
+      fi
+      # tmpfs: from top-level.
+      if [[ -n "${_tmpfs_str}" ]]; then
+        echo "    tmpfs:"
+        local _stf
+        while IFS= read -r _stf; do
+          [[ -z "${_stf}" ]] && continue
+          echo "      - ${_stf}"
+        done <<< "${_tmpfs_str}"
+      fi
+      # shm_size: depends on effective ipc (only emitted under
+      # non-host ipc, mirroring devel).
+      if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
+        echo "    shm_size: ${_shm_size}"
+      fi
+      # deploy / GPU block: emit when effective gpu is enabled.
+      if [[ "${_eff_gpu}" == "true" ]]; then
         local -a _eff_caps_arr=()
         read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
         local _eff_caps_yaml="["
