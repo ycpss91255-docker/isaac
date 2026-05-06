@@ -1,0 +1,8 @@
+# managed by template (do not remove)
+.env
+.env.bak
+compose.yaml
+setup.conf.bak
+setup.conf.local
+coverage/
+.Dockerfile.generated
