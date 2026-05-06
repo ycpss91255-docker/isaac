@@ -1,0 +1,1 @@
+template/script/docker/setup.sh
