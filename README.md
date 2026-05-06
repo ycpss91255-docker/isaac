@@ -204,13 +204,62 @@ Constraints:
 - Names colliding with the baseline (`sys` / `base` / `devel` / `test`)
   are a hard error from `setup.sh apply`. So are names colliding with
   the template-controlled image-tag namespace (`latest`, `v[0-9]*`).
-- Per-stage diff (different volumes / GPU / network than `devel`) is
-  out of scope — declare via Dockerfile `ARG` + conditional `RUN`
-  instead. The `extends` baseline is the same for every emitted stage.
 - Adding / removing a stage triggers `setup.sh check-drift` (via
   `SETUP_DOCKERFILE_HASH` in `.env`), so wrappers auto-regenerate
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
   install` edits do **not** trigger drift.
+
+#### Per-stage `setup.conf` overrides (#220)
+
+Stages auto-emitted by #215 share devel's runtime config (volumes /
+GPU / network / GUI) by default. When a stage needs different runtime
+settings — e.g. NVIDIA Isaac Sim's `headless` running a WebRTC
+livestream wants `network=bridge` + a port mapping + `gui=off`, while
+`devel` and `gui` keep `network=host` + X11 — add a `[stage:<name>]`
+section to your repo's `setup.conf`:
+
+```ini
+[gui]
+mode = auto
+
+[network]
+mode = host
+
+[stage:headless]
+gui.mode = off
+network.mode = bridge
+network.port_1 = 8080:80
+deploy.gpu_capabilities = gpu compute utility graphics video
+```
+
+Use `./setup_tui.sh` → Advanced → "Per-stage overrides" for an
+interactive editor; the entry only appears when your Dockerfile has at
+least one non-baseline stage.
+
+Allowlist (v1 — keys that can be overridden per-stage):
+
+| Section | Keys |
+|---|---|
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[gui]` | `mode` |
+| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[security]` | `privileged` |
+| `[volumes]` | `mount_<N>`, `mount_inherit` |
+| `[environment]` | `env_<N>`, `env_inherit` |
+
+List fields (`mount_*` / `port_*` / `env_*`) follow **append-default**:
+the stage's items are appended to top-level entries. To replace
+top-level entirely, set `<list>_inherit = false` (e.g.
+`volumes.mount_inherit = false`).
+
+Notes:
+
+- `[stage:devel]` is **reserved** (v1 no-op + WARN). Edit top-level
+  sections to tune devel. Revisit in v2.
+- `[stage:sys|base|test]` is a **hard error** (baseline collision).
+- `[stage:foo]` referencing a stage absent from the Dockerfile is
+  **WARN + skipped** (the rest of `setup.sh apply` continues).
+- Override keys outside the allowlist are **WARN + skipped per-key**.
 
 ### Smoke test helpers (for downstream repos)
 

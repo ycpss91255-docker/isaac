@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-stage `setup.conf` overrides for runtime knobs** (#220). `[stage:<name>]` sections in `<repo>/setup.conf` override top-level settings on a per-stage basis when a corresponding `FROM ... AS <name>` stage exists in the Dockerfile (auto-emitted via #215). Driving use case: NVIDIA Isaac Sim's three-stage shape (`devel` for interactive dev with X11, `headless` for WebRTC livestream that needs `mode=bridge` + ports + GPU `video` capability + `gui=off`, `gui` for local-display that needs `gui=auto`) — previously all three stages shared one set of runtime knobs from top-level. Allowlist (v1):
+  - `[deploy]` whole section: `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime`
+  - `[gui] mode`
+  - `[network]` whole section: `mode`, `ipc`, `network_name`, `port_<N>` + `port_inherit` meta-key
+  - `[security] privileged`
+  - `[volumes] mount_<N>` + `mount_inherit` meta-key
+  - `[environment] env_<N>` + `env_inherit` meta-key
+  - Excluded by design: `[image_name]` (image tag is one per image, not per-stage), `apt_mirror_*` (build-time, not runtime), other `[security]` keys (no driving use case yet — re-evaluate v2).
+- **Append-default + opt-out merge semantics for list fields**: stage's `mount_*` / `port_*` / `env_*` items append to top-level by default; setting `<list>_inherit = false` switches to replace mode (drop top-level entries entirely). Reverse toggle preserves the stage's own entries in `setup.conf` so flipping back to inherit doesn't lose typed values.
+- **Stage section validator**: `[stage:sys|base|test]` is hard-error (baseline collision); `[stage:devel]` is reserved (v1 no-op, WARN; revisit in v2 — devel emits via env-var refs `${NETWORK_MODE}` / `${PRIVILEGED}` / `${IPC_MODE}` so override semantics are non-trivial); `[stage:foo]` referencing a stage absent from the Dockerfile is WARN + skipped; override keys outside the v1 allowlist are WARN + skipped per-key. 2 new 4-language i18n keys (`stage_unknown_referenced`, `stage_override_key_not_allowed`) supplementing #215's existing 3 keys.
+- **TUI integration in `setup_tui.sh`**: new "Per-stage overrides" entry under the Advanced menu, **only shown when the Dockerfile has at least one non-baseline stage** — zero noise for the 17 existing downstream repos. Submenu structure: stage list (with override-count label) → per-stage section picker (gui / deploy / network / volumes / environment) → typed editors for scalars and the existing list editor for `mount_*` / `port_*` / `env_*` plus an inherit-toggle row. ~14 new TUI i18n keys × 4 languages. Menu placement / restructure (potentially promoting per-stage to main menu after user feedback) tracked separately in #221.
+- **`_tui_conf.sh` writer extended to append NEW sections**: previously `_write_setup_conf` only handled overrides for sections present in the template. The first time a user adds `[stage:headless]` via TUI Save, the section is brand new; the writer now tracks template sections separately and appends new ones (with their keys, in user-input order) at end-of-file. Reader (`_load_setup_conf_full`) already handled stage sections via generic `<section>.<key>` namespacing — no change needed there.
+- **Compose-emit integration**: `generate_compose_yaml` validates `[stage:*]` sections after Dockerfile-stage validation, then for each non-baseline stage with overrides, emits the resolved effective values as inline overrides on top of the existing `extends: devel` block. Stages with no overrides keep the byte-for-byte identical zero-diff path from v0.17.0 (#215). gui changes force `environment:` + `volumes:` re-emit (compose extends's child-replaces-list semantics drop X11 baseline cleanly). gpu mode flip-on with new caps re-emits the `deploy:` block; v1 limitation: turning gpu off when devel has it on isn't representable via compose extends and is documented as deferred to v2.
+
+### Tests
+- Total: **1011 tests** (957 unit + 54 integration). 42 new tests since v0.17.0:
+  - `setup_spec.bats` +27: 20 helper unit tests (`_parse_stage_sections` / `_load_stage_overrides` / `_validate_stage_override_key` allowlist / `_resolve_stage_scalar` / `_resolve_stage_list` append-replace + ordering + meta-key skip) + 7 compose-emit integration tests (zero-diff regression, gui.mode=off strips X11, network.mode=bridge + ports, volumes.mount_inherit=false replaces, orphan WARN, disallowed-key WARN, `[stage:sys]` hard-error).
+  - `tui_spec.bats` +5: stage round-trip via `_load_setup_conf_full` / `_write_setup_conf` (namespaced load, append new section, multi-section, full round-trip, in-place update).
+  - `tui_flow.bats` +10: `_list_dockerfile_stages_available` / `_count_stage_overrides` / `_edit_stage_gui` / `_edit_stage_scalar` / `_edit_stage_list` (inherit toggle + add).
+
 ## [v0.17.0] - 2026-05-06
 
 Minor release bundling two `setup.sh` / `run.sh` feature additions plus

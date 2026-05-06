@@ -423,9 +423,60 @@ _write_setup_conf() {
       if [[ "${__ovk}" == "${__current}."* && -z "${__emitted[${__ovk}]:-}" ]]; then
         [[ -n "${__removed[${__ovk}]+x}" ]] && continue
         printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_dst}"
+        __emitted[${__ovk}]=1
       fi
     done
   fi
+
+  # Append NEW sections — overrides whose `<section>.<key>` namespace
+  # references a section never seen in the template. Per-stage
+  # `[stage:NAME]` sections (#220) are the typical case: template's
+  # setup.conf carries no per-repo stage overrides, so the first time
+  # a user adds `[stage:headless]` via TUI Save the section is brand
+  # new and would otherwise be silently dropped here.
+  #
+  # Section-name extraction uses the `<section>.<key>` split rule
+  # established by `_load_setup_conf_full`: section name has no `.`,
+  # key may. `stage:headless.gui.mode` → section=stage:headless,
+  # key=gui.mode.
+  local -A __template_sections=()
+  local __l
+  for __l in "${__tpl_lines[@]}"; do
+    if [[ "${__l}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      __template_sections["${BASH_REMATCH[1]}"]=1
+    fi
+  done
+
+  # Walk override keys in the order the caller provided them so new
+  # sections appear in user-input order (predictable for tests + Save
+  # output diffs). Bash associative-array iteration is unspecified.
+  local -a __new_section_order=()
+  local -A __new_section_seen=()
+  local _wsc_i
+  for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
+    local __ovk_key="${_wsc_keys[_wsc_i]}"
+    local __ovk_sect="${__ovk_key%%.*}"
+    if [[ -z "${__template_sections[${__ovk_sect}]:-}" ]] \
+       && [[ -z "${__new_section_seen[${__ovk_sect}]:-}" ]]; then
+      __new_section_order+=("${__ovk_sect}")
+      __new_section_seen[${__ovk_sect}]=1
+    fi
+  done
+
+  # Emit each new section + its keys (skip emitted / removed entries
+  # so re-saves don't double-write).
+  local __ns
+  for __ns in "${__new_section_order[@]}"; do
+    printf '\n[%s]\n' "${__ns}" >> "${_dst}"
+    for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
+      local __key="${_wsc_keys[_wsc_i]}"
+      [[ "${__key}" == "${__ns}."* ]] || continue
+      [[ -n "${__emitted[${__key}]:-}" ]] && continue
+      [[ -n "${__removed[${__key}]+x}" ]] && continue
+      printf '%s = %s\n' "${__key#"${__ns}".}" "${_wsc_values[_wsc_i]}" >> "${_dst}"
+      __emitted[${__key}]=1
+    done
+  done
 }
 
 # ════════════════════════════════════════════════════════════════════
