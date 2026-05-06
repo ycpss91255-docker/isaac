@@ -61,6 +61,8 @@ _setup_msg() {
         stage_invalid_format) echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
         stage_baseline_collision) echo "Dockerfile stage 名稱與 template 內建 stage 衝突，請改名" ;;
         stage_reserved_tag) echo "Dockerfile stage 名稱使用 template 控制的 image tag namespace，請改名" ;;
+        stage_unknown_referenced) echo "setup.conf 內 [stage:...] 對應的 stage 在 Dockerfile 中不存在，已忽略該區段" ;;
+        stage_override_key_not_allowed) echo "[stage:...] 區段內含不在 per-stage 允許清單內的 key，已忽略該 key" ;;
       esac ;;
     zh-CN)
       case "${_key}" in
@@ -86,6 +88,8 @@ _setup_msg() {
         stage_invalid_format) echo "Dockerfile stage 名称格式无效，已跳过该 stage" ;;
         stage_baseline_collision) echo "Dockerfile stage 名称与 template 内建 stage 冲突，请改名" ;;
         stage_reserved_tag) echo "Dockerfile stage 名称使用 template 控制的 image tag namespace，请改名" ;;
+        stage_unknown_referenced) echo "setup.conf 内 [stage:...] 对应的 stage 在 Dockerfile 中不存在，已忽略该区段" ;;
+        stage_override_key_not_allowed) echo "[stage:...] 区段内含不在 per-stage 允许清单内的 key，已忽略该 key" ;;
       esac ;;
     ja)
       case "${_key}" in
@@ -111,6 +115,8 @@ _setup_msg() {
         stage_invalid_format) echo "Dockerfile stage 名のフォーマットが無効です。該当 stage はスキップされます" ;;
         stage_baseline_collision) echo "Dockerfile stage 名が template 管理の stage と衝突しています。改名してください" ;;
         stage_reserved_tag) echo "Dockerfile stage 名が template が管理する image tag namespace を使用しています。改名してください" ;;
+        stage_unknown_referenced) echo "setup.conf 内の [stage:...] が指す stage が Dockerfile に存在しません。該当セクションは無視されます" ;;
+        stage_override_key_not_allowed) echo "[stage:...] セクション内に per-stage 許可リスト外の key が含まれています。該当 key は無視されます" ;;
       esac ;;
     *)
       case "${_key}" in
@@ -136,6 +142,8 @@ _setup_msg() {
         stage_invalid_format) echo "invalid Dockerfile stage name format; stage skipped" ;;
         stage_baseline_collision) echo "Dockerfile stage name collides with a template-managed baseline stage; rename it" ;;
         stage_reserved_tag) echo "Dockerfile stage name uses a template-controlled image tag namespace; rename it" ;;
+        stage_unknown_referenced) echo "setup.conf [stage:...] references a stage missing from the Dockerfile; section ignored" ;;
+        stage_override_key_not_allowed) echo "[stage:...] section contains a key outside the per-stage allowlist; key ignored" ;;
       esac ;;
   esac
 }
@@ -939,6 +947,196 @@ _compute_dockerfile_hash() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Per-stage overrides (#220)
+#
+# `[stage:<name>]` sections in <repo>/setup.conf override top-level
+# settings on a per-stage basis. Only the v1 allowlist (gui.mode, the
+# whole [deploy] / [network] blocks, security.privileged, [volumes]
+# mounts, [environment] env_*) is honored — anything else is WARN'd
+# and skipped by the validator.
+#
+# List fields use append-default + opt-out semantics: stage's `mount_*`
+# / `port_*` / `env_*` items are appended to the top-level list unless
+# the matching `<list>_inherit = false` flag is set, in which case
+# only the stage's own entries survive.
+# ════════════════════════════════════════════════════════════════════
+
+# _parse_stage_sections <file> <out_array_var>
+#
+# Scans <file> for `^\[stage:NAME\]$` headers, returns NAME list in
+# file order. Stage names matching `[a-z][a-z0-9_-]*` are collected;
+# malformed names are silently skipped here (caller surfaces them
+# via _validate_stage_name). Empty / missing file → empty output.
+_parse_stage_sections() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local -n _pss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  _pss_out=()
+  [[ -f "${_file}" ]] || return 0
+  local _line
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" =~ ^\[stage:([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
+      _pss_out+=("${BASH_REMATCH[1]}")
+    fi
+  done < "${_file}"
+}
+
+# _load_stage_overrides <base_path> <stage> <keys_outvar> <values_outvar>
+#
+# Reads the `[stage:<stage>]` section from <base_path>/setup.conf into
+# parallel arrays. Stage sections only live in the per-repo file
+# (template's setup.conf doesn't carry stage overrides — it doesn't
+# know which Dockerfile stages exist downstream). Honors SETUP_CONF
+# the same way _load_setup_conf does.
+_load_stage_overrides() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
+  local -n _lso_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _lso_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
+  _lso_keys=()
+  _lso_values=()
+
+  local _conf
+  if [[ -n "${SETUP_CONF:-}" ]]; then
+    _conf="${SETUP_CONF}"
+  else
+    _conf="${_base}/setup.conf"
+  fi
+  [[ -f "${_conf}" ]] || return 0
+  _parse_ini_section "${_conf}" "stage:${_stage}" _lso_keys _lso_values
+}
+
+# _validate_stage_override_key <key>
+#
+# Returns 0 when <key> is in the v1 per-stage override allowlist,
+# 1 otherwise. Allowlist scope:
+#
+#   [deploy]      gpu_mode, gpu_count, gpu_capabilities, runtime
+#   [gui]         mode
+#   [network]     mode, ipc, network_name, port_<N>, port_inherit
+#   [security]    privileged
+#   [volumes]     mount_<N>, mount_inherit
+#   [environment] env_<N>, env_inherit
+#
+# Excluded by design (v1):
+#   [image_name] / [build] / security.cap_*/security_opt_* / [devices] /
+#   [tmpfs] / [additional_contexts] / [resources] — outside the
+#   "Isaac Sim per-stage runtime" use case driving #220. Re-evaluate in
+#   v2 once a real downstream need surfaces.
+_validate_stage_override_key() {
+  local _key="${1:?"${FUNCNAME[0]}: missing key"}"
+  case "${_key}" in
+    deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.runtime) return 0 ;;
+    gui.mode) return 0 ;;
+    network.mode|network.ipc|network.network_name) return 0 ;;
+    security.privileged) return 0 ;;
+    network.port_inherit|volumes.mount_inherit|environment.env_inherit) return 0 ;;
+  esac
+  if [[ "${_key}" =~ ^(network\.port|volumes\.mount|environment\.env)_[0-9]+$ ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# _resolve_stage_scalar <keys_var> <values_var> <key> <fallback> <out_var>
+#
+# Look up <key> in the stage's parallel arrays. If found, set <out_var>
+# to that value; otherwise set <out_var> to <fallback>. Used for
+# per-stage scalar overrides (gui.mode, network.mode, etc.) where there
+# is no merge — the stage value either replaces the top-level or
+# falls through entirely.
+_resolve_stage_scalar() {
+  local -n _rss_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
+  local -n _rss_values="${2:?"${FUNCNAME[0]}: missing values array"}"
+  local _key="${3:?"${FUNCNAME[0]}: missing key"}"
+  local _fallback="${4-}"
+  local -n _rss_out="${5:?"${FUNCNAME[0]}: missing out var"}"
+  local i
+  for (( i = 0; i < ${#_rss_keys[@]}; i++ )); do
+    if [[ "${_rss_keys[i]}" == "${_key}" ]]; then
+      _rss_out="${_rss_values[i]}"
+      return 0
+    fi
+  done
+  _rss_out="${_fallback}"
+}
+
+# _resolve_stage_list <keys_var> <values_var> <prefix> <inherit_key> \
+#                     <top_level_str> <out_var>
+#
+# Computes the effective list for a list field (volumes.mount_*,
+# network.port_*, environment.env_*) on a per-stage basis.
+#
+# Args:
+#   keys_var / values_var  Stage's parallel override arrays
+#   prefix                 Full dotted prefix e.g. "volumes.mount_"
+#                          — keys matching `<prefix>[0-9]+` are list items
+#   inherit_key            Meta-key e.g. "volumes.mount_inherit"
+#                          — value "false" switches to replace mode
+#   top_level_str          Newline-separated top-level list (the same
+#                          aggregate format setup.sh uses elsewhere)
+#   out_var                Newline-separated effective list (no
+#                          trailing newline)
+#
+# Default (inherit unspecified or anything ≠ "false"): top-level entries
+# come first, stage entries appended afterward in setup.conf order.
+# Replace mode (inherit=false): only stage entries appear; top-level
+# is dropped. The opt-out lets a stage opt out of inherited mounts
+# entirely (e.g. headless that wants no host-side ssh keys, regardless
+# of the top-level mount_2 setting).
+_resolve_stage_list() {
+  local -n _rsl_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
+  local -n _rsl_values="${2:?"${FUNCNAME[0]}: missing values array"}"
+  local _prefix="${3:?"${FUNCNAME[0]}: missing prefix"}"
+  local _inherit_key="${4:?"${FUNCNAME[0]}: missing inherit_key"}"
+  local _top="${5-}"
+  local -n _rsl_out="${6:?"${FUNCNAME[0]}: missing out var"}"
+
+  # Default to inheriting top-level. Only the literal "false" toggles
+  # replace mode — anything else (including "true", empty, malformed)
+  # keeps the safe append-default behavior.
+  local _inherit="true" i
+  for (( i = 0; i < ${#_rsl_keys[@]}; i++ )); do
+    if [[ "${_rsl_keys[i]}" == "${_inherit_key}" ]]; then
+      [[ "${_rsl_values[i]}" == "false" ]] && _inherit="false"
+      break
+    fi
+  done
+
+  # Collect stage's own list entries in setup.conf order. Match only
+  # `<prefix><digits>` so meta-keys like `mount_inherit` (which share
+  # the prefix) are not pulled in.
+  local -a _stage_entries=()
+  local _suffix
+  for (( i = 0; i < ${#_rsl_keys[@]}; i++ )); do
+    [[ "${_rsl_keys[i]}" == "${_prefix}"* ]] || continue
+    _suffix="${_rsl_keys[i]#"${_prefix}"}"
+    [[ "${_suffix}" =~ ^[0-9]+$ ]] || continue
+    _stage_entries+=("${_rsl_values[i]}")
+  done
+
+  if [[ "${_inherit}" == "true" ]]; then
+    if [[ -n "${_top}" ]] && (( ${#_stage_entries[@]} > 0 )); then
+      _rsl_out="${_top}"$'\n'"$(printf '%s\n' "${_stage_entries[@]}")"
+      _rsl_out="${_rsl_out%$'\n'}"
+    elif [[ -n "${_top}" ]]; then
+      _rsl_out="${_top}"
+    elif (( ${#_stage_entries[@]} > 0 )); then
+      _rsl_out="$(printf '%s\n' "${_stage_entries[@]}")"
+      _rsl_out="${_rsl_out%$'\n'}"
+    else
+      _rsl_out=""
+    fi
+  else
+    if (( ${#_stage_entries[@]} > 0 )); then
+      _rsl_out="$(printf '%s\n' "${_stage_entries[@]}")"
+      _rsl_out="${_rsl_out%$'\n'}"
+    else
+      _rsl_out=""
+    fi
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
 #                       <gpu_count> <gpu_caps> <extras_array_ref>
 #                       [<network_name>]
@@ -1039,8 +1237,9 @@ generate_compose_yaml() {
   # caller exits non-zero so user fixes the Dockerfile before retry.
   # Per-stage diff (different volumes / GPU / network than devel) is
   # out of scope v1; declare via Dockerfile ARG + conditional RUN.
-  local _dockerfile
-  _dockerfile="$(dirname -- "${_out}")/Dockerfile"
+  local _dockerfile _setup_base
+  _setup_base="$(dirname -- "${_out}")"
+  _dockerfile="${_setup_base}/Dockerfile"
   local -a _emit_stages=()
   local _stage _vrc
   while IFS= read -r _stage; do
@@ -1054,6 +1253,48 @@ generate_compose_yaml() {
       3) printf '[setup] ERROR: %s: %q\n' "$(_setup_msg stage_reserved_tag)" "${_stage}" >&2; return 1 ;;
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
+
+  # Per-stage overrides (#220) — validate setup.conf [stage:*] sections.
+  #
+  #   sys / base / test       → hard error (baseline collision)
+  #   latest / v[0-9]*        → hard error (reserved tag namespace)
+  #   devel                   → reserved (v1 no-op WARN)
+  #   foo (not in Dockerfile) → orphan WARN, ignored
+  #
+  # Stages with malformed names that don't match `[a-z][a-z0-9_-]*`
+  # never reach _conf_stages because _parse_stage_sections's regex
+  # already filters them; that's an acceptable v1 silent-drop since
+  # the TUI is the primary write path and validates names upfront.
+  local -a _conf_stages=()
+  _parse_stage_sections "${_setup_base}/setup.conf" _conf_stages
+  local _cs
+  for _cs in "${_conf_stages[@]}"; do
+    case "${_cs}" in
+      sys|base|test)
+        printf '[setup] ERROR: %s: [stage:%s]\n' \
+          "$(_setup_msg stage_baseline_collision)" "${_cs}" >&2
+        return 1
+        ;;
+      latest|v[0-9]*)
+        printf '[setup] ERROR: %s: [stage:%s]\n' \
+          "$(_setup_msg stage_reserved_tag)" "${_cs}" >&2
+        return 1
+        ;;
+      devel)
+        printf '[setup] WARN: [stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel.\n' >&2
+        continue
+        ;;
+    esac
+    # Orphan check: stage is referenced but Dockerfile doesn't have it.
+    local _is_emitted=0 _es
+    for _es in "${_emit_stages[@]}"; do
+      [[ "${_es}" == "${_cs}" ]] && _is_emitted=1 && break
+    done
+    if (( ! _is_emitted )); then
+      printf '[setup] WARN: %s: [stage:%s]\n' \
+        "$(_setup_msg stage_unknown_referenced)" "${_cs}" >&2
+    fi
+  done
 
   # Convert space-separated caps to YAML array form [a, b, c]
   local -a _caps_arr=()
@@ -1260,8 +1501,38 @@ YAML
     # `runtime` is no longer special-cased (#108) — it falls through
     # this loop like any other non-baseline stage, preserving its
     # behavior since `runtime` is not in the baseline blocklist.
+    # Build a snapshot of the top-level volumes list (newline-separated
+    # — same shape `_resolve_stage_list` consumes/produces). The list is
+    # what feeds into compose.yaml's volumes block before per-stage
+    # append/replace logic kicks in. _gcy_extras already excludes the
+    # GUI baseline (X11) — those are emitted separately based on
+    # effective gui resolution.
+    local _top_volumes_str=""
+    if (( ${#_gcy_extras[@]} > 0 )); then
+      _top_volumes_str="$(printf '%s\n' "${_gcy_extras[@]}")"
+      _top_volumes_str="${_top_volumes_str%$'\n'}"
+    fi
+
     local _emit_stage
     for _emit_stage in "${_emit_stages[@]}"; do
+      # Load + filter [stage:<name>] overrides for this stage.
+      local -a _so_keys=() _so_values=()
+      _load_stage_overrides "${_setup_base}" "${_emit_stage}" _so_keys _so_values
+      local -a _so_filtered_keys=() _so_filtered_values=()
+      local _ki
+      for (( _ki = 0; _ki < ${#_so_keys[@]}; _ki++ )); do
+        if _validate_stage_override_key "${_so_keys[_ki]}"; then
+          _so_filtered_keys+=("${_so_keys[_ki]}")
+          _so_filtered_values+=("${_so_values[_ki]}")
+        else
+          printf '[setup] WARN: %s: %q (stage=%s)\n' \
+            "$(_setup_msg stage_override_key_not_allowed)" \
+            "${_so_keys[_ki]}" "${_emit_stage}" >&2
+        fi
+      done
+      local _has_overrides=0
+      (( ${#_so_filtered_keys[@]} > 0 )) && _has_overrides=1
+
       cat <<YAML
 
   ${_emit_stage}:
@@ -1281,6 +1552,184 @@ YAML
     profiles:
       - ${_emit_stage}
 YAML
+
+      # Zero-diff path: when stage has no overrides, the minimal block
+      # above is sufficient — compose extends inherits everything from
+      # devel. Skip the override-emit logic entirely. Critical for the
+      # 17 existing downstream repos (no [stage:*] sections → byte-for-
+      # byte identical compose.yaml output to pre-#220).
+      if (( ! _has_overrides )); then
+        continue
+      fi
+
+      # Resolve effective per-stage values. For modes (gui / gpu),
+      # absent or "auto" inherits the parent's already-resolved boolean
+      # — we don't re-detect inside the stage. For other scalars, the
+      # parent's effective value is the fallback.
+      local _eff_gui_mode _eff_gui
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "gui.mode" "" _eff_gui_mode
+      case "${_eff_gui_mode}" in
+        off)   _eff_gui="false" ;;
+        force) _eff_gui="true" ;;
+        *)     _eff_gui="${_gui}" ;;
+      esac
+
+      local _eff_gpu_mode _eff_gpu
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_mode" "" _eff_gpu_mode
+      case "${_eff_gpu_mode}" in
+        off)   _eff_gpu="false" ;;
+        force) _eff_gpu="true" ;;
+        *)     _eff_gpu="${_gpu}" ;;
+      esac
+
+      local _eff_gpu_count _eff_gpu_caps _eff_runtime
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_count" "${_gpu_count}" _eff_gpu_count
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_runtime}" _eff_runtime
+
+      local _eff_net_mode _eff_ipc_mode _eff_net_name _eff_privileged
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.ipc" "${_ipc_mode}" _eff_ipc_mode
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.network_name" "${_net_name}" _eff_net_name
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "security.privileged" "" _eff_privileged
+
+      local _eff_volumes _eff_environment _eff_ports
+      _resolve_stage_list _so_filtered_keys _so_filtered_values "volumes.mount_" "volumes.mount_inherit" "${_top_volumes_str}" _eff_volumes
+      _resolve_stage_list _so_filtered_keys _so_filtered_values "environment.env_" "environment.env_inherit" "${_env_str}" _eff_environment
+      _resolve_stage_list _so_filtered_keys _so_filtered_values "network.port_" "network.port_inherit" "${_ports_str}" _eff_ports
+
+      # Did the stage's gui resolution differ from devel's? Both
+      # environment + volumes blocks must be re-emitted explicitly when
+      # gui differs (X11 env vars + X11 mounts are GUI-conditional in
+      # devel, and compose extends's child-replaces-list semantics
+      # require us to emit the full effective list here).
+      local _gui_diff=0
+      [[ "${_eff_gui}" != "${_gui}" ]] && _gui_diff=1
+      local _has_env_overrides=0 _has_volume_overrides=0 _has_port_overrides=0
+      [[ "${_eff_environment}" != "${_env_str}" ]] && _has_env_overrides=1
+      [[ "${_eff_volumes}" != "${_top_volumes_str}" ]] && _has_volume_overrides=1
+      [[ "${_eff_ports}" != "${_ports_str}" ]] && _has_port_overrides=1
+
+      # Scalar overrides — emit only when they differ from parent
+      # (i.e. would otherwise inherit the same value via extends).
+      if [[ -n "${_eff_privileged}" ]]; then
+        echo "    privileged: ${_eff_privileged}"
+      fi
+      if [[ "${_eff_ipc_mode}" != "${_ipc_mode}" ]]; then
+        echo "    ipc: ${_eff_ipc_mode}"
+      fi
+      # network_mode override: when stage flips bridge<->host, compose
+      # extends won't merge `networks:` and `network_mode:` cleanly, so
+      # we always emit network_mode for clarity. networks: is only
+      # re-emitted under bridge with a network_name set.
+      if [[ "${_eff_net_mode}" != "${_net_mode}" ]] || \
+         [[ "${_eff_net_name}" != "${_net_name}" ]]; then
+        if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
+          cat <<YAML
+    networks:
+      - ${_eff_net_name}
+YAML
+        else
+          echo "    network_mode: ${_eff_net_mode}"
+        fi
+      fi
+      # runtime override: only when explicitly set (empty/auto/off
+      # = no runtime line, mirroring devel's _emit_runtime_line).
+      if [[ "${_eff_runtime}" != "${_runtime}" ]] && \
+         [[ -n "${_eff_runtime}" ]] && \
+         [[ "${_eff_runtime}" != "off" ]] && \
+         [[ "${_eff_runtime}" != "auto" ]]; then
+        echo "    runtime: ${_eff_runtime}"
+      fi
+
+      # environment block: emit when GUI status differs OR env list
+      # differs. compose extends replaces parent's full list with this
+      # one, so we re-emit the GUI baseline (when stage's gui = true)
+      # plus the resolved env list.
+      if (( _gui_diff || _has_env_overrides )); then
+        echo "    environment:"
+        if [[ "${_eff_gui}" == "true" ]]; then
+          cat <<'YAML'
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+      - XAUTHORITY=${XAUTHORITY:-}
+YAML
+        fi
+        if [[ -n "${_eff_environment}" ]]; then
+          local _ev
+          while IFS= read -r _ev; do
+            [[ -z "${_ev}" ]] && continue
+            echo "      - ${_ev}"
+          done <<< "${_eff_environment}"
+        fi
+      fi
+
+      # ports block: only meaningful under bridge mode. Emit when the
+      # stage flips the resolved port list. ports under host mode is
+      # silently a no-op for compose, so we still emit if the user
+      # asked for one (for clarity / future-proofing).
+      if [[ "${_eff_net_mode}" == "bridge" ]] && \
+         (( _has_port_overrides )) && [[ -n "${_eff_ports}" ]]; then
+        echo "    ports:"
+        local _p
+        while IFS= read -r _p; do
+          [[ -z "${_p}" ]] && continue
+          echo "      - \"${_p}\""
+        done <<< "${_eff_ports}"
+      fi
+
+      # volumes block: emit when GUI status differs OR mount list
+      # differs. Same compose-extends list-replacement reasoning as
+      # environment above.
+      if (( _gui_diff || _has_volume_overrides )); then
+        echo "    volumes:"
+        if [[ "${_eff_gui}" == "true" ]]; then
+          cat <<'YAML'
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
+      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+YAML
+        fi
+        if [[ -n "${_eff_volumes}" ]]; then
+          local _m
+          while IFS= read -r _m; do
+            [[ -z "${_m}" ]] && continue
+            echo "      - ${_m}"
+          done <<< "${_eff_volumes}"
+        fi
+      fi
+
+      # deploy / GPU block: emit when gpu enabled status differs OR
+      # count/capabilities differ. v1 limitation: turning GPU off when
+      # devel has it on is not cleanly representable via compose
+      # extends (no way to "remove" parent's deploy block). For now,
+      # gpu disabled at stage means we just don't emit the block;
+      # compose extends will inherit devel's. Document as known
+      # limitation; revisit in v2 if a real use case surfaces.
+      if [[ "${_eff_gpu}" == "true" ]] && \
+         { [[ "${_eff_gpu}" != "${_gpu}" ]] || \
+           [[ "${_eff_gpu_count}" != "${_gpu_count}" ]] || \
+           [[ "${_eff_gpu_caps}" != "${_gpu_caps}" ]]; }; then
+        local -a _eff_caps_arr=()
+        read -ra _eff_caps_arr <<< "${_eff_gpu_caps}"
+        local _eff_caps_yaml="["
+        local _ef=1 _ec
+        for _ec in "${_eff_caps_arr[@]}"; do
+          if (( _ef )); then _eff_caps_yaml+="${_ec}"; _ef=0
+          else _eff_caps_yaml+=", ${_ec}"; fi
+        done
+        _eff_caps_yaml+="]"
+        cat <<YAML
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${_eff_gpu_count}
+              capabilities: ${_eff_caps_yaml}
+YAML
+      fi
     done
 
     cat <<YAML

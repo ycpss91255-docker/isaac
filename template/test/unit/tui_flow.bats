@@ -550,3 +550,128 @@ EOF
   [[ "$(ovr_get deploy.gpu_mode)" == "off" ]]
   ! ovr_get deploy.gpu_count
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Per-stage overrides UI (#220)
+# ════════════════════════════════════════════════════════════════════
+
+# Helper: stage a Dockerfile with the given non-baseline stages.
+# Returns the directory path on stdout so callers can pass it to
+# _list_dockerfile_stages_available's optional base-path arg —
+# FILE_PATH is readonly in setup_tui.sh, so tests can't override it.
+_make_dockerfile_with_stages() {
+  local _df="${BATS_TEST_TMPDIR}/Dockerfile"
+  {
+    echo 'FROM scratch AS sys'
+    echo 'FROM sys AS base'
+    echo 'FROM base AS devel'
+    local _s
+    for _s in "$@"; do
+      printf 'FROM devel AS %s\n' "${_s}"
+    done
+    echo 'FROM devel AS test'
+  } > "${_df}"
+  printf '%s' "${BATS_TEST_TMPDIR}"
+}
+
+@test "_list_dockerfile_stages_available: returns non-baseline stages in file order" {
+  local _base
+  _base="$(_make_dockerfile_with_stages headless gui web)"
+  local -a _out=()
+  _list_dockerfile_stages_available _out "${_base}"
+  [[ "${#_out[@]}" -eq 3 ]] || { echo "got ${_out[*]}"; return 1; }
+  [[ "${_out[0]}" == "headless" ]] || return 1
+  [[ "${_out[1]}" == "gui" ]] || return 1
+  [[ "${_out[2]}" == "web" ]] || return 1
+}
+
+@test "_list_dockerfile_stages_available: empty when only baseline stages" {
+  local _base
+  _base="$(_make_dockerfile_with_stages)"
+  local -a _out=()
+  _list_dockerfile_stages_available _out "${_base}"
+  [[ "${#_out[@]}" -eq 0 ]] || { echo "got ${_out[*]}"; return 1; }
+}
+
+@test "_count_stage_overrides: counts unique non-empty keys across OVR + CURRENT" {
+  _TUI_OVR_KEYS=("stage:headless.gui.mode" "stage:headless.network.mode")
+  _TUI_OVR_VALUES=("off" "bridge")
+  _TUI_CURRENT[stage:headless.volumes.mount_1]="/cache:/cache"
+  _TUI_CURRENT[stage:gui.gui.mode]="auto"
+  local _c
+  _count_stage_overrides headless _c
+  [[ "${_c}" -eq 3 ]] || { echo "expected 3, got ${_c}"; return 1; }
+  _count_stage_overrides gui _c
+  [[ "${_c}" -eq 1 ]] || { echo "expected 1, got ${_c}"; return 1; }
+  _count_stage_overrides web _c
+  [[ "${_c}" -eq 0 ]] || { echo "expected 0, got ${_c}"; return 1; }
+}
+
+@test "_count_stage_overrides: skips empty values" {
+  _TUI_OVR_KEYS=("stage:headless.gui.mode")
+  _TUI_OVR_VALUES=("")
+  local _c
+  _count_stage_overrides headless _c
+  [[ "${_c}" -eq 0 ]] || { echo "expected 0, got ${_c}"; return 1; }
+}
+
+@test "_edit_stage_gui: explicit mode write" {
+  _make_dockerfile_with_stages headless
+  queue "0|off"
+  _edit_stage_gui headless
+  [[ "$(ovr_get stage:headless.gui.mode)" == "off" ]] || {
+    echo "expected stage:headless.gui.mode=off, got: '$(ovr_get stage:headless.gui.mode || echo MISSING)'"
+    return 1
+  }
+}
+
+@test "_edit_stage_gui: __inherit clears any existing override" {
+  _make_dockerfile_with_stages headless
+  _TUI_OVR_KEYS=("stage:headless.gui.mode")
+  _TUI_OVR_VALUES=("force")
+  queue "0|__inherit"
+  _edit_stage_gui headless
+  ! ovr_get stage:headless.gui.mode
+  is_removed stage:headless.gui.mode
+}
+
+@test "_edit_stage_scalar: writes the dotted key under stage namespace" {
+  _make_dockerfile_with_stages headless
+  queue "0|bridge"
+  _edit_stage_scalar headless network.mode
+  [[ "$(ovr_get stage:headless.network.mode)" == "bridge" ]] || return 1
+}
+
+@test "_edit_stage_scalar: empty input clears (inherit)" {
+  _TUI_OVR_KEYS=("stage:headless.network.mode")
+  _TUI_OVR_VALUES=("bridge")
+  queue "0|"
+  _edit_stage_scalar headless network.mode
+  ! ovr_get stage:headless.network.mode
+}
+
+@test "_edit_stage_list: __inherit toggle flips false then back to true (clears flag)" {
+  _make_dockerfile_with_stages headless
+  # First toggle: default true → false
+  queue "0|__inherit" "0|__back"
+  _edit_stage_list headless volumes mount_ volumes.mount_inherit
+  [[ "$(ovr_get stage:headless.volumes.mount_inherit)" == "false" ]] || {
+    echo "1st toggle: expected false, got: '$(ovr_get stage:headless.volumes.mount_inherit || echo MISSING)'"
+    return 1
+  }
+  # Second toggle: false → true (which means CLEAR the override)
+  queue "0|__inherit" "0|__back"
+  _edit_stage_list headless volumes mount_ volumes.mount_inherit
+  ! ovr_get stage:headless.volumes.mount_inherit
+}
+
+@test "_edit_stage_list: add appends a list entry under the stage namespace" {
+  _make_dockerfile_with_stages headless
+  # Add → enter "/cache:/cache" → __back
+  queue "0|add" "0|/cache:/cache" "0|__back"
+  _edit_stage_list headless volumes mount_ volumes.mount_inherit
+  [[ "$(ovr_get stage:headless.volumes.mount_1)" == "/cache:/cache" ]] || {
+    echo "got: '$(ovr_get stage:headless.volumes.mount_1 || echo MISSING)'"
+    return 1
+  }
+}

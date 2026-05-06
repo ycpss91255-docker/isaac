@@ -193,12 +193,60 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 - 撞到 baseline（`sys` / `base` / `devel` / `test`）`setup.sh apply`
   hard error 退出 1。撞到 template 控制的 image tag namespace
   （`latest`、`v[0-9]*`）也是 hard error。
-- Per-stage 差异（volumes / GPU / network 跟 `devel` 不同）目前
-  out-of-scope — 改用 Dockerfile `ARG` + 条件 `RUN` 表达。每个
-  emit 出来的 stage 共享一份 `devel` baseline。
 - 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env` 内
   的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
+
+#### Per-stage `setup.conf` overrides（#220）
+
+#215 auto-emit 出的 stage 默认共用 devel 的 runtime 设置
+（volumes / GPU / network / GUI）。当某 stage 需要不同的 runtime
+设置 — 例如 NVIDIA Isaac Sim 的 `headless` 跑 WebRTC livestream
+要 `network=bridge` + 一个 port mapping + `gui=off`，但 `devel` 跟
+`gui` 维持 `network=host` + X11 — 在 repo 的 `setup.conf` 加上
+`[stage:<name>]` section：
+
+```ini
+[gui]
+mode = auto
+
+[network]
+mode = host
+
+[stage:headless]
+gui.mode = off
+network.mode = bridge
+network.port_1 = 8080:80
+deploy.gpu_capabilities = gpu compute utility graphics video
+```
+
+也可以用 `./setup_tui.sh` → Advanced → 「Per-stage overrides」走
+交互式编辑；该 entry 仅在 Dockerfile 有至少一个非 baseline stage
+时才显示。
+
+允许 override 的 key（v1）：
+
+| Section | Keys |
+|---|---|
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[gui]` | `mode` |
+| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[security]` | `privileged` |
+| `[volumes]` | `mount_<N>`, `mount_inherit` |
+| `[environment]` | `env_<N>`, `env_inherit` |
+
+List 字段（`mount_*` / `port_*` / `env_*`）采 **append-default**：
+stage 的项目附加在 top-level 之后。要完全取代 top-level，设
+`<list>_inherit = false`（例：`volumes.mount_inherit = false`）。
+
+注意事项：
+
+- `[stage:devel]` 是**保留**的 (v1 no-op + WARN)。要调 devel 直接
+  改 top-level section。v2 会重新评估。
+- `[stage:sys|base|test]` 是 **hard error**（baseline collision）。
+- `[stage:foo]` 对应的 stage 在 Dockerfile 不存在 → **WARN + 跳过**
+  （`setup.sh apply` 其他流程继续）。
+- 不在 allowlist 内的 override key → **WARN + 跳过该 key**。
 
 ### Smoke test helpers（供下游 repo 使用）
 

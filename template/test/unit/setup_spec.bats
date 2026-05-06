@@ -3081,3 +3081,462 @@ EOF
   assert_failure
   assert_output --partial "Dockerfile stage list changed"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Per-stage overrides (#220)
+#
+# `[stage:<name>]` sections in <repo>/setup.conf override top-level
+# settings on a per-stage basis when a corresponding `FROM ... AS <name>`
+# stage exists in the Dockerfile. Allowlist gates which keys can be
+# overridden; list fields (mount_*/port_*/env_*) use append-default
+# with opt-out via `<list>_inherit = false`.
+# ════════════════════════════════════════════════════════════════════
+
+# ─── _parse_stage_sections ────────────────────────────────────────
+
+@test "_parse_stage_sections: empty file → empty output" {
+  : > "${TEMP_DIR}/setup.conf"
+  local -a _stages=()
+  _parse_stage_sections "${TEMP_DIR}/setup.conf" _stages
+  [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
+}
+
+@test "_parse_stage_sections: missing file → empty output (no error)" {
+  local -a _stages=()
+  _parse_stage_sections "${TEMP_DIR}/no-such-file.conf" _stages
+  [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
+}
+
+@test "_parse_stage_sections: extracts [stage:NAME] sections in file order" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = auto
+
+[stage:headless]
+gui.mode = off
+
+[network]
+mode = host
+
+[stage:gui]
+gui.mode = auto
+
+[stage:web]
+network.mode = bridge
+EOF
+  local -a _stages=()
+  _parse_stage_sections "${TEMP_DIR}/setup.conf" _stages
+  [[ "${#_stages[@]}" -eq 3 ]] || { echo "expected 3 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
+  [[ "${_stages[0]}" == "headless" ]] || { echo "expected headless first, got ${_stages[0]}"; return 1; }
+  [[ "${_stages[1]}" == "gui" ]] || { echo "expected gui second, got ${_stages[1]}"; return 1; }
+  [[ "${_stages[2]}" == "web" ]] || { echo "expected web third, got ${_stages[2]}"; return 1; }
+}
+
+@test "_parse_stage_sections: ignores plain sections that are not [stage:...]" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = auto
+[network]
+mode = host
+[volumes]
+mount_1 = /etc/localtime:/etc/localtime
+EOF
+  local -a _stages=()
+  _parse_stage_sections "${TEMP_DIR}/setup.conf" _stages
+  [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
+}
+
+# ─── _load_stage_overrides ────────────────────────────────────────
+
+@test "_load_stage_overrides: returns the keys+values under [stage:NAME]" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = auto
+
+[stage:headless]
+gui.mode = off
+network.mode = bridge
+network.port_1 = 8080:80
+volumes.mount_1 = /tmp/cache:/cache
+
+[stage:gui]
+gui.mode = auto
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${#_keys[@]}" -eq 4 ]] || { echo "expected 4 keys, got ${#_keys[@]}: ${_keys[*]}"; return 1; }
+  [[ "${_keys[0]}" == "gui.mode" && "${_values[0]}" == "off" ]] || return 1
+  [[ "${_keys[1]}" == "network.mode" && "${_values[1]}" == "bridge" ]] || return 1
+  [[ "${_keys[2]}" == "network.port_1" && "${_values[2]}" == "8080:80" ]] || return 1
+  [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
+}
+
+@test "_load_stage_overrides: missing setup.conf → empty arrays" {
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
+  [[ "${#_keys[@]}" -eq 0 ]] || { echo "expected 0 keys, got ${#_keys[@]}: ${_keys[*]}"; return 1; }
+  [[ "${#_values[@]}" -eq 0 ]] || return 1
+}
+
+@test "_load_stage_overrides: stage absent from setup.conf → empty arrays" {
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = auto
+
+[stage:headless]
+gui.mode = off
+EOF
+  local -a _keys=() _values=()
+  _load_stage_overrides "${TEMP_DIR}" "gui" _keys _values
+  [[ "${#_keys[@]}" -eq 0 ]] || { echo "expected 0 keys for absent stage, got ${#_keys[@]}: ${_keys[*]}"; return 1; }
+}
+
+# ─── _validate_stage_override_key ──────────────────────────────────
+
+@test "_validate_stage_override_key: accepts allowlisted scalars" {
+  for _k in \
+    deploy.gpu_mode \
+    deploy.gpu_count \
+    deploy.gpu_capabilities \
+    deploy.runtime \
+    gui.mode \
+    network.mode \
+    network.ipc \
+    network.network_name \
+    security.privileged
+  do
+    run _validate_stage_override_key "${_k}"
+    assert_success
+  done
+}
+
+@test "_validate_stage_override_key: accepts list-item keys with numeric suffix" {
+  for _k in \
+    network.port_1 \
+    network.port_2 \
+    network.port_99 \
+    volumes.mount_1 \
+    volumes.mount_42 \
+    environment.env_1 \
+    environment.env_7
+  do
+    run _validate_stage_override_key "${_k}"
+    assert_success
+  done
+}
+
+@test "_validate_stage_override_key: accepts inherit meta-keys" {
+  for _k in network.port_inherit volumes.mount_inherit environment.env_inherit; do
+    run _validate_stage_override_key "${_k}"
+    assert_success
+  done
+}
+
+@test "_validate_stage_override_key: rejects keys outside allowlist" {
+  for _k in \
+    image.rule_1 \
+    build.arg_1 \
+    build.target_arch \
+    security.cap_add_1 \
+    security.security_opt_1 \
+    devices.device_1 \
+    tmpfs.tmpfs_1 \
+    additional_contexts.context_1 \
+    foo.bar \
+    not_dotted_key
+  do
+    run _validate_stage_override_key "${_k}"
+    [[ "${status}" -ne 0 ]] || { echo "expected failure for ${_k}"; return 1; }
+  done
+}
+
+# ─── _resolve_stage_scalar ─────────────────────────────────────────
+
+@test "_resolve_stage_scalar: returns stage value when override present" {
+  local -a _keys=("gui.mode" "network.mode")
+  local -a _values=("off" "bridge")
+  local _out=""
+  _resolve_stage_scalar _keys _values "gui.mode" "auto" _out
+  [[ "${_out}" == "off" ]] || { echo "expected 'off', got '${_out}'"; return 1; }
+}
+
+@test "_resolve_stage_scalar: returns fallback when key absent" {
+  local -a _keys=("gui.mode")
+  local -a _values=("off")
+  local _out=""
+  _resolve_stage_scalar _keys _values "network.mode" "host" _out
+  [[ "${_out}" == "host" ]] || { echo "expected 'host', got '${_out}'"; return 1; }
+}
+
+@test "_resolve_stage_scalar: returns empty fallback when neither set" {
+  local -a _keys=()
+  local -a _values=()
+  local _out="initial"
+  _resolve_stage_scalar _keys _values "gui.mode" "" _out
+  [[ -z "${_out}" ]] || { echo "expected empty, got '${_out}'"; return 1; }
+}
+
+# ─── _resolve_stage_list ───────────────────────────────────────────
+
+@test "_resolve_stage_list: append-default with stage entries (inherit unset)" {
+  local -a _keys=("volumes.mount_1" "volumes.mount_2")
+  local -a _values=("/tmp/cache:/cache" "/data:/data")
+  local _top="/etc/localtime:/etc/localtime:ro"$'\n'"\${HOME}/.ssh:/home/user/.ssh:ro"
+  local _out=""
+  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  # Top-level 2 entries + stage 2 entries = 4 lines
+  local -a _lines=()
+  IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
+  [[ "${#_lines[@]}" -eq 4 ]] || { echo "expected 4 lines, got ${#_lines[@]}: ${_out}"; return 1; }
+  [[ "${_lines[0]}" == "/etc/localtime:/etc/localtime:ro" ]] || return 1
+  [[ "${_lines[2]}" == "/tmp/cache:/cache" ]] || return 1
+  [[ "${_lines[3]}" == "/data:/data" ]] || return 1
+}
+
+@test "_resolve_stage_list: replace mode (inherit=false) drops top-level" {
+  local -a _keys=("volumes.mount_inherit" "volumes.mount_1")
+  local -a _values=("false" "/only:/only")
+  local _top="/etc/localtime:/etc/localtime:ro"
+  local _out=""
+  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  [[ "${_out}" == "/only:/only" ]] || { echo "expected only stage entry, got '${_out}'"; return 1; }
+}
+
+@test "_resolve_stage_list: empty stage with inherit=true → top-level only" {
+  local -a _keys=()
+  local -a _values=()
+  local _top="/etc/localtime:/etc/localtime:ro"$'\n'"/data:/data"
+  local _out=""
+  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  [[ "${_out}" == "${_top}" ]] || { echo "expected top-level passthrough, got '${_out}'"; return 1; }
+}
+
+@test "_resolve_stage_list: empty stage with inherit=false → empty result" {
+  local -a _keys=("volumes.mount_inherit")
+  local -a _values=("false")
+  local _top="/etc/localtime:/etc/localtime:ro"
+  local _out="initial"
+  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  [[ -z "${_out}" ]] || { echo "expected empty, got '${_out}'"; return 1; }
+}
+
+@test "_resolve_stage_list: preserves stage entries in setup.conf order" {
+  # User wrote port_3 first, then port_1, then port_2 — preserve that
+  # order rather than re-sorting numerically. The on-disk order is what
+  # the user sees in setup_tui.sh and what _parse_ini_section returns.
+  local -a _keys=("network.port_3" "network.port_1" "network.port_2")
+  local -a _values=("9000:9000" "8080:80" "5000:5000")
+  local _out=""
+  _resolve_stage_list _keys _values "network.port_" "network.port_inherit" "" _out
+  local -a _lines=()
+  IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
+  [[ "${_lines[0]}" == "9000:9000" ]] || return 1
+  [[ "${_lines[1]}" == "8080:80" ]] || return 1
+  [[ "${_lines[2]}" == "5000:5000" ]] || return 1
+}
+
+@test "_resolve_stage_list: ignores keys with non-numeric suffix" {
+  # `mount_inherit` is the meta-key, not a list item — must not be
+  # collected even though it shares the `mount_` prefix.
+  local -a _keys=("volumes.mount_1" "volumes.mount_inherit" "volumes.mount_2")
+  local -a _values=("/a:/a" "false" "/b:/b")
+  local _out=""
+  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "" _out
+  # inherit=false → only stage entries
+  local -a _lines=()
+  IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
+  [[ "${#_lines[@]}" -eq 2 ]] || { echo "expected 2, got ${#_lines[@]}: ${_out}"; return 1; }
+  [[ "${_lines[0]}" == "/a:/a" ]] || return 1
+  [[ "${_lines[1]}" == "/b:/b" ]] || return 1
+}
+
+# ─── Per-stage overrides — compose.yaml emit integration (#220) ────
+
+@test "stage-override: regression — stage with NO overrides keeps extends:devel minimal block" {
+  # Zero-diff path: existing 17 downstream repos have setup.conf with
+  # no [stage:*] sections. compose.yaml output for emitted stages must
+  # match #215's extends-only shape exactly.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  # extends: devel still emitted under the headless service block
+  run grep -A 3 '^  headless:$' "${TEMP_DIR}/compose.yaml"
+  assert_output --partial "extends:"
+  assert_output --partial "service: devel"
+  # No `network_mode:`, `ports:`, `volumes:` block underneath headless
+  # (compose extends inherits all from devel — no override block emitted)
+  run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  refute_output --partial "network_mode: bridge"
+  refute_output --partial "ports:"
+  refute_output --partial "volumes:"
+  refute_output --partial "environment:"
+}
+
+@test "stage-override: gui.mode=off in [stage:headless] strips X11 env+volumes from headless" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = force
+
+[stage:headless]
+gui.mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  # headless block emits its own environment + volumes (compose
+  # extends's child-replaces-list semantics) — without DISPLAY etc.
+  # Assert explicit override block is present so compose actually drops
+  # parent's X11 entries at runtime (not just absent in source).
+  run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  assert_output --partial "environment:"
+  assert_output --partial "volumes:"
+  refute_output --partial "DISPLAY="
+  refute_output --partial "/tmp/.X11-unix"
+  # devel block (top-level gui = force) still has X11 entries
+  run bash -c "awk '/^  devel:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  assert_output --partial "DISPLAY="
+}
+
+@test "stage-override: network.mode=bridge + port_1 in [stage:headless] emits per-stage ports" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[network]
+mode = host
+
+[stage:headless]
+network.mode = bridge
+network.port_1 = 8080:80
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  # devel still on host
+  run bash -c "awk '/^  devel:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  # NETWORK_MODE is filled into .env from top-level network.mode=host
+  assert_output --partial "network_mode:"
+  # headless flips to bridge + has its own port mapping
+  run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  assert_output --partial "network_mode: bridge"
+  assert_output --partial "8080:80"
+}
+
+@test "stage-override: volumes.mount_inherit=false drops top-level mounts for that stage" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[volumes]
+mount_1 =
+mount_2 = /etc/localtime:/etc/localtime:ro
+mount_3 = /data:/data
+
+[stage:headless]
+volumes.mount_inherit = false
+volumes.mount_1 = /only:/only
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  # headless volumes block contains /only:/only and NOT /etc/localtime
+  run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  assert_output --partial "/only:/only"
+  refute_output --partial "/etc/localtime"
+}
+
+@test "stage-override: orphan [stage:foo] (no foo in Dockerfile) prints WARN, does not abort" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+
+[stage:foo]
+gui.mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
+  "
+  assert_success
+  assert_output --partial "[stage:foo]"
+  # generic phrase — uses our new i18n key
+  assert_output --partial "stage"
+}
+
+@test "stage-override: disallowed override key (image.rule_1) prints WARN and skips that key" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[stage:headless]
+gui.mode = off
+image.rule_1 = prefix:bogus_
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
+  "
+  assert_success
+  assert_output --partial "image.rule_1"
+}
+
+@test "stage-override: [stage:sys] in setup.conf is hard-error (baseline collision)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[stage:sys]
+gui.mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
+  "
+  assert_failure
+  assert_output --partial "[stage:sys]"
+}

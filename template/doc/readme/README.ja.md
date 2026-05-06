@@ -196,14 +196,64 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 - baseline（`sys` / `base` / `devel` / `test`）と衝突する場合は
   `setup.sh apply` が hard error で exit 1。template が管理する
   image tag namespace（`latest`、`v[0-9]*`）との衝突も hard error。
-- Per-stage の差分（volumes / GPU / network が `devel` と異なる）
-  は現状 out-of-scope — Dockerfile `ARG` + 条件付き `RUN` で
-  表現してください。emit される全 stage は同一の `devel` baseline
-  を共有します。
 - Stage の追加 / 削除は `setup.sh check-drift` をトリガーします
   （`.env` 内の `SETUP_DOCKERFILE_HASH` 経由）。次回 wrapper 起動
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
   などの他の編集は drift をトリガー**しません**。
+
+#### Per-stage `setup.conf` overrides（#220）
+
+#215 で auto-emit された stage はデフォルトで devel の runtime 設定
+（volumes / GPU / network / GUI）を共有します。stage ごとに異なる
+runtime 設定が必要な場合 — 例えば NVIDIA Isaac Sim の `headless`
+が WebRTC livestream で `network=bridge` + port mapping + `gui=off`
+を必要とし、`devel` と `gui` は `network=host` + X11 を維持する
+場合 — repo の `setup.conf` に `[stage:<name>]` セクションを
+追加します：
+
+```ini
+[gui]
+mode = auto
+
+[network]
+mode = host
+
+[stage:headless]
+gui.mode = off
+network.mode = bridge
+network.port_1 = 8080:80
+deploy.gpu_capabilities = gpu compute utility graphics video
+```
+
+`./setup_tui.sh` → Advanced → 「Per-stage overrides」でも対話的に
+編集できます。このメニューは Dockerfile に少なくとも 1 つの
+非 baseline stage がある場合のみ表示されます。
+
+Override 可能な key (v1)：
+
+| Section | Keys |
+|---|---|
+| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
+| `[gui]` | `mode` |
+| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[security]` | `privileged` |
+| `[volumes]` | `mount_<N>`, `mount_inherit` |
+| `[environment]` | `env_<N>`, `env_inherit` |
+
+List フィールド（`mount_*` / `port_*` / `env_*`）は **append-default**：
+stage の項目が top-level の後に追加されます。完全に top-level を
+置き換える場合は `<list>_inherit = false` を設定します
+（例：`volumes.mount_inherit = false`）。
+
+注意事項：
+
+- `[stage:devel]` は**予約済み** (v1 no-op + WARN)。devel を
+  調整する場合は top-level セクションを直接編集してください。
+  v2 で再検討します。
+- `[stage:sys|base|test]` は **hard error**（baseline collision）。
+- `[stage:foo]` で参照される stage が Dockerfile に存在しない
+  場合 → **WARN + skip**（`setup.sh apply` の他の処理は継続）。
+- allowlist 外の override key → **WARN + key 単位で skip**。
 
 ### Smoke test ヘルパー（ダウンストリーム repo 用）
 
