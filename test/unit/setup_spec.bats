@@ -3383,6 +3383,12 @@ EOF
 }
 
 @test "stage-override: gui.mode=off in [stage:headless] strips X11 env+volumes from headless" {
+  # Regression for #220 Isaac validation finding: compose `extends`
+  # MERGES list fields (not replaces), so emitting a stage's
+  # environment / volumes block on top of `extends: devel` ends up
+  # APPENDING to devel's X11 entries, not suppressing them. Fix:
+  # when a stage has any list-affecting override, drop `extends:`
+  # entirely and emit a standalone service block.
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS base
@@ -3401,17 +3407,21 @@ EOF
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
-  # headless block emits its own environment + volumes (compose
-  # extends's child-replaces-list semantics) — without DISPLAY etc.
-  # Assert explicit override block is present so compose actually drops
-  # parent's X11 entries at runtime (not just absent in source).
+  # Slice the headless service block (between its header and the
+  # next service header).
   run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
   assert_success
-  assert_output --partial "environment:"
-  assert_output --partial "volumes:"
+  # CRITICAL: NO `extends:` line — standalone emit so compose does
+  # not merge devel's X11 list back in.
+  refute_output --partial "extends:"
+  refute_output --partial "service: devel"
+  # Standalone block has its own image / container_name / target.
+  assert_output --partial "target: headless"
+  assert_output --partial ":headless"
+  # No X11 anywhere in the headless block.
   refute_output --partial "DISPLAY="
   refute_output --partial "/tmp/.X11-unix"
-  # devel block (top-level gui = force) still has X11 entries
+  # devel block (top-level gui = force) still has X11 entries.
   run bash -c "awk '/^  devel:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
   assert_success
   assert_output --partial "DISPLAY="
@@ -3471,11 +3481,57 @@ EOF
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
-  # headless volumes block contains /only:/only and NOT /etc/localtime
   run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
   assert_success
+  # CRITICAL: standalone emit (no extends) — otherwise compose merges
+  # devel's volume list (incl. /etc/localtime, /data) back in.
+  refute_output --partial "extends:"
   assert_output --partial "/only:/only"
   refute_output --partial "/etc/localtime"
+  refute_output --partial "/data:/data"
+}
+
+@test "stage-override: standalone emit re-emits cap_add + privileged inherited from devel" {
+  # When stage drops `extends: devel`, top-level fields that aren't
+  # per-stage overridable (cap_add / cap_drop / security_opt /
+  # devices / tmpfs / privileged via env-var ref) must be re-emitted
+  # in the standalone block so the stage doesn't silently lose them.
+  # This test covers the cap_add + privileged inheritance path
+  # specifically; runtime / cgroup_rules / tmpfs / devices follow
+  # the same pattern and rely on the same code path so are not
+  # separately tested here.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+FROM devel AS headless
+EOF
+  cat > "${TEMP_DIR}/setup.conf" <<'EOF'
+[gui]
+mode = force
+
+[security]
+privileged = true
+cap_add_1 = SYS_ADMIN
+cap_add_2 = NET_ADMIN
+
+[stage:headless]
+gui.mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
+  assert_success
+  refute_output --partial "extends:"
+  # cap_add list was re-emitted (top-level value, since stage didn't
+  # override it). Without extends, this MUST appear inline.
+  assert_output --partial "SYS_ADMIN"
+  assert_output --partial "NET_ADMIN"
+  # privileged still references PRIVILEGED env var (same as devel).
+  assert_output --partial "privileged:"
 }
 
 @test "stage-override: orphan [stage:foo] (no foo in Dockerfile) prints WARN, does not abort" {

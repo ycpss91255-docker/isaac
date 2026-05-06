@@ -144,6 +144,23 @@ EOF
 }
 
 main() {
+  # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
+  # runs in the requested locale even when --help is the first arg.
+  # Issue #222 — without this, `build.sh --help --lang zh-TW` falls
+  # through usage() before the main loop reaches --lang and prints
+  # the default-locale usage. The main parse loop below stays
+  # unchanged so --lang's other side-effects (validation, error on
+  # missing value) still run on the canonical path.
+  local _i
+  for (( _i=1; _i<=$#; _i++ )); do
+    if [[ "${!_i}" == "--lang" ]]; then
+      local _next=$((_i+1))
+      _LANG="${!_next:-}"
+      _sanitize_lang _LANG "build"
+      break
+    fi
+  done
+
   local RUN_SETUP=false
   local RESET_CONF=false
   local ASSUME_YES=false
