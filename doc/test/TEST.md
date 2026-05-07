@@ -19,5 +19,5 @@
 | `runtime user is host-aligned (not root, not isaac-sim default)` | Container user is the host-UID-aligned `USER_NAME`, not the image default `isaac-sim` (UID 1234) |
 | `runtime user is in isaac-sim group (can read /isaac-sim/* mode 0750)` | Group membership unlocks read/exec on Isaac Sim binaries |
 | `HOME is writable` | `${HOME}` is owned by the runtime user — required for cache / logs / Documents writes |
-| `bundled ROS 2 humble lib is readable (Isaac Sim internal libs path)` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib/librmw_fastrtps_cpp.so` present + readable through `isaac-sim` group |
-| `bundled ROS 2 humble rclpy is readable (Python 3.11 binding)` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/rclpy/rclpy` present, kit-side `import rclpy` resolves here |
+| `bundled ROS 2 humble + jazzy libs are both readable` | `librmw_fastrtps_cpp.so` present under both `humble/lib/` and `jazzy/lib/` — the image is distro-agnostic; downstream picks via `ROS_DISTRO` env (Isaac auto-defaults to jazzy on 24.04) |
+| `bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.11)` | `rclpy/` Python bindings present under both distros; kit-side `import rclpy` resolves to whichever the bridge extension activates |

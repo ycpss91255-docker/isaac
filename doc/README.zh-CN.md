@@ -50,33 +50,47 @@ Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议，*
 - `setup.conf [deploy] gpu_capabilities` 必须含 `video` — 否则 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 连得上但画面 encode 不出来 → 黑画面。当前 `setup.conf` 已加
 - Server 端确认 listener：`ss -tln | grep -E ':8011|:49100'` 应看到两个 `LISTEN`
 
-## ROS 2 bridge (bundled, Humble)
+## ROS 2 bridge（内置，distro-agnostic）
 
-Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 内建 Humble 与 Jazzy 两套 ROS 2 lib。本 image **pin 在 Humble**，与 CoreSAM 其他 stack 以及 `ros1_bridge`（Noetic ↔ Humble）保持兼容。内建 lib 用 Python 3.11 rclpy，与 kit 内嵌 interpreter 对齐。
+Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 内置 Humble 与 Jazzy 两套 ROS 2 lib，两者都是 Python 3.11 rclpy，与 kit 内嵌 interpreter 对齐。**本 image 保留 distro 选择开放** — 故意不在 `setup.conf` 写 `ROS_DISTRO` 与 `LD_LIBRARY_PATH`，让 Isaac 的 `/isaac-sim/setup_ros_env.sh` 启动时自动侦测：
+
+| Image Ubuntu | Auto distro |
+|---|---|
+| 22.04 (jammy) | humble |
+| 24.04 (noble) — 本 image | **jazzy** |
 
 `isaacsim.ros2.bridge` extension 透过预设 kit experience（`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`）自动 load，`runheadless.sh` / `runapp.sh` 不需要加 `--enable` flag。
 
-Env wiring 写在 `setup.conf [environment]`（完整列表见 CHANGELOG）：
+Env wiring 写在 `setup.conf [environment]`：
 
 | 变量 | 值 | 原因 |
 |-----|-------|-----|
-| `ROS_DISTRO` | `humble` | overrides 24.04's auto-default of jazzy from `setup_ros_env.sh` |
-| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
-| `LD_LIBRARY_PATH` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib` | bundled FastDDS / msg type support `.so` libs |
-| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable) |
 | `ROS_DOMAIN_ID` | `0` | small-team default; bump if multiple users share the host |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-> 这里必须显式设 `LD_LIBRARY_PATH`，即便 `/isaac-sim/setup_ros_env.sh` 平常会自动设：该 helper 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内。我们为了 override jazzy 预设而预先 export `ROS_DISTRO=humble`，helper 就 short-circuit 跳过 lib-path 更新。
+### Compose 启动时 override 到 humble
+
+要在 jazzy 预设上 pin 回 humble，run time 同时传两个 env var：
+
+```bash
+docker compose -p yunchien-isaac up -d \
+    -e ROS_DISTRO=humble \
+    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
+    headless
+```
+
+两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。
 
 ### 验证 cross-container DDS
 
 跑 `./run.sh -t headless -d` 并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
 
-在同一 host 另一个 terminal：
+在同一 host 另一个 terminal（预设用 jazzy — 与 image 的 auto-detect 对齐）：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
-    bash -c 'source /opt/ros/humble/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
              ros2 topic list &&
              ros2 topic echo /isaac/test --once'
 ```
@@ -86,12 +100,14 @@ docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
 反向（host → Isaac）：在 Script Editor 跑 `ros2_test_sub.py`，从相邻容器 pub：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
-    bash -c 'source /opt/ros/humble/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
              ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
 ```
 
 kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
+
+> 验证 humble-overridden Isaac instance 时把 `ros:jazzy` 换成 `ros:humble`（并 source `/opt/ros/humble/setup.bash`）— 两边 distro 必须一致，IDL hash 才能对齐。
 
 ## Cache 路径
 

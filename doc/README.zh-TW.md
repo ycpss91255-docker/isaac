@@ -50,33 +50,47 @@ Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 協定，*
 - `setup.conf [deploy] gpu_capabilities` 必須含 `video` — 沒有的話 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 連得上但畫面 encode 不出來 → 黑畫面。當前 `setup.conf` 已加
 - Server 端確認 listener：`ss -tln | grep -E ':8011|:49100'` 應看到兩個 `LISTEN`
 
-## ROS 2 bridge（內建，Humble）
+## ROS 2 bridge（內建，distro-agnostic）
 
-Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 同時內建了 Humble 與 Jazzy 兩套 ROS 2 libraries。本 image **pin 在 Humble**，與 CoreSAM stack 其他部分以及 `ros1_bridge`（Noetic ↔ Humble）保持相容。內建 lib 走 Python 3.11 rclpy，與 kit 內嵌的 interpreter 一致。
+Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 同時內建 Humble 與 Jazzy 兩套 ROS 2 libraries，皆走 Python 3.11 rclpy，與 kit 內嵌 interpreter 一致。**本 image 刻意保留 distro 選擇彈性** — `setup.conf` 不寫死 `ROS_DISTRO` 與 `LD_LIBRARY_PATH`，交由 Isaac 的 `/isaac-sim/setup_ros_env.sh` 在啟動時自動偵測：
+
+| Image Ubuntu | 自動 distro |
+|---|---|
+| 22.04 (jammy) | humble |
+| 24.04 (noble) — 本 image | **jazzy** |
 
 Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`）自動載入。`runheadless.sh` / `runapp.sh` 不需要加 `--enable` flag。
 
-Env wiring 設在 `setup.conf [environment]`（完整清單見 CHANGELOG）：
+`setup.conf [environment]` 內的 env wiring：
 
 | 變數 | 值 | 用途 |
 |------|----|------|
-| `ROS_DISTRO` | `humble` | 覆蓋 24.04 在 `setup_ros_env.sh` 預設的 jazzy |
-| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明確指定 FastDDS，不繼承 host |
-| `LD_LIBRARY_PATH` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib` | 內建 FastDDS / msg type support `.so` libs |
-| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile（跨容器 DDS reliable）|
 | `ROS_DOMAIN_ID` | `0` | 小團隊預設值；多人共用 host 時調高 |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明確指定 FastDDS，不繼承 host |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile（跨容器 DDS reliable，避開 SHM flakiness）|
 
-> 雖然 `/isaac-sim/setup_ros_env.sh` 正常情況下會自動設 `LD_LIBRARY_PATH`，但這裡仍須明確 export：該 helper 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡。我們為了覆蓋 jazzy 預設而事先 export 了 `ROS_DISTRO=humble`，導致 helper short-circuit、跳過 lib-path 更新。
+### Compose 啟動時覆蓋成 humble
+
+要從預設的 jazzy 切回 humble，啟動時兩個 env 變數一起傳：
+
+```bash
+docker compose -p yunchien-isaac up -d \
+    -e ROS_DISTRO=humble \
+    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
+    headless
+```
+
+兩者必須同時設 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡，一旦 `ROS_DISTRO` 被設，helper 就 short-circuit、跳過 `LD_LIBRARY_PATH` 的初始化。
 
 ### 驗證跨容器 DDS
 
 跑 `./run.sh -t headless -d` 並用 WebRTC client 連線後，打開 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。腳本會自動按 Play（publisher 只在 timeline 播放時才發），開始往 `/isaac/test` 發 `std_msgs/String "hello N"`。
 
-從同一台 host 的另一個 terminal：
+從同一台 host 的另一個 terminal（預設用 jazzy，與 image 自動偵測對齊）：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
-    bash -c 'source /opt/ros/humble/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
              ros2 topic list &&
              ros2 topic echo /isaac/test --once'
 ```
@@ -86,12 +100,14 @@ docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
 反向（host → Isaac）測試：在 Script Editor 跑 `ros2_test_sub.py`，從旁邊容器發訊息：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
-    bash -c 'source /opt/ros/humble/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
              ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
 ```
 
 Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
+
+> 驗證 humble-overridden 的 Isaac instance 時，把 `ros:jazzy` 換成 `ros:humble`（並 source `/opt/ros/humble/setup.bash`）— 兩端 distro 必須一致，IDL hash 才能對齊。
 
 ## Cache 路徑
 
