@@ -4,7 +4,7 @@
 
 NVIDIA Isaac Sim 5.1.0 Docker development environment, built on top of [`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template).
 
-Image scope is limited to Isaac Sim itself; ROS 2 bridges, downstream applications, and other layered tooling belong in sibling docker folders (e.g. `isaac-ros/`).
+Image scope covers Isaac Sim itself plus the env wiring needed for its bundled ROS 2 bridge to talk cross-container. Downstream application nodes (CoreSAM, AGV bring-up) and the ROS 1 / ROS 2 bridge for Noetic interop live in sibling docker folders.
 
 ## Prerequisites
 
@@ -49,6 +49,49 @@ Notes:
 - `network_mode: host` is set in `setup.conf`, so the container's listen port = host's listen port. Make sure the host firewall allows `8011/tcp` and `49100/tcp` (e.g. `sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`).
 - `gpu_capabilities` in `setup.conf [deploy]` must include `video` — without it, nvidia-container-runtime does not mount NVENC libs (`libnvidia-encode.so`, `libnvcuvid.so`), so the server connects but cannot encode frames → black screen. The current `setup.conf` already includes `video`.
 - Verify the listeners from the server: `ss -tln | grep -E ':8011|:49100'` should show both `LISTEN ... :8011` and `LISTEN ... :49100`.
+
+## ROS 2 bridge (bundled, Humble)
+
+Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`. This image **pins to Humble** so it stays compatible with the rest of the CoreSAM stack and `ros1_bridge` (Noetic ↔ Humble). The bundled libs ship Python 3.11 rclpy, matching kit's embedded interpreter.
+
+The bridge extension `isaacsim.ros2.bridge` auto-loads via the default kit experience (`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`). No `--enable` launch flag needed in `runheadless.sh` / `runapp.sh`.
+
+Env wiring is in `setup.conf [environment]` (see CHANGELOG for the full set):
+
+| Var | Value | Why |
+|-----|-------|-----|
+| `ROS_DISTRO` | `humble` | overrides 24.04's auto-default of jazzy from `setup_ros_env.sh` |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
+| `LD_LIBRARY_PATH` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib` | bundled FastDDS / msg type support `.so` libs |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable) |
+| `ROS_DOMAIN_ID` | `0` | small-team default; bump if multiple users share the host |
+
+> `LD_LIBRARY_PATH` must be set explicitly here even though `/isaac-sim/setup_ros_env.sh` would normally auto-set it: that helper wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`. Because we pre-export `ROS_DISTRO=humble` to override the jazzy default, the helper short-circuits and skips the lib-path update.
+
+### Verify cross-container DDS
+
+After `./run.sh -t headless -d` and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+
+From a separate terminal on the same host:
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
+             ros2 topic list &&
+             ros2 topic echo /isaac/test --once'
+```
+
+Expected: `/isaac/test` appears in the topic list, and `echo` prints the hello message.
+
+For the host → Isaac direction, run `ros2_test_sub.py` in Script Editor and pub from a sibling container:
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
+             ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
+```
+
+The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 ## Cache layout
 

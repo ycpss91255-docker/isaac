@@ -35,3 +35,16 @@ setup() {
 @test "HOME is writable" {
   test -w "${HOME}"
 }
+
+@test "bundled ROS 2 humble lib is readable (Isaac Sim internal libs path)" {
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/humble/lib
+  test -r /isaac-sim/exts/isaacsim.ros2.bridge/humble/lib
+  run ls /isaac-sim/exts/isaacsim.ros2.bridge/humble/lib/librmw_fastrtps_cpp.so
+  assert_success
+}
+
+@test "bundled ROS 2 humble rclpy is readable (Python 3.11 binding)" {
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/humble/rclpy
+  run ls /isaac-sim/exts/isaacsim.ros2.bridge/humble/rclpy/rclpy
+  assert_success
+}

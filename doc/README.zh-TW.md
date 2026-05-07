@@ -4,7 +4,7 @@
 
 NVIDIA Isaac Sim 5.1.0 Docker 開發環境，以 [`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template) 為基礎建立。
 
-Image scope 限定 Isaac Sim 本體；ROS 2 bridge、下游應用、其他疊加工具放在相鄰的 docker folder（例如 `isaac-ros/`）。
+Image scope 涵蓋 Isaac Sim 本體，加上其內建 ROS 2 bridge 跨容器通訊所需的 env wiring。下游 application node（CoreSAM、AGV bring-up）以及對接 Noetic 的 ROS 1 / ROS 2 bridge 放在相鄰的 docker folder。
 
 ## 前置需求
 
@@ -49,6 +49,49 @@ Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 協定，*
 - `setup.conf` 已開 `network_mode: host`，容器內 listen 的 port = host 的 port。Host 防火牆要放行 `8011/tcp` 跟 `49100/tcp`（`sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`）
 - `setup.conf [deploy] gpu_capabilities` 必須含 `video` — 沒有的話 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 連得上但畫面 encode 不出來 → 黑畫面。當前 `setup.conf` 已加
 - Server 端確認 listener：`ss -tln | grep -E ':8011|:49100'` 應看到兩個 `LISTEN`
+
+## ROS 2 bridge（內建，Humble）
+
+Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 同時內建了 Humble 與 Jazzy 兩套 ROS 2 libraries。本 image **pin 在 Humble**，與 CoreSAM stack 其他部分以及 `ros1_bridge`（Noetic ↔ Humble）保持相容。內建 lib 走 Python 3.11 rclpy，與 kit 內嵌的 interpreter 一致。
+
+Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`）自動載入。`runheadless.sh` / `runapp.sh` 不需要加 `--enable` flag。
+
+Env wiring 設在 `setup.conf [environment]`（完整清單見 CHANGELOG）：
+
+| 變數 | 值 | 用途 |
+|------|----|------|
+| `ROS_DISTRO` | `humble` | 覆蓋 24.04 在 `setup_ros_env.sh` 預設的 jazzy |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明確指定 FastDDS，不繼承 host |
+| `LD_LIBRARY_PATH` | `/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib` | 內建 FastDDS / msg type support `.so` libs |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile（跨容器 DDS reliable）|
+| `ROS_DOMAIN_ID` | `0` | 小團隊預設值；多人共用 host 時調高 |
+
+> 雖然 `/isaac-sim/setup_ros_env.sh` 正常情況下會自動設 `LD_LIBRARY_PATH`，但這裡仍須明確 export：該 helper 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡。我們為了覆蓋 jazzy 預設而事先 export 了 `ROS_DISTRO=humble`，導致 helper short-circuit、跳過 lib-path 更新。
+
+### 驗證跨容器 DDS
+
+跑 `./run.sh -t headless -d` 並用 WebRTC client 連線後，打開 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。腳本會自動按 Play（publisher 只在 timeline 播放時才發），開始往 `/isaac/test` 發 `std_msgs/String "hello N"`。
+
+從同一台 host 的另一個 terminal：
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
+             ros2 topic list &&
+             ros2 topic echo /isaac/test --once'
+```
+
+預期：topic list 出現 `/isaac/test`，`echo` 印出 hello message。
+
+反向（host → Isaac）測試：在 Script Editor 跑 `ros2_test_sub.py`，從旁邊容器發訊息：
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
+             ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
+```
+
+Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ## Cache 路徑
 
