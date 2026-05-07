@@ -21,6 +21,12 @@ jobs:
     uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.18.1
     with:
       image_name: docker
+      # Isaac Sim base image is itself the runtime (15+ GB binary tree);
+      # stripping to a separate "runtime" stage would save little while
+      # forcing duplicate /isaac-sim copies. The runtime stage in
+      # Dockerfile is intentionally commented out — disable the
+      # template's build_runtime default so CI doesn't try to target it.
+      build_runtime: false
 
   call-release:
     needs: call-docker-build

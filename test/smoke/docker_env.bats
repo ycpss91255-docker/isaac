@@ -19,3 +19,10 @@ setup() {
 @test "bash is available on PATH" {
   assert_cmd_installed bash
 }
+
+@test "fastdds.xml is baked at /isaac-sim/fastdds.xml and world-readable" {
+  assert_file_exists /isaac-sim/fastdds.xml
+  test -r /isaac-sim/fastdds.xml
+  run grep -q '<useBuiltinTransports>false</useBuiltinTransports>' /isaac-sim/fastdds.xml
+  assert_success
+}

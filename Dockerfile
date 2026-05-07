@@ -120,6 +120,12 @@ ARG CONFIG_SRC="config"
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
 
+# Fast DDS profile (UDPv4-only, no built-in transports). Per Isaac Sim
+# 5.1 official ROS 2 install guide, this is required for cross-container
+# DDS to work reliably on a shared host (--net=host). Pointed to by
+# FASTRTPS_DEFAULT_PROFILES_FILE in setup.conf [environment].
+COPY --chmod=0644 config/ros2/fastdds.xml /isaac-sim/fastdds.xml
+
 USER "${USER}"
 
 # Setup pip packages

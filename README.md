@@ -4,7 +4,7 @@
 
 NVIDIA Isaac Sim 5.1.0 Docker development environment, built on top of [`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template).
 
-Image scope is limited to Isaac Sim itself; ROS 2 bridges, downstream applications, and other layered tooling belong in sibling docker folders (e.g. `isaac-ros/`).
+Image scope covers Isaac Sim itself plus the env wiring needed for its bundled ROS 2 bridge to talk cross-container. Downstream application nodes (CoreSAM, AGV bring-up) and the ROS 1 / ROS 2 bridge for Noetic interop live in sibling docker folders.
 
 ## Prerequisites
 
@@ -49,6 +49,65 @@ Notes:
 - `network_mode: host` is set in `setup.conf`, so the container's listen port = host's listen port. Make sure the host firewall allows `8011/tcp` and `49100/tcp` (e.g. `sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`).
 - `gpu_capabilities` in `setup.conf [deploy]` must include `video` — without it, nvidia-container-runtime does not mount NVENC libs (`libnvidia-encode.so`, `libnvcuvid.so`), so the server connects but cannot encode frames → black screen. The current `setup.conf` already includes `video`.
 - Verify the listeners from the server: `ss -tln | grep -E ':8011|:49100'` should show both `LISTEN ... :8011` and `LISTEN ... :49100`.
+
+## ROS 2 bridge (bundled, distro-agnostic)
+
+Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`, both with Python 3.11 rclpy matching kit's embedded interpreter. **This image keeps the distro choice open** — `ROS_DISTRO` and `LD_LIBRARY_PATH` are deliberately not set in `setup.conf`, letting Isaac's `/isaac-sim/setup_ros_env.sh` auto-detect at startup:
+
+| Image Ubuntu | Auto distro |
+|---|---|
+| 22.04 (jammy) | humble |
+| 24.04 (noble) — this image | **jazzy** |
+
+The bridge extension `isaacsim.ros2.bridge` auto-loads via the default kit experience (`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`). No `--enable` launch flag needed in `runheadless.sh` / `runapp.sh`.
+
+Env wiring shipped in `setup.conf [environment]`:
+
+| Var | Value | Why |
+|-----|-------|-----|
+| `ROS_DOMAIN_ID` | `0` | small-team default; bump if multiple users share the host |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
+
+### Override to humble at compose run time
+
+Pin to humble against the jazzy default by passing both env vars together at run time:
+
+```bash
+docker compose -p yunchien-isaac up -d \
+    -e ROS_DISTRO=humble \
+    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
+    headless
+```
+
+Both are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`.
+
+### Verify cross-container DDS
+
+After `./run.sh -t headless -d` and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+
+From a separate terminal on the same host (using jazzy by default — match the image's auto-detect):
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
+             ros2 topic list &&
+             ros2 topic echo /isaac/test --once'
+```
+
+Expected: `/isaac/test` appears in the topic list, and `echo` prints the hello message.
+
+For the host → Isaac direction, run `ros2_test_sub.py` in Script Editor and pub from a sibling container:
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
+    bash -c 'source /opt/ros/jazzy/setup.bash &&
+             ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
+```
+
+The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
+
+> Replace `ros:jazzy` with `ros:humble` (and source `/opt/ros/humble/setup.bash`) when verifying a humble-overridden Isaac instance — distros must match across both sides for IDL hashes to align.
 
 ## Cache layout
 
