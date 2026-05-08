@@ -83,6 +83,8 @@ Env wiring 写在 `setup.conf [environment]`：
 
 要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 各跑一次。
 
+> 这两条 env_N 重复了 `humble` distro 字串 — 自然写法应该是 `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，但 `setup.sh` 目前不会在 sibling `[environment] env_N` 之间展开 `${VAR}`（template 把它们当 literal 写进 `compose.yaml` env entry，而 Docker Compose 的 `${VAR}` substitution 只读 `.env` / shell env）。upstream 已在 [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236) 追踪；修好之后第二行可收成 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`。
+
 ### 验证 cross-container DDS
 
 跑 `./run.sh -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
