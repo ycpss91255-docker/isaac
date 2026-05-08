@@ -75,15 +75,13 @@ Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_hu
 
 ```bash
 ./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` regenerates `compose.yaml` so `./run.sh` (which under the hood runs `docker compose up -d`) picks up the new env. Both vars are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Same pattern with `jazzy` substituted is the alternative path for stacks that want to ride Isaac's auto-default (LTS until 2029, native 24.04) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
+`./setup.sh add` regenerates `compose.yaml` so `./run.sh` (which under the hood runs `docker compose up -d`) picks up the new env. Order matters — `setup.sh` (template ≥ v0.20.1, [#236](https://github.com/ycpss91255-docker/template/issues/236)) expands `${ROS_DISTRO}` against earlier sibling `[environment] env_N` entries at compose-emit time, so the second line resolves to `humble/lib`. Both vars are still required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Switch to `jazzy` by changing only the first line — the `${ROS_DISTRO}` reference flows through. The jazzy alternative aligns with Isaac's auto-default on 24.04 (LTS until 2029) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
 
 To revert to distro-agnostic neutral, mirror with `./setup.sh remove environment.env "<value>"` for each.
-
-> The two env_N entries duplicate the `humble` distro string — naturally the path could be `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`, but `setup.sh` does not currently expand `${VAR}` between sibling `[environment] env_N` values (template emits them as literal `compose.yaml` env entries, and Docker Compose's `${VAR}` substitution only reads from `.env` / shell env). Tracked upstream at [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236); once fixed, the second line collapses to `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`.
 
 ### Verify cross-container DDS
 
