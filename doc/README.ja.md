@@ -69,9 +69,9 @@ bridge extension `isaacsim.ros2.bridge` はデフォルトの kit experience（`
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明示的に FastDDS 指定、host から継承しない |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4 のみの profile（コンテナ間 DDS が信頼可能、SHM の不安定さなし）|
 
-### compose 起動時に humble へ override
+### compose 起動時に humble へ pin（CoreSAM 整合）
 
-jazzy デフォルトに対して humble に固定するには、起動時に両方の env vars を一緒に渡す：
+下流のスタック（CoreSAM、`ros1_bridge` Noetic↔Humble、本 org の `*_humble` driver repos）は大半が Humble をターゲットにしている。Isaac の 24.04 jazzy 自動デフォルトを上書きするには、起動時に両方の env vars を一緒に渡す：
 
 ```bash
 docker compose -p yunchien-isaac up -d \
@@ -80,17 +80,17 @@ docker compose -p yunchien-isaac up -d \
     headless
 ```
 
-両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。
+両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。同じ pattern で `jazzy` に置き換えれば、Isaac の自動デフォルト（2029 年まで LTS、24.04 ネイティブ）に揃えるスタック向けの代替パスになる — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
 
 ### コンテナ間 DDS の検証
 
-`./run.sh -t headless -d` 後、WebRTC client で接続し、Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。スクリプトは Play を自動押下し（publisher は timeline が再生中のみ発火）、`/isaac/test` に `std_msgs/String "hello N"` を publish 開始。
+`./run.sh -t headless -d`（humble override env 付き）後、WebRTC client で接続し、Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。スクリプトは Play を自動押下し（publisher は timeline が再生中のみ発火）、`/isaac/test` に `std_msgs/String "hello N"` を publish 開始。
 
-同一 host の別 terminal で（デフォルトでは jazzy を使用 — イメージの自動検出に合わせる）：
+同一 host の別 terminal で：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic list &&
              ros2 topic echo /isaac/test --once'
 ```
@@ -100,14 +100,14 @@ docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
 host → Isaac の方向は、Script Editor で `ros2_test_sub.py` を実行し、隣接コンテナから pub：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
 ```
 
 kit terminal に `[ros2_test_sub] /host/test <- 'hello-from-host'` と出力されるはず。
 
-> humble に override した Isaac インスタンスを検証する際は `ros:jazzy` を `ros:humble` に置き換え（`/opt/ros/humble/setup.bash` を source）。IDL hash を一致させるため、両側の distro を揃える必要がある。
+> jazzy に整合した Isaac インスタンスを動かす場合は、両側を `ros:jazzy` + `/opt/ros/jazzy/setup.bash` に切り替える — IDL hash を一致させるため、両側の distro を揃える必要がある。
 
 ## Cache レイアウト
 

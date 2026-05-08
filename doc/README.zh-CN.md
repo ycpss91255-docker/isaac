@@ -69,9 +69,9 @@ Env wiring 写在 `setup.conf [environment]`：
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-### Compose 启动时 override 到 humble
+### Compose 启动时 pin 到 humble（CoreSAM 对齐）
 
-要在 jazzy 预设上 pin 回 humble，run time 同时传两个 env var：
+多数下游 stack（CoreSAM、`ros1_bridge` Noetic↔Humble、本组织 `*_humble` 系列 driver repo）都对齐 Humble。要覆盖 Isaac 在 24.04 上的 jazzy auto-default，run time 同时传两个 env var：
 
 ```bash
 docker compose -p yunchien-isaac up -d \
@@ -80,17 +80,17 @@ docker compose -p yunchien-isaac up -d \
     headless
 ```
 
-两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。
+两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。同样 pattern 把 `humble` 换成 `jazzy` 就是另一条路径，给愿意跟 Isaac auto-default 走的 stack（LTS until 2029，原生 24.04）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
 
 ### 验证 cross-container DDS
 
-跑 `./run.sh -t headless -d` 并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
+跑 `./run.sh -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
 
-在同一 host 另一个 terminal（预设用 jazzy — 与 image 的 auto-detect 对齐）：
+在同一 host 另一个 terminal：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic list &&
              ros2 topic echo /isaac/test --once'
 ```
@@ -100,14 +100,14 @@ docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
 反向（host → Isaac）：在 Script Editor 跑 `ros2_test_sub.py`，从相邻容器 pub：
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
 ```
 
 kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
-> 验证 humble-overridden Isaac instance 时把 `ros:jazzy` 换成 `ros:humble`（并 source `/opt/ros/humble/setup.bash`）— 两边 distro 必须一致，IDL hash 才能对齐。
+> 跑 jazzy-aligned Isaac instance 时把两边都换成 `ros:jazzy` + `/opt/ros/jazzy/setup.bash` — 两边 distro 必须一致，IDL hash 才能对齐。
 
 ## Cache 路径
 
