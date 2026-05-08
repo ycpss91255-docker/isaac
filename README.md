@@ -69,9 +69,9 @@ Env wiring shipped in `setup.conf [environment]`:
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-### Override to humble at compose run time
+### Pin to humble at compose run time (CoreSAM-aligned)
 
-Pin to humble against the jazzy default by passing both env vars together at run time:
+Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_humble` driver repos) target Humble. Override Isaac's 24.04 jazzy auto-default by passing both env vars together at compose run time:
 
 ```bash
 docker compose -p yunchien-isaac up -d \
@@ -80,17 +80,17 @@ docker compose -p yunchien-isaac up -d \
     headless
 ```
 
-Both are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`.
+Both are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Same pattern with `jazzy` substituted is the alternative path for stacks that want to ride Isaac's auto-default (LTS until 2029, native 24.04) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
 
 ### Verify cross-container DDS
 
-After `./run.sh -t headless -d` and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+After `./run.sh -t headless -d` (with the humble override env) and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
 
-From a separate terminal on the same host (using jazzy by default — match the image's auto-detect):
+From a separate terminal on the same host:
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic list &&
              ros2 topic echo /isaac/test --once'
 ```
@@ -100,14 +100,14 @@ Expected: `/isaac/test` appears in the topic list, and `echo` prints the hello m
 For the host → Isaac direction, run `ros2_test_sub.py` in Script Editor and pub from a sibling container:
 
 ```bash
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:jazzy \
-    bash -c 'source /opt/ros/jazzy/setup.bash &&
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \
+    bash -c 'source /opt/ros/humble/setup.bash &&
              ros2 topic pub /host/test std_msgs/String "{data: hello-from-host}" --once'
 ```
 
 The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
-> Replace `ros:jazzy` with `ros:humble` (and source `/opt/ros/humble/setup.bash`) when verifying a humble-overridden Isaac instance — distros must match across both sides for IDL hashes to align.
+> Swap both sides to `ros:jazzy` + `/opt/ros/jazzy/setup.bash` when running a jazzy-aligned Isaac instance — distros must match across both sides for IDL hashes to align.
 
 ## Cache layout
 
