@@ -69,18 +69,19 @@ bridge extension `isaacsim.ros2.bridge` はデフォルトの kit experience（`
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明示的に FastDDS 指定、host から継承しない |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4 のみの profile（コンテナ間 DDS が信頼可能、SHM の不安定さなし）|
 
-### compose 起動時に humble へ pin（CoreSAM 整合）
+### setup.conf 経由で humble へ pin（CoreSAM 整合）
 
-下流のスタック（CoreSAM、`ros1_bridge` Noetic↔Humble、本 org の `*_humble` driver repos）は大半が Humble をターゲットにしている。Isaac の 24.04 jazzy 自動デフォルトを上書きするには、起動時に両方の env vars を一緒に渡す：
+下流のスタック（CoreSAM、`ros1_bridge` Noetic↔Humble、本 org の `*_humble` driver repos）は大半が Humble をターゲットにしている。Isaac の 24.04 jazzy 自動デフォルトを上書きするには、wrapper-aligned な `./setup.sh add` flow で両方の env vars を `setup.conf [environment]` に注入してから `./run.sh` で起動：
 
 ```bash
-docker compose -p yunchien-isaac up -d \
-    -e ROS_DISTRO=humble \
-    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
-    headless
+./setup.sh add environment.env "ROS_DISTRO=humble"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./run.sh -t headless -d
 ```
 
-両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。同じ pattern で `jazzy` に置き換えれば、Isaac の自動デフォルト（2029 年まで LTS、24.04 ネイティブ）に揃えるスタック向けの代替パスになる — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
+`./setup.sh add` が `compose.yaml` を再生成し、`./run.sh`（内部で `docker compose up -d` 実行）が新しい env を pick up する。両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。同じ pattern で `jazzy` に置き換えれば、Isaac の自動デフォルト（2029 年まで LTS、24.04 ネイティブ）に揃えるスタック向けの代替パスになる — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
+
+distro-agnostic neutral に戻すには mirror で `./setup.sh remove environment.env "<value>"` を各々実行する。
 
 ### コンテナ間 DDS の検証
 
