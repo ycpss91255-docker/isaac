@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1012 tests** total (958 unit + 54 integration).
+Template self-tests: **1048 tests** total (994 unit + 54 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -121,7 +121,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 | whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
-### test/unit/tui_flow.bats (63)
+### test/unit/tui_flow.bats (94)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
@@ -147,6 +147,7 @@ target areas the issue body called out.
 | `_edit_section_deploy` (off short-circuits — only writes gpu_mode) | 1 |
 | Multi-section dispatch from main menu (network → host → save) | 1 |
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
+| Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 
 ### test/unit/build_worker_yaml_spec.bats (15)
 
@@ -237,7 +238,7 @@ Chinese / Simplified Chinese / Japanese translations of the
 no-instances message, `--all` multi-project teardown loop, and
 fallback `_detect_lang` branches.
 
-### test/unit/compose_gen_spec.bats (45)
+### test/unit/compose_gen_spec.bats (50)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -268,6 +269,11 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `runtime service appears between devel and test blocks` | ordering |
 | `runtime detection is robust against weird whitespace` | regex tolerance |
 | `runtime detection ignores non-runtime stage names` | strict match |
+| `environment env_N expands ${VAR} cross-reference to earlier sibling (refs #236)` | basic cross-ref |
+| `environment env_N forward reference is left literal (refs #236)` | order-sensitive |
+| `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
+| `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
+| `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
 
 ### test/unit/template_spec.bats (134)
 
