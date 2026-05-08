@@ -83,6 +83,8 @@ Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_hu
 
 To revert to distro-agnostic neutral, mirror with `./setup.sh remove environment.env "<value>"` for each.
 
+> The two env_N entries duplicate the `humble` distro string — naturally the path could be `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`, but `setup.sh` does not currently expand `${VAR}` between sibling `[environment] env_N` values (template emits them as literal `compose.yaml` env entries, and Docker Compose's `${VAR}` substitution only reads from `.env` / shell env). Tracked upstream at [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236); once fixed, the second line collapses to `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`.
+
 ### Verify cross-container DDS
 
 After `./run.sh -t headless -d` (with the humble override env) and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.

@@ -83,6 +83,8 @@ Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.
 
 要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 把上面兩條各自移掉。
 
+> 兩條 env_N 重複寫 `humble` distro 字串 — 自然寫法應該是 `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，但 `setup.sh` 目前不會在同層 `[environment] env_N` 值之間展開 `${VAR}`（template 把它們當 literal 寫進 `compose.yaml` env entries，而 Docker Compose 的 `${VAR}` 替換只讀 `.env` / shell env）。upstream 追蹤於 [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236)；修掉後第二條就能簡化成 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`。
+
 ### 驗證跨容器 DDS
 
 跑 `./run.sh -t headless -d`（帶 humble 覆蓋 env）並用 WebRTC client 連線後，打開 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。腳本會自動按 Play（publisher 只在 timeline 播放時才發），開始往 `/isaac/test` 發 `std_msgs/String "hello N"`。
