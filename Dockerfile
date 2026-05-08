@@ -126,6 +126,23 @@ COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
 # FASTRTPS_DEFAULT_PROFILES_FILE in setup.conf [environment].
 COPY --chmod=0644 config/ros2/fastdds.xml /isaac-sim/fastdds.xml
 
+# ROS distro is a build-time choice — set via setup.conf [build]
+# arg_N=ROS_DISTRO=<value> (default humble). Bake the value into a
+# const file consumed by the headless / gui ENTRYPOINT shim, so
+# runtime `-e ROS_DISTRO=...` flags are ignored. Rebuild (./build.sh)
+# to switch distros.
+ARG ROS_DISTRO=humble
+RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
+
+# Soft bake for devel stage (interactive shell). headless / gui stages
+# additionally run the wrapper shim below — that re-exports from
+# /etc/isaac/ros-distro at every container start, hard-baking against
+# runtime override.
+ENV ROS_DISTRO=${ROS_DISTRO} \
+    LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib
+
+COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-wrapper.sh
+
 USER "${USER}"
 
 # Setup pip packages
@@ -161,6 +178,10 @@ COPY --from=test-tools-stage /usr/local/bin/hadolint /usr/local/bin/hadolint
 COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
 COPY *.sh /lint/
+# Repo-side helpers (init_isaac_dirs.sh, isaac-ros-env-wrapper.sh, etc).
+# Lint together with root-level wrappers so any new shim added to
+# script/ is enforced from day one.
+COPY script/*.sh /lint/script/
 # Helpers sourced by the root-level scripts. Must sit next to them so
 # build.sh / run.sh / exec.sh / stop.sh / setup.sh can source _lib.sh
 # (which in turn sources i18n.sh); setup.sh also sources _tui_conf.sh.
@@ -171,7 +192,7 @@ COPY template/script/docker/_lib.sh \
      template/script/docker/i18n.sh \
      template/script/docker/_tui_conf.sh \
      /lint/
-RUN shellcheck -S warning /lint/*.sh
+RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
@@ -194,18 +215,25 @@ RUN bats /smoke_test/
 # Auto-emitted as compose service by setup.sh (template v0.17 #215).
 # `./run.sh -t headless -d` 直接拉起 Isaac Sim WebRTC streaming server，
 # 不需要 docker exec /isaac-sim/runheadless.sh。
+#
+# ENTRYPOINT goes through isaac-ros-env-wrapper.sh which re-exports
+# ROS_DISTRO + LD_LIBRARY_PATH from /etc/isaac/ros-distro (baked at
+# build time from ARG ROS_DISTRO). This makes runtime
+# `-e ROS_DISTRO=...` flags ineffective — distro is build-time only.
 FROM devel AS headless
 
-ENTRYPOINT ["/isaac-sim/runheadless.sh"]
+ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runheadless.sh"]
 CMD ["-v"]
 
 ############################## gui ##############################
 # 本機 GUI（X11 forward）— 需要 host 端 `xhost +local:docker` 已開
 # (template run.sh 自動處理) 與 DISPLAY env (template 也自動帶入)。
 # `./run.sh -t gui -d` 直接拉起 Isaac Sim 視窗版本。
+#
+# Same wrapper as headless — re-exports ROS env from baked file.
 FROM devel AS gui
 
-ENTRYPOINT ["/isaac-sim/runapp.sh"]
+ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runapp.sh"]
 CMD []
 
 ############################## runtime (optional) ##############################
