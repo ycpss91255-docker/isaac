@@ -83,6 +83,8 @@ bridge extension `isaacsim.ros2.bridge` はデフォルトの kit experience（`
 
 distro-agnostic neutral に戻すには mirror で `./setup.sh remove environment.env "<value>"` を各々実行する。
 
+> 2 つの env_N エントリは `humble` distro 文字列が重複している — 本来 path は `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` で書けるはずだが、`setup.sh` は現状 sibling の `[environment] env_N` 値間で `${VAR}` を展開しない（template はそれらを literal な `compose.yaml` env entry として出力し、Docker Compose の `${VAR}` 置換は `.env` / shell env からしか読まない）。Upstream で [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236) として追跡中；修正されれば 2 行目は `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` に縮約できる。
+
 ### コンテナ間 DDS の検証
 
 `./run.sh -t headless -d`（humble override env 付き）後、WebRTC client で接続し、Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。スクリプトは Play を自動押下し（publisher は timeline が再生中のみ発火）、`/isaac/test` に `std_msgs/String "hello N"` を publish 開始。
