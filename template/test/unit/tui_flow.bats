@@ -158,10 +158,10 @@ EOF
 }
 
 @test "_render_main_menu: navigates into _edit_section_<choice> then Save" {
-  # First menu pick = network (dispatches into _edit_section_network),
-  # which immediately consumes the next two _tui_select responses
-  # (mode + ipc) to set them. Second pop after that = __save → exit.
-  queue "0|network" "0|host" "0|host" "0|__save"
+  # Post-#221: image is now a top-level main entry. Click image →
+  # _edit_section_image opens its rule-list menu (back immediately) →
+  # main loop pops __save → exit.
+  queue "0|image" "0|back" "0|__save"
   run _render_main_menu
   assert_success
 }
@@ -674,4 +674,269 @@ _make_dockerfile_with_stages() {
     echo "got: '$(ovr_get stage:headless.volumes.mount_1 || echo MISSING)'"
     return 1
   }
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #221: Menu restructure — Runtime / Mounts / Features sub-menus
+#
+# Promotes image + build to top-level main, regroups runtime concerns
+# (network/deploy/gui/environment) under Runtime, regroups mount
+# concerns (volumes/devices/tmpfs) under Mounts, and adds a Features
+# entry that exposes conditional/power-user features even when their
+# enabling preconditions are not met (per-stage overrides being the
+# first such feature). Advanced sub-menu is slimmed to truly-advanced
+# entries: security, additional_contexts, per_stage (conditional),
+# Reset to defaults.
+# ════════════════════════════════════════════════════════════════════
+
+# i18n keys for new top-level entries
+
+@test "i18n: main.runtime key exists across all 4 languages" {
+  [[ -n "${_TUI_MSG_EN[main.runtime]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_TW[main.runtime]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_CN[main.runtime]:-}" ]]
+  [[ -n "${_TUI_MSG_JA[main.runtime]:-}" ]]
+}
+
+@test "i18n: main.mounts key exists across all 4 languages" {
+  [[ -n "${_TUI_MSG_EN[main.mounts]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_TW[main.mounts]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_CN[main.mounts]:-}" ]]
+  [[ -n "${_TUI_MSG_JA[main.mounts]:-}" ]]
+}
+
+@test "i18n: main.features key exists across all 4 languages" {
+  [[ -n "${_TUI_MSG_EN[main.features]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_TW[main.features]:-}" ]]
+  [[ -n "${_TUI_MSG_ZH_CN[main.features]:-}" ]]
+  [[ -n "${_TUI_MSG_JA[main.features]:-}" ]]
+}
+
+# New sub-menu function existence
+
+@test "_render_runtime_menu function is defined" {
+  [[ "$(type -t _render_runtime_menu)" == "function" ]]
+}
+
+@test "_render_mounts_menu function is defined" {
+  [[ "$(type -t _render_mounts_menu)" == "function" ]]
+}
+
+@test "_render_features_menu function is defined" {
+  [[ "$(type -t _render_features_menu)" == "function" ]]
+}
+
+# Main menu dispatch — image + build promoted to top level
+
+@test "_render_main_menu: image choice dispatches to _edit_section_image" {
+  local _called=0
+  _edit_section_image() { _called=1; }
+  queue "0|image" "0|__save"
+  _render_main_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_main_menu: build choice dispatches to _edit_section_build" {
+  local _called=0
+  _edit_section_build() { _called=1; }
+  queue "0|build" "0|__save"
+  _render_main_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_main_menu: runtime choice dispatches to _render_runtime_menu" {
+  local _called=0
+  _render_runtime_menu() { _called=1; }
+  queue "0|runtime" "0|__save"
+  _render_main_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_main_menu: mounts choice dispatches to _render_mounts_menu" {
+  local _called=0
+  _render_mounts_menu() { _called=1; }
+  queue "0|mounts" "0|__save"
+  _render_main_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_main_menu: features choice dispatches to _render_features_menu" {
+  local _called=0
+  _render_features_menu() { _called=1; }
+  queue "0|features" "0|__save"
+  _render_main_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_main_menu: bare network/deploy/gui/volumes/environment no longer dispatch from main" {
+  # Post-#221 these live under Runtime / Mounts sub-menus. If a stale
+  # script keys them, no editor opens (no case branch matches), and
+  # the main loop simply continues until __save / Cancel.
+  local _net=0 _gui=0 _vol=0
+  _edit_section_network() { _net=1; }
+  _edit_section_gui()     { _gui=1; }
+  _edit_section_volumes() { _vol=1; }
+  queue "0|network" "0|gui" "0|volumes" "0|__save"
+  _render_main_menu
+  [[ "${_net}" -eq 0 && "${_gui}" -eq 0 && "${_vol}" -eq 0 ]]
+}
+
+# Runtime sub-menu
+
+@test "_render_runtime_menu: __back exits with 0" {
+  queue "0|__back"
+  run _render_runtime_menu
+  assert_success
+}
+
+@test "_render_runtime_menu: Cancel (rc!=0) exits via break" {
+  queue "1|"
+  run _render_runtime_menu
+  assert_success
+}
+
+@test "_render_runtime_menu: network choice dispatches to _edit_section_network" {
+  local _called=0
+  _edit_section_network() { _called=1; }
+  queue "0|network" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_runtime_menu: deploy choice dispatches to _edit_section_deploy" {
+  local _called=0
+  _edit_section_deploy() { _called=1; }
+  queue "0|deploy" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_runtime_menu: gui choice dispatches to _edit_section_gui" {
+  local _called=0
+  _edit_section_gui() { _called=1; }
+  queue "0|gui" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_runtime_menu: environment choice dispatches to _edit_section_environment" {
+  local _called=0
+  _edit_section_environment() { _called=1; }
+  queue "0|environment" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+# Mounts sub-menu
+
+@test "_render_mounts_menu: __back exits with 0" {
+  queue "0|__back"
+  run _render_mounts_menu
+  assert_success
+}
+
+@test "_render_mounts_menu: Cancel (rc!=0) exits via break" {
+  queue "1|"
+  run _render_mounts_menu
+  assert_success
+}
+
+@test "_render_mounts_menu: volumes choice dispatches to _edit_section_volumes" {
+  local _called=0
+  _edit_section_volumes() { _called=1; }
+  queue "0|volumes" "0|__back"
+  _render_mounts_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_mounts_menu: devices choice dispatches to _edit_section_devices" {
+  local _called=0
+  _edit_section_devices() { _called=1; }
+  queue "0|devices" "0|__back"
+  _render_mounts_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_mounts_menu: tmpfs choice dispatches to _edit_section_tmpfs" {
+  local _called=0
+  _edit_section_tmpfs() { _called=1; }
+  queue "0|tmpfs" "0|__back"
+  _render_mounts_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+# Features sub-menu — conditional discoverability (#221 acceptance)
+
+@test "_render_features_menu: __back exits with 0" {
+  queue "0|__back"
+  run _render_features_menu
+  assert_success
+}
+
+@test "_render_features_menu: per_stage entry enters editor when stages exist" {
+  # When non-baseline stages are present, clicking per_stage opens
+  # _edit_section_per_stage (the existing editor — same entry point as
+  # the conditional Advanced entry).
+  local _base _called=0
+  _base="$(_make_dockerfile_with_stages headless)"
+  _edit_section_per_stage() { _called=1; }
+  queue "0|per_stage" "0|__back"
+  _render_features_menu "${_base}"
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_render_features_menu: per_stage entry shows info msgbox + does NOT enter editor when no stages" {
+  # When no non-baseline stages exist, clicking per_stage shows an
+  # explanatory msgbox + returns; editor must not be entered.
+  local _base _editor=0 _msgbox=0
+  _base="$(_make_dockerfile_with_stages)"
+  _edit_section_per_stage() { _editor=1; }
+  _tui_msgbox() { _msgbox=1; return 0; }
+  export -f _tui_msgbox
+  queue "0|per_stage" "0|__back"
+  _render_features_menu "${_base}"
+  [[ "${_editor}" -eq 0 ]]
+  [[ "${_msgbox}" -eq 1 ]]
+}
+
+# Advanced sub-menu — image/build/devices/tmpfs moved out (#221)
+
+@test "_render_advanced_menu: image entry no longer dispatches" {
+  local _called=0
+  _edit_section_image() { _called=1; }
+  queue "0|image" "0|__back"
+  _render_advanced_menu
+  [[ "${_called}" -eq 0 ]]
+}
+
+@test "_render_advanced_menu: build entry no longer dispatches" {
+  local _called=0
+  _edit_section_build() { _called=1; }
+  queue "0|build" "0|__back"
+  _render_advanced_menu
+  [[ "${_called}" -eq 0 ]]
+}
+
+@test "_render_advanced_menu: devices entry no longer dispatches" {
+  local _called=0
+  _edit_section_devices() { _called=1; }
+  queue "0|devices" "0|__back"
+  _render_advanced_menu
+  [[ "${_called}" -eq 0 ]]
+}
+
+@test "_render_advanced_menu: tmpfs entry no longer dispatches" {
+  local _called=0
+  _edit_section_tmpfs() { _called=1; }
+  queue "0|tmpfs" "0|__back"
+  _render_advanced_menu
+  [[ "${_called}" -eq 0 ]]
+}
+
+@test "_render_advanced_menu: security still dispatches" {
+  local _called=0
+  _edit_section_security() { _called=1; }
+  queue "0|security" "0|__back"
+  _render_advanced_menu
+  [[ "${_called}" -eq 1 ]]
 }

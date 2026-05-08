@@ -51,6 +51,21 @@ _TUI_MSG_EN[main.advanced]="Advanced"
 _TUI_MSG_EN[main.save]="Save & Exit"
 _TUI_MSG_EN[main.security]="privileged / cap_add / security_opt"
 _TUI_MSG_EN[main.additional_contexts]="Named build contexts (build.additional_contexts)"
+_TUI_MSG_EN[main.runtime]="Runtime (network / GPU / display / env)"
+_TUI_MSG_EN[main.mounts]="Mounts (volumes / devices / tmpfs)"
+_TUI_MSG_EN[main.features]="Features (conditional / power-user)"
+_TUI_MSG_EN[runtime.title]="Runtime"
+_TUI_MSG_EN[runtime.menu]="Select a runtime section"
+_TUI_MSG_EN[runtime.back]="Back to main menu"
+_TUI_MSG_EN[mounts.title]="Mounts"
+_TUI_MSG_EN[mounts.menu]="Select a mount section"
+_TUI_MSG_EN[mounts.back]="Back to main menu"
+_TUI_MSG_EN[features.title]="Features"
+_TUI_MSG_EN[features.menu]="Conditional / power-user features"
+_TUI_MSG_EN[features.back]="Back to main menu"
+_TUI_MSG_EN[features.per_stage_enabled]="Per-stage overrides — enabled (%s stages)"
+_TUI_MSG_EN[features.per_stage_hidden]="Per-stage overrides — hidden (no non-baseline stages)"
+_TUI_MSG_EN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nStatus: hidden\nReason: Dockerfile defines no non-baseline stage (sys, base, devel,\n        test are reserved baseline names).\n\nEnable: add `FROM ... AS <stage>` for any custom name, then return\n        to this menu — the entry will activate automatically.'
 _TUI_MSG_EN[advanced.title]="Advanced"
 _TUI_MSG_EN[advanced.menu]="Select an advanced section"
 _TUI_MSG_EN[advanced.back]="Back to main menu"
@@ -227,6 +242,21 @@ _TUI_MSG_ZH_TW[main.advanced]="進階"
 _TUI_MSG_ZH_TW[main.save]="儲存並結束"
 _TUI_MSG_ZH_TW[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_ZH_TW[main.additional_contexts]="具名 build context（build.additional_contexts）"
+_TUI_MSG_ZH_TW[main.runtime]="執行時期（網路／GPU／顯示／環境變數）"
+_TUI_MSG_ZH_TW[main.mounts]="掛載（volumes／devices／tmpfs）"
+_TUI_MSG_ZH_TW[main.features]="功能（條件式／進階使用）"
+_TUI_MSG_ZH_TW[runtime.title]="執行時期"
+_TUI_MSG_ZH_TW[runtime.menu]="選擇執行時期區段"
+_TUI_MSG_ZH_TW[runtime.back]="回主選單"
+_TUI_MSG_ZH_TW[mounts.title]="掛載"
+_TUI_MSG_ZH_TW[mounts.menu]="選擇掛載區段"
+_TUI_MSG_ZH_TW[mounts.back]="回主選單"
+_TUI_MSG_ZH_TW[features.title]="功能"
+_TUI_MSG_ZH_TW[features.menu]="條件式／進階使用功能"
+_TUI_MSG_ZH_TW[features.back]="回主選單"
+_TUI_MSG_ZH_TW[features.per_stage_enabled]="Per-stage overrides — 已啟用（%s 個 stage）"
+_TUI_MSG_ZH_TW[features.per_stage_hidden]="Per-stage overrides — 隱藏（無非 baseline stage）"
+_TUI_MSG_ZH_TW[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n狀態：隱藏\n原因：Dockerfile 沒有非 baseline stage（sys、base、devel、test\n      為保留的 baseline 名稱）。\n\n啟用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自訂\n         名稱），再回到此選單，項目會自動啟用。'
 _TUI_MSG_ZH_TW[advanced.title]="Advanced"
 _TUI_MSG_ZH_TW[advanced.menu]="選擇進階區段"
 _TUI_MSG_ZH_TW[advanced.back]="回主選單"
@@ -401,6 +431,21 @@ _TUI_MSG_ZH_CN[main.advanced]="进阶"
 _TUI_MSG_ZH_CN[main.save]="保存并退出"
 _TUI_MSG_ZH_CN[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_ZH_CN[main.additional_contexts]="具名 build context（build.additional_contexts）"
+_TUI_MSG_ZH_CN[main.runtime]="运行时（网络／GPU／显示／环境变量）"
+_TUI_MSG_ZH_CN[main.mounts]="挂载（volumes／devices／tmpfs）"
+_TUI_MSG_ZH_CN[main.features]="功能（条件式／进阶使用）"
+_TUI_MSG_ZH_CN[runtime.title]="运行时"
+_TUI_MSG_ZH_CN[runtime.menu]="选择运行时区段"
+_TUI_MSG_ZH_CN[runtime.back]="回主菜单"
+_TUI_MSG_ZH_CN[mounts.title]="挂载"
+_TUI_MSG_ZH_CN[mounts.menu]="选择挂载区段"
+_TUI_MSG_ZH_CN[mounts.back]="回主菜单"
+_TUI_MSG_ZH_CN[features.title]="功能"
+_TUI_MSG_ZH_CN[features.menu]="条件式／进阶使用功能"
+_TUI_MSG_ZH_CN[features.back]="回主菜单"
+_TUI_MSG_ZH_CN[features.per_stage_enabled]="Per-stage overrides — 已启用（%s 个 stage）"
+_TUI_MSG_ZH_CN[features.per_stage_hidden]="Per-stage overrides — 隐藏（无非 baseline stage）"
+_TUI_MSG_ZH_CN[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\n状态：隐藏\n原因：Dockerfile 没有非 baseline stage（sys、base、devel、test\n      为保留的 baseline 名称）。\n\n启用方式：在 Dockerfile 加上 `FROM ... AS <stage>`（任意自定\n         名称），再回到此菜单，项目会自动启用。'
 _TUI_MSG_ZH_CN[advanced.title]="Advanced"
 _TUI_MSG_ZH_CN[advanced.menu]="选择进阶区段"
 _TUI_MSG_ZH_CN[advanced.back]="回主菜单"
@@ -570,6 +615,21 @@ _TUI_MSG_JA[main.advanced]="詳細"
 _TUI_MSG_JA[main.save]="保存して終了"
 _TUI_MSG_JA[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_JA[main.additional_contexts]="名前付き build context（build.additional_contexts）"
+_TUI_MSG_JA[main.runtime]="ランタイム（ネットワーク／GPU／表示／環境変数）"
+_TUI_MSG_JA[main.mounts]="マウント（volumes／devices／tmpfs）"
+_TUI_MSG_JA[main.features]="機能（条件付き／上級者向け）"
+_TUI_MSG_JA[runtime.title]="ランタイム"
+_TUI_MSG_JA[runtime.menu]="ランタイムセクションを選択"
+_TUI_MSG_JA[runtime.back]="メインメニューへ戻る"
+_TUI_MSG_JA[mounts.title]="マウント"
+_TUI_MSG_JA[mounts.menu]="マウントセクションを選択"
+_TUI_MSG_JA[mounts.back]="メインメニューへ戻る"
+_TUI_MSG_JA[features.title]="機能"
+_TUI_MSG_JA[features.menu]="条件付き／上級者向け機能"
+_TUI_MSG_JA[features.back]="メインメニューへ戻る"
+_TUI_MSG_JA[features.per_stage_enabled]="Per-stage overrides — 有効（%s ステージ）"
+_TUI_MSG_JA[features.per_stage_hidden]="Per-stage overrides — 非表示（非ベースライン stage なし）"
+_TUI_MSG_JA[features.per_stage_hidden_info]=$'Per-stage overrides (#220)\n\nステータス：非表示\n理由：Dockerfile に非ベースライン stage がありません（sys、base、\n      devel、test はベースラインの予約名です）。\n\n有効化：Dockerfile に `FROM ... AS <stage>` を追加（任意のカスタム名）\n        してからこのメニューに戻ると、項目が自動的に有効になります。'
 _TUI_MSG_JA[advanced.title]="Advanced"
 _TUI_MSG_JA[advanced.menu]="Advanced セクションを選択"
 _TUI_MSG_JA[advanced.back]="メインメニューへ戻る"
@@ -1936,22 +1996,31 @@ _render_main_menu() {
   # screenshots / docs. Standardizing on a synthetic `__save` entry
   # gives identical layout regardless of backend; the small extra
   # navigation step on dialog is acceptable for the consistency win.
+  # Main menu structure (#221):
+  #   image / build           — top-level (frequently tweaked when wiring a repo)
+  #   runtime / mounts        — sub-menu groupers (lifecycle-stage groupings)
+  #   advanced                — power-user sections (security / contexts / per-stage)
+  #   features                — discoverability for conditional / power-user features
+  #   Save & Exit             — synthetic entry, see #178 note above
   while :; do
     local _choice _rc
     _choice="$(_tui_menu "$(_tui_msg title)" "$(_tui_msg main.prompt)" \
-      network     "$(_tui_msg main.network)" \
-      deploy      "$(_tui_msg main.deploy)" \
-      gui         "$(_tui_msg main.gui)" \
-      volumes     "$(_tui_msg main.volumes)" \
-      environment "$(_tui_msg main.environment)" \
-      advanced    "$(_tui_msg main.advanced)" \
-      __save      "$(_tui_msg main.save)")"
+      image     "$(_tui_msg main.image)" \
+      build     "$(_tui_msg main.build)" \
+      runtime   "$(_tui_msg main.runtime)" \
+      mounts    "$(_tui_msg main.mounts)" \
+      advanced  "$(_tui_msg main.advanced)" \
+      features  "$(_tui_msg main.features)" \
+      __save    "$(_tui_msg main.save)")"
     _rc=$?
     case "${_rc}" in
       0)
         case "${_choice}" in
-          network|deploy|gui|volumes|environment) "_edit_section_${_choice}" ;;
+          image|build) "_edit_section_${_choice}" ;;
+          runtime)  _render_runtime_menu ;;
+          mounts)   _render_mounts_menu ;;
           advanced) _render_advanced_menu ;;
+          features) _render_features_menu ;;
           __save)   TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 0 ;;
           "")       TUI_OK_LABEL=""; TUI_CANCEL_LABEL=""; return 1 ;;
         esac
@@ -1961,19 +2030,100 @@ _render_main_menu() {
   done
 }
 
-_render_advanced_menu() {
+_render_runtime_menu() {
+  # Runtime grouper (#221): network / GPU / display / env vars — all
+  # the things that take effect when the container actually runs.
   while :; do
     local _choice
-    # Per-stage entry is only shown when the Dockerfile has at least
-    # one non-baseline stage (#220). Zero-noise for the 17 existing
-    # downstream repos that ship with only baseline stages.
+    _choice="$(_tui_menu "$(_tui_msg runtime.title)" "$(_tui_msg runtime.menu)" \
+      network     "$(_tui_msg main.network)" \
+      deploy      "$(_tui_msg main.deploy)" \
+      gui         "$(_tui_msg main.gui)" \
+      environment "$(_tui_msg main.environment)" \
+      __back      "$(_tui_msg runtime.back)")" || break
+    case "${_choice}" in
+      network|deploy|gui|environment) "_edit_section_${_choice}" ;;
+      __back|"") break ;;
+    esac
+  done
+}
+
+_render_mounts_menu() {
+  # Mounts grouper (#221): volumes / devices / tmpfs — host->container
+  # resource bindings.
+  while :; do
+    local _choice
+    _choice="$(_tui_menu "$(_tui_msg mounts.title)" "$(_tui_msg mounts.menu)" \
+      volumes "$(_tui_msg main.volumes)" \
+      devices "$(_tui_msg main.devices)" \
+      tmpfs   "$(_tui_msg main.tmpfs)" \
+      __back  "$(_tui_msg mounts.back)")" || break
+    case "${_choice}" in
+      volumes|devices|tmpfs) "_edit_section_${_choice}" ;;
+      __back|"") break ;;
+    esac
+  done
+}
+
+# _render_features_menu [base_path]
+#
+# Always-visible discoverability surface for conditional / power-user
+# features (#221 acceptance for the third sub-question of the issue).
+# Each feature row shows current status — "enabled (N ...)" when the
+# preconditions are satisfied, "hidden (...)" when not. Clicking a
+# disabled row pops an msgbox explaining how to enable; clicking an
+# enabled row drills into the same editor the conditional Advanced
+# entry uses (per_stage is the only such feature today).
+#
+# The optional base_path arg threads through to the
+# _list_dockerfile_stages_available probe (FILE_PATH is readonly, so
+# tests pass an alternate base_path here to stage a fake Dockerfile).
+# shellcheck disable=SC2120  # production callers pass no args; tests pass base_path
+_render_features_menu() {
+  local _base_path="${1:-}"
+  while :; do
+    local _choice
+    local -a _stages=()
+    if [[ -n "${_base_path}" ]]; then
+      _list_dockerfile_stages_available _stages "${_base_path}"
+    else
+      _list_dockerfile_stages_available _stages
+    fi
+    local _per_stage_label
+    if (( ${#_stages[@]} > 0 )); then
+      # shellcheck disable=SC2059  # format string sourced from our own i18n table
+      printf -v _per_stage_label "$(_tui_msg features.per_stage_enabled)" "${#_stages[@]}"
+    else
+      _per_stage_label="$(_tui_msg features.per_stage_hidden)"
+    fi
+    _choice="$(_tui_menu "$(_tui_msg features.title)" "$(_tui_msg features.menu)" \
+      per_stage "${_per_stage_label}" \
+      __back    "$(_tui_msg features.back)")" || break
+    case "${_choice}" in
+      per_stage)
+        if (( ${#_stages[@]} > 0 )); then
+          _edit_section_per_stage
+        else
+          _tui_msgbox "$(_tui_msg features.title)" \
+            "$(_tui_msg features.per_stage_hidden_info)"
+        fi
+        ;;
+      __back|"") break ;;
+    esac
+  done
+}
+
+_render_advanced_menu() {
+  # Slimmed for #221: image / build promoted to main; devices / tmpfs
+  # moved to Mounts. What's left here is truly advanced — security
+  # capabilities, named build contexts, per-stage overrides (still
+  # conditional so 17 baseline-only repos see no noise here; Features
+  # menu surfaces it for everyone), and Reset.
+  while :; do
+    local _choice
     local -a _stages_check=()
     _list_dockerfile_stages_available _stages_check
     local -a _menu_args=(
-      image                "$(_tui_msg main.image)"
-      build                "$(_tui_msg main.build)"
-      devices              "$(_tui_msg main.devices)"
-      tmpfs                "$(_tui_msg main.tmpfs)"
       security             "$(_tui_msg main.security)"
       additional_contexts  "$(_tui_msg main.additional_contexts)"
     )
@@ -1987,7 +2137,7 @@ _render_advanced_menu() {
     _choice="$(_tui_menu "$(_tui_msg advanced.title)" "$(_tui_msg advanced.menu)" \
       "${_menu_args[@]}")" || break
     case "${_choice}" in
-      image|build|devices|tmpfs|security|additional_contexts) "_edit_section_${_choice}" ;;
+      security|additional_contexts) "_edit_section_${_choice}" ;;
       per_stage) _edit_section_per_stage ;;
       reset)    _do_reset ;;
       __back|"") break ;;
