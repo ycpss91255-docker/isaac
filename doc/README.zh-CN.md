@@ -75,15 +75,13 @@ Env wiring 写在 `setup.conf [environment]`：
 
 ```bash
 ./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` 会重新生成 `compose.yaml`，`./run.sh`（内部走 `docker compose up -d`）就会带上新 env。两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。同样 pattern 把 `humble` 换成 `jazzy` 就是另一条路径，给愿意跟 Isaac auto-default 走的 stack（LTS until 2029，原生 24.04）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
+`./setup.sh add` 会重新生成 `compose.yaml`，`./run.sh`（内部走 `docker compose up -d`）就会带上新 env。Order matters — `setup.sh`（template ≥ v0.20.1，修复 [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236)）会在 compose-emit 时把 `${ROS_DISTRO}` 对齐前面 sibling `[environment] env_N` 条目展开，所以第二行会 resolve 成 `humble/lib`，因此 `ROS_DISTRO=humble` 必须排在 `LD_LIBRARY_PATH` 那行**之前**。两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。**只改第一行就能切到 jazzy**（`${ROS_DISTRO}` 的引用会贯穿到第二行），与 Isaac 在 24.04 上的 auto-default 对齐（LTS until 2029）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
 
 要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 各跑一次。
-
-> 这两条 env_N 重复了 `humble` distro 字串 — 自然写法应该是 `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，但 `setup.sh` 目前不会在 sibling `[environment] env_N` 之间展开 `${VAR}`（template 把它们当 literal 写进 `compose.yaml` env entry，而 Docker Compose 的 `${VAR}` substitution 只读 `.env` / shell env）。upstream 已在 [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236) 追踪；修好之后第二行可收成 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`。
 
 ### 验证 cross-container DDS
 

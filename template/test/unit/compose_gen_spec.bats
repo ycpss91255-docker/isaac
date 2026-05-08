@@ -131,6 +131,81 @@ teardown() {
   assert_success
 }
 
+@test "environment env_N expands \${VAR} cross-reference to earlier sibling (refs #236)" {
+  # When a later env_N value references an earlier sibling KEY via
+  # `\${KEY}`, the emitted compose.yaml line should contain the earlier
+  # sibling's value, not a literal `\${KEY}` (which compose's own var
+  # substitution does NOT resolve from sibling environment entries).
+  local _extras=()
+  local _env
+  printf -v _env '%s\n%s' "ROS_DISTRO=humble" "LD_LIBRARY_PATH=/foo/\${ROS_DISTRO}/lib"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+  run grep -F -- '- LD_LIBRARY_PATH=/foo/humble/lib' "${COMPOSE_OUT}"
+  assert_success
+  refute grep -F -- '${ROS_DISTRO}' "${COMPOSE_OUT}"
+}
+
+@test "environment env_N forward reference is left literal (refs #236)" {
+  # Order-sensitive: a value that references a LATER sibling cannot be
+  # expanded (the sibling hasn't been parsed yet). The literal `\${VAR}`
+  # survives so compose.yaml's own substitution gets a chance from
+  # `.env` / shell env, and an unintended footgun surfaces visibly.
+  local _extras=()
+  local _env
+  printf -v _env '%s\n%s' "LD_LIBRARY_PATH=/foo/\${ROS_DISTRO}/lib" "ROS_DISTRO=humble"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+  run grep -F -- '- LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- ROS_DISTRO=humble' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "environment env_N unknown \${VAR} is left literal (refs #236)" {
+  # When `\${VAR}` references a name with no matching sibling, leave it
+  # as a literal in compose.yaml. compose's own substitution (from
+  # `.env` / shell env) gets a chance at file-load; if that also fails
+  # the user sees an explicit error, not a silent empty replacement.
+  local _extras=()
+  local _env
+  printf -v _env '%s' "PATH_PREFIX=/foo/\${UNDEFINED_VAR}/bar"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+  run grep -F -- '- PATH_PREFIX=/foo/${UNDEFINED_VAR}/bar' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "environment env_N supports multiple cross-references in one value (refs #236)" {
+  local _extras=()
+  local _env
+  printf -v _env '%s\n%s\n%s' \
+    "ROS_DISTRO=humble" \
+    "ARCH=aarch64" \
+    "PLUGIN_PATH=/opt/\${ROS_DISTRO}/lib/\${ARCH}"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+  run grep -F -- '- PLUGIN_PATH=/opt/humble/lib/aarch64' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "environment env_N transitive cross-reference resolves through chain (refs #236)" {
+  # If env_2 references env_1, and env_3 references env_2, env_3 should
+  # see the FULLY expanded env_2 (not a chain that needs more expansion).
+  local _extras=()
+  local _env
+  printf -v _env '%s\n%s\n%s' \
+    "ROOT=/opt" \
+    "BASE=\${ROOT}/ros" \
+    "INCLUDE=\${BASE}/include"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+  run grep -F -- '- BASE=/opt/ros' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- INCLUDE=/opt/ros/include' "${COMPOSE_OUT}"
+  assert_success
+}
+
 @test "generate_compose_yaml emits tmpfs block from tmpfs_ list" {
   local _extras=()
   local _tmpfs
