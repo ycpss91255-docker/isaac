@@ -50,18 +50,13 @@ Notes:
 - `gpu_capabilities` in `setup.conf [deploy]` must include `video` — without it, nvidia-container-runtime does not mount NVENC libs (`libnvidia-encode.so`, `libnvcuvid.so`), so the server connects but cannot encode frames → black screen. The current `setup.conf` already includes `video`.
 - Verify the listeners from the server: `ss -tln | grep -E ':8011|:49100'` should show both `LISTEN ... :8011` and `LISTEN ... :49100`.
 
-## ROS 2 bridge (bundled, distro-agnostic)
+## ROS 2 bridge (bundled, build-time distro)
 
-Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`, both with Python 3.11 rclpy matching kit's embedded interpreter. **This image keeps the distro choice open** — `ROS_DISTRO` and `LD_LIBRARY_PATH` are deliberately not set in `setup.conf`, letting Isaac's `/isaac-sim/setup_ros_env.sh` auto-detect at startup:
-
-| Image Ubuntu | Auto distro |
-|---|---|
-| 22.04 (jammy) | humble |
-| 24.04 (noble) — this image | **jazzy** |
+Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`, both with Python 3.11 rclpy matching kit's embedded interpreter. **This image hard-bakes the distro at build time** via `setup.conf [build] arg_N=ROS_DISTRO=<value>` (default `humble`, CoreSAM-aligned).
 
 The bridge extension `isaacsim.ros2.bridge` auto-loads via the default kit experience (`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`). No `--enable` launch flag needed in `runheadless.sh` / `runapp.sh`.
 
-Env wiring shipped in `setup.conf [environment]`:
+Env wiring shipped in `setup.conf [environment]` (distro-agnostic):
 
 | Var | Value | Why |
 |-----|-------|-----|
@@ -69,19 +64,22 @@ Env wiring shipped in `setup.conf [environment]`:
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-### Pin to humble via setup.conf (CoreSAM-aligned)
+### Distro choice (build-time, hard-baked)
 
-Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_humble` driver repos) target Humble. Override Isaac's 24.04 jazzy auto-default by injecting both env vars into `setup.conf [environment]` via the wrapper-aligned `./setup.sh add` flow, then start the container with `./run.sh`:
+`ARG ROS_DISTRO=humble` in the Dockerfile is wired to `setup.conf [build]`. At build time the value is written to `/etc/isaac/ros-distro`, and `script/isaac-ros-env-wrapper.sh` is installed at `/usr/local/bin/`. The `headless` and `gui` stages set `ENTRYPOINT` to that wrapper, which on every container start unconditionally re-exports `ROS_DISTRO` and `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` from the baked file — runtime `-e ROS_DISTRO=...` flags are therefore ineffective on the production paths.
+
+The `devel` stage soft-bakes the same values via `Dockerfile ENV` (interactive shells get them by default; devs can `export ROS_DISTRO=...` to experiment).
+
+Switch to jazzy:
 
 ```bash
-./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
+./setup.sh remove build.arg "ROS_DISTRO=humble"
+./setup.sh add build.arg "ROS_DISTRO=jazzy"
+./build.sh           # rebuild with new ARG (only the affected layers, ~10s)
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` regenerates `compose.yaml` so `./run.sh` (which under the hood runs `docker compose up -d`) picks up the new env. Order matters — `setup.sh` (template ≥ v0.20.1, [#236](https://github.com/ycpss91255-docker/template/issues/236)) expands `${ROS_DISTRO}` against earlier sibling `[environment] env_N` entries at compose-emit time, so the second line resolves to `humble/lib`. Both vars are still required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Switch to `jazzy` by changing only the first line — the `${ROS_DISTRO}` reference flows through. The jazzy alternative aligns with Isaac's auto-default on 24.04 (LTS until 2029) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
-
-To revert to distro-agnostic neutral, mirror with `./setup.sh remove environment.env "<value>"` for each.
+The jazzy path aligns with Isaac's auto-default on 24.04 (LTS until 2029) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
 
 ### Verify cross-container DDS
 

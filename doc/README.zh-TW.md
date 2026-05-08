@@ -50,18 +50,13 @@ Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 協定，*
 - `setup.conf [deploy] gpu_capabilities` 必須含 `video` — 沒有的話 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 連得上但畫面 encode 不出來 → 黑畫面。當前 `setup.conf` 已加
 - Server 端確認 listener：`ss -tln | grep -E ':8011|:49100'` 應看到兩個 `LISTEN`
 
-## ROS 2 bridge（內建，distro-agnostic）
+## ROS 2 bridge（內建，build-time distro）
 
-Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 同時內建 Humble 與 Jazzy 兩套 ROS 2 libraries，皆走 Python 3.11 rclpy，與 kit 內嵌 interpreter 一致。**本 image 刻意保留 distro 選擇彈性** — `setup.conf` 不寫死 `ROS_DISTRO` 與 `LD_LIBRARY_PATH`，交由 Isaac 的 `/isaac-sim/setup_ros_env.sh` 在啟動時自動偵測：
-
-| Image Ubuntu | 自動 distro |
-|---|---|
-| 22.04 (jammy) | humble |
-| 24.04 (noble) — 本 image | **jazzy** |
+Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 同時內建 Humble 與 Jazzy 兩套 ROS 2 libraries，皆走 Python 3.11 rclpy，與 kit 內嵌 interpreter 一致。**本 image 在 build-time hard-bake distro 選擇** — 透過 `setup.conf [build] arg_N=ROS_DISTRO=<value>`（預設 `humble`，CoreSAM 對齊）。
 
 Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`）自動載入。`runheadless.sh` / `runapp.sh` 不需要加 `--enable` flag。
 
-`setup.conf [environment]` 內的 env wiring：
+`setup.conf [environment]` 內 distro-agnostic env wiring：
 
 | 變數 | 值 | 用途 |
 |------|----|------|
@@ -69,19 +64,22 @@ Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | 明確指定 FastDDS，不繼承 host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile（跨容器 DDS reliable，避開 SHM flakiness）|
 
-### 透過 setup.conf pin 到 humble（CoreSAM 對齊）
+### Distro 選擇（build-time、hard-baked）
 
-下游多數 stack（CoreSAM、`ros1_bridge` Noetic↔Humble、本組織的 `*_humble` driver repos）都對齊 Humble。要覆蓋掉 Isaac 24.04 的 jazzy 自動預設，透過 wrapper-aligned 的 `./setup.sh add` flow 把兩個 env 變數寫進 `setup.conf [environment]`，再用 `./run.sh` 啟動：
+Dockerfile 的 `ARG ROS_DISTRO=humble` 接到 `setup.conf [build]`。Build 時值會被寫進 `/etc/isaac/ros-distro`，且 `script/isaac-ros-env-wrapper.sh` 會 install 到 `/usr/local/bin/`。`headless` 與 `gui` 兩個 stage 把 `ENTRYPOINT` 設成這個 wrapper — 每次 container 啟動時 wrapper 從 baked file 讀取並無條件 re-export `ROS_DISTRO` 與 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，因此 production paths 上的 runtime `-e ROS_DISTRO=...` flag **無效**。
+
+`devel` stage 透過 Dockerfile `ENV` soft-bake 同樣兩個值（互動 shell 預設拿到，devs 仍可 `export ROS_DISTRO=...` 實驗）。
+
+切到 jazzy：
 
 ```bash
-./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
+./setup.sh remove build.arg "ROS_DISTRO=humble"
+./setup.sh add build.arg "ROS_DISTRO=jazzy"
+./build.sh           # 重 build 帶上新 ARG（只有受影響 layer 重 build，~10s）
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` 會 regenerate `compose.yaml`，接著 `./run.sh`（內部走 `docker compose up -d`）就會帶上新 env。順序很重要 — `setup.sh`（template ≥ v0.20.1，修掉 [#236](https://github.com/ycpss91255-docker/template/issues/236)）會在 compose-emit 時把 `${ROS_DISTRO}` 對先前 sibling `[environment] env_N` 條目展開，所以第二條會 resolve 成 `humble/lib`，但前提是 `ROS_DISTRO=humble` 必須**先**寫進去。兩者仍必須同時設 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡，一旦 `ROS_DISTRO` 被設，helper 就 short-circuit、跳過 `LD_LIBRARY_PATH` 的初始化（路徑展開的修正不改變這點）。要切到 jazzy 只要改第一行 — `${ROS_DISTRO}` reference 會跟著流過去；jazzy 是給想跟著 Isaac 自動預設走的 stack 用的替代路徑（LTS 至 2029、原生 24.04），已知 caveat：jazzy on noble 有 Python 3.11/3.12 混搭與 Nav2 路徑粗糙的問題，目前在 NVIDIA 論壇追蹤中，預期在 Isaac Sim 6.0 修順。
-
-要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 把上面兩條各自移掉。
+Jazzy 路徑跟 Isaac 24.04 自動預設對齊（LTS 至 2029）— 已知 caveat：jazzy on noble 有 Python 3.11/3.12 混搭與 Nav2 路徑粗糙的問題，目前在 NVIDIA 論壇追蹤中，預期在 Isaac Sim 6.0 修順。
 
 ### 驗證跨容器 DDS
 
