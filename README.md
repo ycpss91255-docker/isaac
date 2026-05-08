@@ -69,18 +69,19 @@ Env wiring shipped in `setup.conf [environment]`:
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-### Pin to humble at compose run time (CoreSAM-aligned)
+### Pin to humble via setup.conf (CoreSAM-aligned)
 
-Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_humble` driver repos) target Humble. Override Isaac's 24.04 jazzy auto-default by passing both env vars together at compose run time:
+Most downstream stacks (CoreSAM, `ros1_bridge` Noetic↔Humble, this org's `*_humble` driver repos) target Humble. Override Isaac's 24.04 jazzy auto-default by injecting both env vars into `setup.conf [environment]` via the wrapper-aligned `./setup.sh add` flow, then start the container with `./run.sh`:
 
 ```bash
-docker compose -p yunchien-isaac up -d \
-    -e ROS_DISTRO=humble \
-    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
-    headless
+./setup.sh add environment.env "ROS_DISTRO=humble"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./run.sh -t headless -d
 ```
 
-Both are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Same pattern with `jazzy` substituted is the alternative path for stacks that want to ride Isaac's auto-default (LTS until 2029, native 24.04) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
+`./setup.sh add` regenerates `compose.yaml` so `./run.sh` (which under the hood runs `docker compose up -d`) picks up the new env. Both vars are required together — `setup_ros_env.sh` wraps the lib-path update inside `if [ -z "$ROS_DISTRO" ]`, so once `ROS_DISTRO` is set the helper skips priming `LD_LIBRARY_PATH`. Same pattern with `jazzy` substituted is the alternative path for stacks that want to ride Isaac's auto-default (LTS until 2029, native 24.04) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
+
+To revert to distro-agnostic neutral, mirror with `./setup.sh remove environment.env "<value>"` for each.
 
 ### Verify cross-container DDS
 
