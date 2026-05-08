@@ -225,9 +225,15 @@ network.port_1 = 8080:80
 deploy.gpu_capabilities = gpu compute utility graphics video
 ```
 
-`./setup_tui.sh` → Advanced → 「Per-stage overrides」でも対話的に
-編集できます。このメニューは Dockerfile に少なくとも 1 つの
-非 baseline stage がある場合のみ表示されます。
+`./setup_tui.sh` でも対話的に編集できます：
+
+- **Advanced → Per-stage overrides**：直接エディタへ。このエントリ
+  は Dockerfile に少なくとも 1 つの非 baseline stage がある場合の
+  み表示されます。
+- **Features → Per-stage overrides**（#221）：常時表示の機能一覧
+  入口。条件を満たしている時はクリックで上記 Advanced と同じ
+  エディタへ、満たしていない時は有効化方法を説明する msgbox を
+  表示します。
 
 Override 可能な key (v1)：
 
@@ -321,11 +327,28 @@ template ファイルが repo にコピーされ、検出された workspace が
 
 ### インタラクティブ TUI
 
-`./setup_tui.sh` はメインメニューを開き、6 つの section すべての値を
-編集できます。バックエンドは `dialog` または `whiptail`（どちらも
-無い場合は `sudo apt install dialog` のヒントを表示して終了）。
-Cancel / Esc で保存せず退出；保存後は自動的に `setup.sh` を呼び
-出して `.env` + `compose.yaml` を再生成します。
+`./setup_tui.sh` はメインメニューを開きます。バックエンドは
+`dialog` または `whiptail`（どちらも無い場合は `sudo apt install
+dialog` のヒントを表示して終了）。Cancel / Esc で保存せず退出；
+保存後は自動的に `setup.sh` を呼び出して `.env` + `compose.yaml`
+を再生成します。
+
+メインメニュー構造（#221）：
+
+```
+Main
+├─ image            IMAGE_NAME 検出ルール
+├─ build            APT mirrors + Dockerfile build args
+├─ Runtime  ──→     network / deploy（GPU）/ gui / environment
+├─ Mounts   ──→     volumes / devices / tmpfs
+├─ Advanced ──→     security / additional_contexts
+│                   / per_stage（条件付き）/ Reset
+├─ Features         条件付き / 上級者向け機能の一覧（per_stage の状態を含む）
+└─ Save & Exit
+```
+
+`./setup_tui.sh <section>` は引き続き任意の section エディタへ
+直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
 ### setup.sh の実行タイミング
 

@@ -75,15 +75,13 @@ bridge extension `isaacsim.ros2.bridge` はデフォルトの kit experience（`
 
 ```bash
 ./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` が `compose.yaml` を再生成し、`./run.sh`（内部で `docker compose up -d` 実行）が新しい env を pick up する。両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。同じ pattern で `jazzy` に置き換えれば、Isaac の自動デフォルト（2029 年まで LTS、24.04 ネイティブ）に揃えるスタック向けの代替パスになる — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
+`./setup.sh add` が `compose.yaml` を再生成し、`./run.sh`（内部で `docker compose up -d` 実行）が新しい env を pick up する。`setup.sh`（template ≥ v0.20.1、[#236](https://github.com/ycpss91255-docker/template/issues/236) で修正）は compose-emit 時に sibling の `[environment] env_N` 値を遡って `${ROS_DISTRO}` を展開するため、2 行目は `humble/lib` に解決される。順序が重要 — `ROS_DISTRO=humble` を `LD_LIBRARY_PATH` 行より先に追加する必要がある。両方を必ず一緒に指定する必要がある — `setup_ros_env.sh` は lib-path の更新を `if [ -z "$ROS_DISTRO" ]` の中に包んでいるため、`ROS_DISTRO` が設定されると helper は `LD_LIBRARY_PATH` の prime をスキップする。`jazzy` に切り替える場合は **1 行目だけ変更すれば足りる** — `${ROS_DISTRO}` reference がそのまま流れる。jazzy 代替パスは Isaac の 24.04 自動デフォルト（2029 年まで LTS）に揃う — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
 
 distro-agnostic neutral に戻すには mirror で `./setup.sh remove environment.env "<value>"` を各々実行する。
-
-> 2 つの env_N エントリは `humble` distro 文字列が重複している — 本来 path は `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` で書けるはずだが、`setup.sh` は現状 sibling の `[environment] env_N` 値間で `${VAR}` を展開しない（template はそれらを literal な `compose.yaml` env entry として出力し、Docker Compose の `${VAR}` 置換は `.env` / shell env からしか読まない）。Upstream で [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236) として追跡中；修正されれば 2 行目は `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` に縮約できる。
 
 ### コンテナ間 DDS の検証
 

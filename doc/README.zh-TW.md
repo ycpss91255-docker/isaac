@@ -75,15 +75,13 @@ Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.
 
 ```bash
 ./setup.sh add environment.env "ROS_DISTRO=humble"
-./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
 ./run.sh -t headless -d
 ```
 
-`./setup.sh add` 會 regenerate `compose.yaml`，接著 `./run.sh`（內部走 `docker compose up -d`）就會帶上新 env。兩者必須同時設 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡，一旦 `ROS_DISTRO` 被設，helper 就 short-circuit、跳過 `LD_LIBRARY_PATH` 的初始化。同樣 pattern 把 `humble` 換成 `jazzy` 是給想跟著 Isaac 自動預設走的 stack 用的替代路徑（LTS 至 2029、原生 24.04）— 已知 caveat：jazzy on noble 有 Python 3.11/3.12 混搭與 Nav2 路徑粗糙的問題，目前在 NVIDIA 論壇追蹤中，預期在 Isaac Sim 6.0 修順。
+`./setup.sh add` 會 regenerate `compose.yaml`，接著 `./run.sh`（內部走 `docker compose up -d`）就會帶上新 env。順序很重要 — `setup.sh`（template ≥ v0.20.1，修掉 [#236](https://github.com/ycpss91255-docker/template/issues/236)）會在 compose-emit 時把 `${ROS_DISTRO}` 對先前 sibling `[environment] env_N` 條目展開，所以第二條會 resolve 成 `humble/lib`，但前提是 `ROS_DISTRO=humble` 必須**先**寫進去。兩者仍必須同時設 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 裡，一旦 `ROS_DISTRO` 被設，helper 就 short-circuit、跳過 `LD_LIBRARY_PATH` 的初始化（路徑展開的修正不改變這點）。要切到 jazzy 只要改第一行 — `${ROS_DISTRO}` reference 會跟著流過去；jazzy 是給想跟著 Isaac 自動預設走的 stack 用的替代路徑（LTS 至 2029、原生 24.04），已知 caveat：jazzy on noble 有 Python 3.11/3.12 混搭與 Nav2 路徑粗糙的問題，目前在 NVIDIA 論壇追蹤中，預期在 Isaac Sim 6.0 修順。
 
 要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 把上面兩條各自移掉。
-
-> 兩條 env_N 重複寫 `humble` distro 字串 — 自然寫法應該是 `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，但 `setup.sh` 目前不會在同層 `[environment] env_N` 值之間展開 `${VAR}`（template 把它們當 literal 寫進 `compose.yaml` env entries，而 Docker Compose 的 `${VAR}` 替換只讀 `.env` / shell env）。upstream 追蹤於 [`ycpss91255-docker/template#236`](https://github.com/ycpss91255-docker/template/issues/236)；修掉後第二條就能簡化成 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`。
 
 ### 驗證跨容器 DDS
 

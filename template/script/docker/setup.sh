@@ -1151,6 +1151,48 @@ _resolve_stage_list() {
 #     `network_mode: ${NETWORK_MODE}`.
 # IPC/privileged always read from env var refs; .env provides values.
 # ════════════════════════════════════════════════════════════════════
+
+# _expand_env_cross_refs <input-newline-list> <output-array-name>
+#
+# Reads `KEY=VALUE` entries (one per line, blank lines skipped) and
+# substitutes `${KEY}` references in each value with the value of an
+# earlier-seen sibling KEY. Order-sensitive: forward references (a value
+# referencing a sibling not yet parsed) survive as the literal `${VAR}`,
+# as do unknown references with no matching sibling -- compose.yaml's
+# own substitution layer (.env / shell env) gets a chance at file-load
+# time, surfacing genuinely undefined names visibly rather than silently
+# substituting empty.
+#
+# Resolves issue #236: previously, sibling cross-references in
+# `[environment] env_N` were emitted literally and compose's `${VAR}`
+# substitution does NOT consult sibling environment entries -- so e.g.
+#   env_1 = ROS_DISTRO=humble
+#   env_2 = LD_LIBRARY_PATH=/foo/${ROS_DISTRO}/lib
+# would ship `LD_LIBRARY_PATH=/foo//lib` to the container.
+_expand_env_cross_refs() {
+  local _input="$1"
+  local -n _expand_out_arr="$2"
+  _expand_out_arr=()
+  declare -A _seen=()
+  local _line _k _v _ref_k _ref_v _expanded
+  while IFS= read -r _line; do
+    [[ -z "${_line}" ]] && continue
+    _k="${_line%%=*}"
+    _v="${_line#*=}"
+    _expanded="${_v}"
+    # Substitute every ${ref_k} found in _v against earlier siblings.
+    # Multiple-pass not needed because _seen already holds fully-expanded
+    # values from prior iterations (transitive references resolve through
+    # the chain naturally).
+    for _ref_k in "${!_seen[@]}"; do
+      _ref_v="${_seen[${_ref_k}]}"
+      _expanded="${_expanded//\$\{${_ref_k}\}/${_ref_v}}"
+    done
+    _seen["${_k}"]="${_expanded}"
+    _expand_out_arr+=("${_k}=${_expanded}")
+  done <<< "${_input}"
+}
+
 generate_compose_yaml() {
   local _out="${1:?}"
   local _name="${2:?}"
@@ -1407,11 +1449,17 @@ YAML
 YAML
       fi
       if [[ -n "${_env_str}" ]]; then
+        # Expand `${KEY}` cross-references against earlier siblings so
+        # the emitted compose.yaml carries the user's intent verbatim
+        # (compose's own substitution layer does NOT see sibling env
+        # entries -- refs #236).
+        local -a _env_expanded=()
+        _expand_env_cross_refs "${_env_str}" _env_expanded
         local _ev
-        while IFS= read -r _ev; do
+        for _ev in "${_env_expanded[@]}"; do
           [[ -z "${_ev}" ]] && continue
           echo "      - ${_ev}"
-        done <<< "${_env_str}"
+        done
       fi
     fi
     # ports: only emitted when network_mode=bridge (ignored under host)

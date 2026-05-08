@@ -220,9 +220,13 @@ network.port_1 = 8080:80
 deploy.gpu_capabilities = gpu compute utility graphics video
 ```
 
-也可以用 `./setup_tui.sh` → Advanced → 「Per-stage overrides」走
-交互式编辑；该 entry 仅在 Dockerfile 有至少一个非 baseline stage
-时才显示。
+也可以用 `./setup_tui.sh` 走交互式编辑：
+
+- **Advanced → Per-stage overrides**：直接进编辑器；该 entry 仅
+  在 Dockerfile 有至少一个非 baseline stage 时才显示。
+- **Features → Per-stage overrides**（#221）：永久可见的功能总
+  览入口；条件已满足时点击等同上述 Advanced 路径，未满足时会
+  弹 msgbox 说明如何启用。
 
 允许 override 的 key（v1）：
 
@@ -310,10 +314,27 @@ template；没写的 section 则吃 template 默认。
 
 ### 交互式 TUI
 
-`./setup_tui.sh` 打开主菜单，可编辑 6 个 section 的所有值，底层是
-`dialog` 或 `whiptail`（两者都缺时会打印 `sudo apt install dialog`
-提示并退出）。按 Cancel / Esc 不存档离开；存档后会自动调用
-`setup.sh` 重新生成 `.env` + `compose.yaml`。
+`./setup_tui.sh` 打开主菜单。底层是 `dialog` 或 `whiptail`（两者
+都缺时会打印 `sudo apt install dialog` 提示并退出）。按 Cancel /
+Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env` +
+`compose.yaml`。
+
+主菜单结构（#221）：
+
+```
+Main
+├─ image            IMAGE_NAME 检测规则
+├─ build            APT mirrors + Dockerfile build args
+├─ Runtime  ──→     network / deploy（GPU）/ gui / environment
+├─ Mounts   ──→     volumes / devices / tmpfs
+├─ Advanced ──→     security / additional_contexts
+│                   / per_stage（条件式）/ Reset
+├─ Features         条件式 / 进阶使用功能总览（含 per_stage 状态）
+└─ Save & Exit
+```
+
+`./setup_tui.sh <section>` 仍可直接跳到任意 section 的编辑器
+（如 `./setup_tui.sh volumes`），不必走主菜单。
 
 ### setup.sh 什么时候运行
 
