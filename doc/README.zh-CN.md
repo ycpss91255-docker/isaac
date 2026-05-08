@@ -69,18 +69,19 @@ Env wiring 写在 `setup.conf [environment]`：
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | explicit FastDDS, no inherit from host |
 | `FASTRTPS_DEFAULT_PROFILES_FILE` | `/isaac-sim/fastdds.xml` | UDPv4-only profile (cross-container DDS reliable, no SHM flakiness) |
 
-### Compose 启动时 pin 到 humble（CoreSAM 对齐）
+### 通过 setup.conf pin 到 humble（CoreSAM 对齐）
 
-多数下游 stack（CoreSAM、`ros1_bridge` Noetic↔Humble、本组织 `*_humble` 系列 driver repo）都对齐 Humble。要覆盖 Isaac 在 24.04 上的 jazzy auto-default，run time 同时传两个 env var：
+多数下游 stack（CoreSAM、`ros1_bridge` Noetic↔Humble、本组织 `*_humble` 系列 driver repo）都对齐 Humble。要覆盖 Isaac 在 24.04 上的 jazzy auto-default，透过 wrapper-aligned `./setup.sh add` flow 把两个 env var 一起注入 `setup.conf [environment]`，再用 `./run.sh` 起容器：
 
 ```bash
-docker compose -p yunchien-isaac up -d \
-    -e ROS_DISTRO=humble \
-    -e LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib \
-    headless
+./setup.sh add environment.env "ROS_DISTRO=humble"
+./setup.sh add environment.env "LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+./run.sh -t headless -d
 ```
 
-两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。同样 pattern 把 `humble` 换成 `jazzy` 就是另一条路径，给愿意跟 Isaac auto-default 走的 stack（LTS until 2029，原生 24.04）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
+`./setup.sh add` 会重新生成 `compose.yaml`，`./run.sh`（内部走 `docker compose up -d`）就会带上新 env。两个变量必须一起设 — `setup_ros_env.sh` 把 lib-path 更新包在 `if [ -z "$ROS_DISTRO" ]` 内，一旦 `ROS_DISTRO` 已设定，helper 就跳过 priming `LD_LIBRARY_PATH`。同样 pattern 把 `humble` 换成 `jazzy` 就是另一条路径，给愿意跟 Isaac auto-default 走的 stack（LTS until 2029，原生 24.04）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
+
+要回 distro-agnostic neutral 就 mirror 用 `./setup.sh remove environment.env "<value>"` 各跑一次。
 
 ### 验证 cross-container DDS
 
