@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.25.0
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.28.0
     with:
       image_name: docker
       # Isaac Sim base image is itself the runtime (15+ GB binary tree);
@@ -31,6 +31,6 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.25.0
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.28.0
     with:
       archive_name_prefix: docker
