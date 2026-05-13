@@ -104,8 +104,8 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-# <repo>/config is a per-repo copy of template/config seeded by
-# init.sh. Edit files there freely; template upgrades do not touch
+# <repo>/config is a per-repo copy of .base/config seeded by
+# init.sh. Edit files there freely; base upgrades do not touch
 # this directory (upgrade.sh prints a diff hint when upstream moves).
 ARG CONFIG_SRC="config"
 
@@ -188,9 +188,9 @@ COPY script/*.sh /lint/script/
 # Issue #104: removing these used to be compensated by inline
 # `_detect_lang` fallbacks in every script — now the canonical
 # definition lives once in i18n.sh.
-COPY template/script/docker/_lib.sh \
-     template/script/docker/i18n.sh \
-     template/script/docker/_tui_conf.sh \
+COPY .base/script/docker/_lib.sh \
+     .base/script/docker/i18n.sh \
+     .base/script/docker/_tui_conf.sh \
      /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh
 RUN cd /lint && hadolint Dockerfile
@@ -202,8 +202,8 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from template + repo-specific)
-COPY template/test/smoke/ /smoke_test/
+# Smoke test (shared from base + repo-specific)
+COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/ /smoke_test/
 
 ARG USER
