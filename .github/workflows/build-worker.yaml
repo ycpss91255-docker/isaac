@@ -1,0 +1,469 @@
+name: Docker Build & Smoke Test
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+        description: "Container image name (e.g. ros_noetic)"
+      build_args:
+        required: false
+        type: string
+        default: ""
+        description: "Multi-line KEY=VALUE build args"
+      build_runtime:
+        required: false
+        type: boolean
+        default: true
+        description: "Whether to build runtime stage"
+      test_tools_version:
+        required: false
+        type: string
+        default: "latest"
+        description: |
+          Tag for the `ghcr.io/ycpss91255-docker/test-tools:<tag>` image
+          consumed as a build-arg by the downstream Dockerfile's test
+          stage. Caller should pin this to the template release they
+          upgraded from (e.g. `test_tools_version: v0.10.1`) for
+          reproducibility; default `latest` works but loses
+          determinism against an in-flight template release.
+
+          Replaces the earlier GITHUB_WORKFLOW_REF parsing, which was
+          read the caller's own tag ref (e.g. a downstream repo's
+          `v1.5.0`) rather than the template's pinned @tag, so
+          downstream tag pushes would try to pull
+          `ghcr.io/.../test-tools:<downstream-tag>` which never exists.
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+        description: |
+          Comma-separated target platforms. Each runs as a parallel job on
+          its own native runner (linux/amd64 → ubuntu-latest, linux/arm64
+          → ubuntu-24.04-arm), so arm64 builds avoid QEMU emulation
+          (which would take 30-60 min per run on an amd64 host) and stay
+          in the 5-15 min range.
+
+          Each matrix shard runs the full pipeline (test-tools build,
+          test stage smoke tests, devel stage, runtime stage) natively
+          for its platform.
+
+          Default "linux/amd64" preserves single-platform behavior —
+          existing downstream repos see no CI change until they opt in
+          by adding `platforms: linux/amd64,linux/arm64` in their
+          main.yaml call.
+
+          Supported values: linux/amd64, linux/arm64. Other values are
+          rejected by the compute-matrix step.
+      context_path:
+        required: false
+        type: string
+        default: "."
+        description: |
+          Build context passed to docker/build-push-action's `context:`
+          input. Defaults to repo root for backwards compatibility with
+          the standard template layout (Dockerfile + compose.yaml at
+          repo root).
+
+          Set to a subdirectory (e.g. `docker`) when the consumer repo
+          keeps its docker assets nested — typically to keep
+          template-managed files separated from application source. The
+          path is relative to the repo root after `actions/checkout`.
+
+          Pairs with `dockerfile_path`; both inputs are independent so
+          callers can override one without the other.
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional explicit Dockerfile path relative to the repo root.
+          Empty string (default) defers to `<context_path>/Dockerfile`,
+          matching docker/build-push-action's own default.
+
+          Override only when the Dockerfile is named non-standardly or
+          lives outside `<context_path>/` — most consumers should leave
+          this empty and rely on the implicit `<context_path>/Dockerfile`.
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional newline-separated `<name>=<location>` pairs forwarded
+          to docker/build-push-action's `build-contexts:` input. Mirrors
+          compose's `additional_contexts:` so the named contexts the
+          local `./build.sh` flow reads from `setup.conf
+          [additional_contexts]` (#199) reach BuildKit when CI bypasses
+          compose. Empty default = no extra contexts (zero diff for
+          existing callers).
+
+          Paths are resolved relative to the repo root (the
+          `actions/checkout` working dir), NOT to `context_path`. So a
+          caller using `context_path: docker` and wanting a context
+          rooted at the repo top declares `build_contexts: repo_root=.`,
+          not `repo_root=..` (the latter form is what compose's
+          `additional_contexts:` needs because compose resolves paths
+          relative to compose.yaml, which lives inside `docker/`).
+
+          Example:
+            with:
+              context_path: docker
+              build_contexts: |
+                repo_root=.
+                third_party=./vendor
+      cache_variant:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Suffix appended to the GHA buildx cache scope key (#272). Use
+          when the caller invokes build-worker.yaml multiple times with
+          the same `image_name` but different `build_args` (the
+          env/ros{,2}_distro pattern, where one `image_name: ros2_distro`
+          is shared across 4 matrix variants distinguished by
+          `BASE_IMAGE`). Pass the per-call matrix expression — e.g.
+          `matrix.target.name` from the caller's strategy.matrix — or any
+          per-call unique string to give each shard its own cache scope.
+
+          Single-call repos (agent/*, single-distro app/* repos) can
+          leave this empty — the default scope `${image_name}-${hardware}-cache`
+          is already per-(repo, arch). Multi-distro repos that embed the
+          distro in `image_name` (e.g. `image_name: ros1_bridge-humble`)
+          also do not need this — distro is already in the scope.
+
+          Resolved scope key shape:
+            ${image_name}[-${cache_variant}]-${matrix.hardware}-cache
+
+          Examples:
+            ai_agent          -> ai_agent-x86_64-cache
+            ros1_bridge-humble -> ros1_bridge-humble-x86_64-cache
+            ros2_distro + cache_variant=humble-desktop-full
+                              -> ros2_distro-humble-desktop-full-x86_64-cache
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # #273 — doc-only PR fast-pass.
+  #
+  # Classifies the PR diff against an allowlist of doc-only paths
+  # (markdown, doc/, LICENSE, gitignore, CODEOWNERS, dependabot). If
+  # NO file outside that allowlist changed, downstream build /
+  # compute-matrix jobs skip and the aggregator job (`docker-build`)
+  # short-circuits to success so branch protection's required
+  # status check still passes.
+  #
+  # Non-PR triggers (push to main / tag / workflow_dispatch) always
+  # report code_changed=true so release / post-merge runs are
+  # unaffected.
+  #
+  # Phase 2 (#273): classifier is now pure shell (`git diff --name-only
+  # base...head` + `case` glob match) instead of `dorny/paths-filter@v3`.
+  # The classifier logic is platform-agnostic shell — only the wrapping
+  # YAML + GITHUB_OUTPUT line binds to GitHub Actions. Future migration
+  # to a non-GitHub CI host (e.g. internal GitLab CI) needs only an
+  # adapter shim around the same case statement, no rewrite of the
+  # allowlist semantics. Bash glob `*` matches `/` inside `case` so
+  # `*.md` covers `doc/test/TEST.md` and `doc/*` covers nested paths.
+  # ────────────────────────────────────────────────────────────────
+  path-filter:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.classify.outputs.code_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # `git diff --name-only base...head` needs both refs reachable;
+          # PR events checkout only the merge ref by default.
+          fetch-depth: 0
+      - name: Classify changed paths (pure shell — #273 Phase 2)
+        id: classify
+        env:
+          # Pre-expand the two SHAs into env vars so the inline shell
+          # below uses plain `$base` / `$head` shell expansion — avoids
+          # embedding template tokens inside the case-glob body and
+          # keeps the classifier itself portable to non-GitHub CI hosts.
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          has_code=0
+          # Bash `case` globs treat `*` as matching `/` too, so `*.md`
+          # covers nested-path markdown files and `doc/*` covers any
+          # depth under doc/. Patterns must mirror the Phase 1 dorny
+          # allowlist 1:1 (issue body documents them):
+          #   **/*.md, doc/**, LICENSE, .gitignore,
+          #   .github/CODEOWNERS, .github/dependabot.yml
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              *.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml)
+                continue
+                ;;
+              *)
+                has_code=1
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          if [ "${has_code}" -eq 1 ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "code_changed=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  # ────────────────────────────────────────────────────────────────
+  # Parse the comma-separated `platforms` input into a matrix
+  # definition. Each supported platform gets the right runner label
+  # (native arm64 runners are available for public repos under the
+  # ycpss91255-docker org) and a canonical HARDWARE build-arg value.
+  # ────────────────────────────────────────────────────────────────
+  compute-matrix:
+    needs: path-filter
+    if: needs.path-filter.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          items=""
+          IFS=',' read -ra plats <<< "${PLATFORMS}"
+          for p in "${plats[@]}"; do
+            p="$(echo "${p}" | tr -d '[:space:]')"
+            case "${p}" in
+              linux/amd64)
+                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"},'
+                ;;
+              linux/arm64)
+                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"aarch64"},'
+                ;;
+              "")
+                continue
+                ;;
+              *)
+                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
+                exit 1
+                ;;
+            esac
+          done
+          if [ -z "${items}" ]; then
+            echo "::error::No valid platforms found in '${PLATFORMS}'"
+            exit 1
+          fi
+          json="{\"include\":[${items%,}]}"
+          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+
+  # ────────────────────────────────────────────────────────────────
+  # Per-platform build. Each shard runs on its native runner so
+  # arm64 doesn't pay QEMU emulation cost. Full test + devel +
+  # runtime pipeline runs per platform.
+  # ────────────────────────────────────────────────────────────────
+  build:
+    needs: [path-filter, compute-matrix]
+    if: needs.path-filter.outputs.code_changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check template version
+        run: |
+          LOCAL_VER=""
+          if [ -f .base/.version ]; then
+            LOCAL_VER=$(tr -d '[:space:]' < .base/.version)
+          fi
+          if [ -n "${LOCAL_VER}" ]; then
+            LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
+              https://github.com/ycpss91255-docker/base.git \
+              | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
+            if [ -n "${LATEST_VER}" ] && [ "${LOCAL_VER}" != "${LATEST_VER}" ]; then
+              echo "::warning::template ${LOCAL_VER} → ${LATEST_VER} available"
+            else
+              echo "template is up to date (${LOCAL_VER})"
+            fi
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compute cache scope
+        # #272 — derive a per-(repo, variant, arch) cache scope key.
+        # ${image_name}[-${cache_variant}]-${matrix.hardware}-cache.
+        # See `cache_variant` input description for naming rationale.
+        # `matrix.hardware` (x86_64 / aarch64) is preferred over
+        # `matrix.platform` (linux/amd64) because some buildx cache
+        # backends balk on `/` in scope keys.
+        id: cache
+        run: |
+          base="${{ inputs.image_name }}"
+          if [ -n "${{ inputs.cache_variant }}" ]; then
+            base="${base}-${{ inputs.cache_variant }}"
+          fi
+          echo "key=${base}-${{ matrix.hardware }}-cache" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate .env
+        run: |
+          cat > .env << EOF
+          USER_NAME=ci
+          USER_GROUP=ci
+          USER_UID=1000
+          USER_GID=1000
+          HARDWARE=${{ matrix.hardware }}
+          DOCKER_HUB_USER=ci
+          GPU_ENABLED=false
+          IMAGE_NAME=${{ inputs.image_name }}
+          WS_PATH=/tmp/workspace
+          EOF
+          mkdir -p /tmp/workspace
+
+      - name: Build devel-test stage (includes lint + bats smoke)
+        # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
+        # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
+        # the image from GHCR on `COPY --from=<name:tag>` when the tag
+        # is not present locally, so no explicit docker-pull step is
+        # needed here. Public visibility of the GHCR package means
+        # anonymous pull works, keeping the build-args simple.
+        #
+        # `inputs.test_tools_version` lets the caller pin the
+        # test-tools image tag to whichever template release they
+        # upgraded from (e.g. `test_tools_version: v0.10.1`). Default
+        # `latest` tracks whatever the most recent template release
+        # published — fine for non-tagged CI, but downstream repos
+        # cutting their own release should pin explicitly for
+        # reproducibility (the earlier GITHUB_WORKFLOW_REF auto-parse
+        # was wrong: that ref is the caller's own tag, not template's).
+        #
+        # Stage rename note (#243): target was `test` prior to v0.21.0;
+        # renamed to `devel-test` for symmetry with the new
+        # `runtime-test` stage. Downstream Dockerfiles must rename
+        # `FROM devel AS test` -> `FROM devel AS devel-test` to keep
+        # CI green after upgrading to template v0.21.0+.
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            ${{ inputs.build_args }}
+
+      - name: Build devel stage
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            ${{ inputs.build_args }}
+
+      - name: Build runtime-test stage (install check)
+        # Mirrors the devel-test pattern (#243): ephemeral stage
+        # FROM runtime, runs an inline `RUN <smoke>` so build failure
+        # surfaces a smoke failure. Default smoke is generic
+        # install-check (whoami + bash --version); downstream override
+        # via `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain
+        # binaries.
+        #
+        # Constraint: smoke command must be CLI-only -- no GUI tools
+        # that init QApplication / OGRE on `--version` / `--help`
+        # (rqt, rviz2, gazebo-classic). Prefer `<binary> --help`,
+        # `command -v <binary>`, package manager queries.
+        #
+        # Gated by `inputs.build_runtime` so agent/* repos with no
+        # runtime stage skip cleanly.
+        if: ${{ inputs.build_runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            ${{ inputs.build_args }}
+
+      - name: Build runtime stage
+        if: ${{ inputs.build_runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            ${{ inputs.build_args }}
+
+  # ────────────────────────────────────────────────────────────────
+  # Stable-name aggregator so downstream branch-protection rules
+  # keep working. Keeping this job's name as `docker-build`
+  # preserves the status-check context that public-ycpss91255-docker
+  # container repos currently require on their `main` branch
+  # (`call-docker-build / docker-build`). Matrix shards publish as
+  # `call-docker-build / build (linux/amd64)` etc. — those are the
+  # actual build runs; this one just gates on them.
+  # ────────────────────────────────────────────────────────────────
+  docker-build:
+    needs: [path-filter, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix result
+        # #273 — short-circuit to success when the PR diff was doc-only,
+        # so branch protection's required `call-docker-build / docker-build`
+        # check still resolves green without the matrix actually running.
+        run: |
+          if [ "${{ needs.path-filter.outputs.code_changed }}" = "false" ]; then
+            echo "Doc-only PR; full build matrix skipped. Required check passes (#273)."
+            exit 0
+          fi
+          result="${{ needs.build.result }}"
+          echo "Matrix build result: ${result}"
+          if [ "${result}" != "success" ]; then
+            exit 1
+          fi
