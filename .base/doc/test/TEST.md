@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1083 tests** total (1027 unit + 56 integration).
+Template self-tests: **1184 tests** total (1128 unit + 56 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -12,7 +12,7 @@ Template self-tests: **1083 tests** total (1027 unit + 56 integration).
 
 ## Test Files
 
-### test/unit/lib_spec.bats (41)
+### test/unit/lib_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -44,8 +44,40 @@ Template self-tests: **1083 tests** total (1027 unit + 56 integration).
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
 | `_print_config_summary warns when setup.conf is missing` | Missing-conf hint |
 | `_print_config_summary warns when setup.conf exists but has no [section] headers` | #157 empty-conf hint on build/run summary |
+| `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
+| `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/setup_spec.bats (261)
+### test/unit/log_spec.bats (25)
+
+| Test | Description |
+|------|-------------|
+| `_log_err writes '[<tag>] ERROR: <msg>' to stderr (no TTY -> no color)` | Default routing + no-color path |
+| `_log_warn writes '[<tag>] WARNING: <msg>' to stderr (no TTY -> no color)` | Warning routing + no-color path |
+| `_log_info writes '[<tag>] INFO: <msg>' to stdout (no TTY -> no color)` | Info routing + no-color path |
+| `_log_err joins multi-token message with single spaces` | Multi-token message join |
+| `_log_err with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_warn with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_info with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_err with FORCE_COLOR=1 emits red bold ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
+| `_log_warn with FORCE_COLOR=1 emits yellow ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
+| `_log_info with FORCE_COLOR=1 emits dim ANSI on non-TTY stdout` | FORCE_COLOR overrides TTY detection |
+| `_log_err with NO_COLOR=1 + FORCE_COLOR=1 omits ANSI (NO_COLOR wins)` | NO_COLOR precedence |
+| `_log_warn with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
+| `_log_info with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
+| `_log_color_enabled returns non-zero on non-TTY fd 1 without overrides` | Auto-detect default off |
+| `_log_color_enabled returns 0 with FORCE_COLOR=1 on non-TTY` | FORCE_COLOR opt-in |
+| `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
+| `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
+| `_log_plain writes '[<tag>] <msg>' to stdout with no style (no ANSI even with FORCE_COLOR)` | Empty style suppresses color |
+| `_log_plain with bold style + FORCE_COLOR=1 wraps message in ANSI bold` | Bold style ANSI wrap |
+| `_log_plain with dim style + FORCE_COLOR=1 wraps message in ANSI dim` | Dim style ANSI wrap |
+| `_log_plain with bold style + NO_COLOR=1 omits ANSI even with FORCE_COLOR=1` | NO_COLOR precedence on _log_plain |
+| `_log_plain on non-TTY without FORCE_COLOR omits ANSI` | Auto-detect default off |
+| `_log_plain joins multi-token message with single spaces` | Multi-token message join |
+| `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
+| `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
+
+### test/unit/setup_spec.bats (272)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -85,6 +117,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 | Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
 | Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
+| #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 
 ### test/unit/tui_spec.bats (97)
 
@@ -149,15 +182,22 @@ target areas the issue body called out.
 | Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile + baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip, `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write + empty-clears, `_edit_stage_list` inherit toggle + add) | 10 |
 | Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 
-### test/unit/build_worker_yaml_spec.bats (19)
+### test/unit/build_worker_yaml_spec.bats (32)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
-+ #243). Reusable workflows are not exec'd by these tests; instead
++ #243 + #272 + #273). Reusable workflows are not exec'd by these tests; instead
 grep patterns lock the YAML invariants — `context_path` /
 `dockerfile_path` inputs declared with the right defaults, all 4
 `docker/build-push-action` steps (devel-test / devel / runtime-test /
-runtime after #243) forwarding those inputs, and no leftover
-`context: .` / `file: ./Dockerfile` literals.
+runtime after #243) forwarding those inputs, no leftover
+`context: .` / `file: ./Dockerfile` literals, the GHA-cache
+plumbing (#272: `cache_variant` input, `Compute cache scope` step,
+`cache-from` / `cache-to` on all 4 build steps), and the #273
+doc-only PR fast-pass (`path-filter` job; Phase 2 classifier is pure
+shell via `git diff --name-only base...head` + `case` glob, no
+`dorny/paths-filter` dependency; 6-path allowlist; compute-matrix +
+build gated on `code_changed`; docker-build aggregator short-circuits
+on doc-only PRs).
 
 | Category | Tests |
 |----------|-------|
@@ -171,8 +211,30 @@ runtime after #243) forwarding those inputs, and no leftover
 | User build-args use long form matching Dockerfile.example sys stage (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps + no short-form regression) | 5 |
 | `build_contexts` input forwards to docker/build-push-action `build-contexts:` (#207: input declared with empty default, 4 build steps forward, default preserves zero-diff) | 3 |
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
+| #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
+| #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/build_sh_spec.bats (40)
+### test/unit/self_test_yaml_spec.bats (5)
+
+Structural assertions for `.github/workflows/self-test.yaml` (#305).
+Locks the actionlint gate so a future refactor cannot quietly drop
+the validator: the `actionlint` job exists and runs
+`rhysd/actionlint` via Docker pinned to an explicit version
+(`x.y.z`); the three downstream jobs (`test`, `integration-e2e`,
+`behavioural`) declare `needs: actionlint` so they cannot start
+until the workflow-validator class of regression that wedged
+v0.26.0-rc1 (`${{ matrix.X }}` outside step scope, refs #297) is
+caught early — before bats / docker matrix burns CI minutes.
+
+| Category | Tests |
+|----------|-------|
+| `actionlint` job declared | 1 |
+| `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
+| `test` job declares `needs: actionlint` | 1 |
+| `integration-e2e` job declares `needs: actionlint` | 1 |
+| `behavioural` job declares `needs: actionlint` | 1 |
+
+### test/unit/build_sh_spec.bats (50)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -185,17 +247,22 @@ missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when
 all three are present, bootstrap staying non-interactive (setup.sh
 direct, not `setup_tui.sh`), defensive guard when setup produces no
 `.env`, TARGETARCH build-arg forwarding, `--no-cache`, `--clean-tools`,
-positional `TARGET`, `--lang` argument validation, fallback
-`_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run) docker
-build invocation, **runtime log-line i18n** (bootstrap /
-drift-regen / err_no_env messages translate in all four languages via
-the local `_msg()` table; English remains the default), and
-**`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
+positional `TARGET`, **`-t` / `--target TARGET` alias** (#280: short +
+long form, last-wins resolution against positional `[TARGET]` in both
+orderings, `-t` value-required guard, usage help mention), `--lang`
+argument validation, fallback `_detect_lang` branches (zh_TW/zh_CN/ja),
+real (non-dry-run) docker build invocation, **runtime log-line i18n**
+(bootstrap / drift-regen / err_no_env messages translate in all four
+languages via the local `_msg()` table; English remains the default),
+and **`-C` / `--chdir` flag** (docker_harness#53: pre-pass overrides
 FILE_PATH to redirect the wrapper to a different repo, both short and
 long form, value-required and directory-existence guards, usage help
-mention).
+mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
+(#311: exports `BUILDKIT_PROGRESS=plain` so a hung `docker build`'s RUN
+step output is visible; `-vv` adds `set -x` on the wrapper itself;
+usage help mentions all four spellings).
 
-### test/unit/run_sh_spec.bats (46)
+### test/unit/run_sh_spec.bats (50)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -214,9 +281,11 @@ present → silent, image absent + TTY → INFO, image absent + no TTY →
 silent, per-target image inspect, `--build` invokes `./build.sh test`
 before compose up, `--build` after check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
-value-required and directory guards, usage help mention).
+value-required and directory guards, usage help mention), and **`-v`
+/ `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
+trace pattern as build.sh, parity across wrappers).
 
-### test/unit/exec_sh_spec.bats (23)
+### test/unit/exec_sh_spec.bats (32)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -229,13 +298,20 @@ Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` / `--instance`
 value validation, English-default not-running error, Chinese /
 Simplified Chinese / Japanese not-running error text, instance-specific
 vs default start hints, `--dry-run` bypassing the guard, compose exec
-routing when container is running, fallback `_detect_lang`
-branches when `template/` is absent, and **`-C` / `--chdir` flag**
+routing when container is running, **`--` flag/CMD separator** (#289:
+standalone `--` consumed before CMD flows through to `docker compose
+exec`, lets a dash-leading CMD pass through, works after `-t TARGET`
+for run.sh parity, no-`--` positional path stays backward-compatible,
+`-h` usage mentions `--`), fallback `_detect_lang` branches when
+`template/` is absent, and **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
-guards, usage help mention).
+guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
+`--very-verbose` flag** (#311: symmetry-only for exec since
+`docker exec` itself does not build, but flag is accepted and `-vv`
+enables wrapper trace).
 
-### test/unit/stop_sh_spec.bats (21)
+### test/unit/stop_sh_spec.bats (25)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via
@@ -247,10 +323,26 @@ validation, default teardown via `docker compose down`, named-instance
 suffix in project name, `--all` no-instances English message,
 Chinese / Simplified Chinese / Japanese translations of the
 no-instances message, `--all` multi-project teardown loop, fallback
-`_detect_lang` branches, and **`-C` / `--chdir` flag**
+`_detect_lang` branches, **`-C` / `--chdir` flag**
 (docker_harness#53: redirect FILE_PATH so .env / project name come
 from the alt repo, short + long form, value-required and directory
-guards, usage help mention).
+guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
+`--very-verbose` flag** (#311: parity across wrappers; flag is a no-op
+for `docker compose down` but `-vv` still enables wrapper trace).
+
+### test/unit/wrapper_lib_lookup_spec.bats (5)
+
+Regression guard for **issue #282** — the four user-facing wrappers
+(`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
+through the post-#263 `.base/` subtree prefix on a fresh clone of any
+downstream repo. Pre-fix the wrappers hard-coded `template/` and a
+freshly cloned downstream repo (where the subtree now lives under
+`.base/`) failed at the `_lib.sh` source step with "cannot find _lib.sh".
+
+Covers: `--help` succeeds for each wrapper when `.base/script/docker/_lib.sh`
+exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
+error path still fires (with the new `.base/...` path in the diagnostic)
+when neither `.base/` nor the sibling fallback is present.
 
 ### test/unit/compose_gen_spec.bats (50)
 
@@ -288,6 +380,31 @@ conditional GPU deploy block + GUI env/volumes + extra volumes from
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
+
+### test/unit/compose_logging_spec.bats (13)
+
+Covers `[logging]` + `[logging.<svc>]` support in
+`generate_compose_yaml` (#310). Tests the global emission on every
+service (devel / test / auto-emitted stage), back-compat for repos
+not yet declaring `[logging]`, per-service override key-level merge
+behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
++ `_collect_logging`.
+
+| Test | Description |
+|------|-------------|
+| `omits logging: block when both inputs empty (back-compat)` | Empty inputs no-op |
+| `emits logging: block on devel from global [logging]` | Global → devel |
+| `emits logging on test service` | Global → test |
+| `driver-only [logging] omits options: block` | No rotation keys |
+| `partial options emits only set keys` | Sparse override |
+| `per-svc [logging.<svc>] overrides global key on that svc` | Override semantics |
+| `per-svc [logging.<svc>] inherits keys absent in override` | Key-level merge |
+| `_parse_logging_svc_sections enumerates services in file order` | Parser order |
+| `_parse_logging_svc_sections ignores plain [logging] section` | Section discrimination |
+| `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file guard |
+| `_collect_logging reads global [logging] from per-repo setup.conf` | Per-repo source |
+| `_collect_logging reads per-service [logging.<svc>] sections` | Per-svc source |
+| `_collect_logging returns empty when no [logging] sections anywhere` | Total absence |
 
 ### test/unit/template_spec.bats (147)
 

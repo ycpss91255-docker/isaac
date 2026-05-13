@@ -21,11 +21,11 @@ exec: ## Exec into running container (default: bash)
 stop: ## Stop and remove containers
 	./stop.sh
 
-upgrade: ## Upgrade template subtree
-	./template/upgrade.sh
+upgrade: ## Upgrade base subtree
+	./.base/upgrade.sh
 
-upgrade-check: ## Check for template updates
-	@./template/upgrade.sh --check || [ $$? -eq 1 ]
+upgrade-check: ## Check for base updates
+	@./.base/upgrade.sh --check || [ $$? -eq 1 ]
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \

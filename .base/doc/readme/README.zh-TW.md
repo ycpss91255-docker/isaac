@@ -1,7 +1,7 @@
 # template
 
-[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
+[![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -34,9 +34,9 @@
 mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
-./template/init.sh
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
+./.base/init.sh
 
 # 升級到最新版
 make upgrade-check   # 檢查
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 專屬）"]
         main_yaml["main.yaml<br/>→ 呼叫可重用 workflows"]
@@ -276,7 +276,10 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo 本地的 **runtime helpers**（在 container 內被 `ENTRYPOINT` / `CMD` 或人工呼叫）
+  - `script/entrypoint.sh`（canonical）
+  - 任何 ros / app 啟動 helper 等
+- `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 階段呼叫，container 啟動後不會用到；範例與 lint COPY 見 `dockerfile/Dockerfile.example`，#275）
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
@@ -287,7 +290,7 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 `setup.sh` 讀它 + 系統偵測後重新產生 `.env` 跟 `compose.yaml`，這
 兩個衍生檔使用者不用動手編輯。
 
-### 單一 conf、6 個 section
+### 單一 conf、7 個 section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -297,9 +300,11 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 [network]  mode (host|bridge|none)、ipc、privileged
 [volumes]  mount_1（workspace，首次 setup.sh 執行時自動填入）
            mount_2..mount_N（使用者自訂額外 host mount；/dev 裝置走 path）
+[logging]  driver（預設 json-file）、max_size、max_file、compress
+           [logging.<svc>] 可對單一 service 做 key-level override
 ```
 
-Template default 在 `template/setup.conf`；per-repo 覆蓋放 `<repo>/setup.conf`。
+Template default 在 `.base/setup.conf`；per-repo 覆蓋放 `<repo>/setup.conf`。
 Section-level **replace** 策略：per-repo 檔若有該 section 就整段取代
 template；沒寫的 section 則吃 template 預設。
 
@@ -311,7 +316,7 @@ template；沒寫的 section 則吃 template 預設。
 ./setup_tui.sh                      # 互動式 dialog/whiptail 編輯器
 ./setup_tui.sh volumes              # 直接跳到指定 section
 ./build.sh --setup            # 有 TTY 時啟動 setup_tui.sh；無 TTY 時執行 setup.sh
-./template/init.sh --gen-conf # 單純複製 template/setup.conf 到 repo 根目錄
+./.base/init.sh --gen-conf # 單純複製 .base/setup.conf 到 repo 根目錄
 ```
 
 ### 互動式 TUI
@@ -342,8 +347,8 @@ Main
 
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
-- **`./template/init.sh`** 建完骨架自動跑一次
-- **`make upgrade` / `./template/upgrade.sh`** subtree pull 後透過 init.sh
+- **`./.base/init.sh`** 建完骨架自動跑一次
+- **`make upgrade` / `./.base/upgrade.sh`** subtree pull 後透過 init.sh
   再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
@@ -429,11 +434,11 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 
 # 2. 加入 subtree
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
 
 # 3. 初始化 symlinks（一個指令搞定）
-./template/init.sh
+./.base/init.sh
 ```
 
 > `git subtree add` 需要 `HEAD` 存在。在剛 `git init` 且沒有任何 commit 的 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 進來。
@@ -455,19 +460,19 @@ make upgrade
 make upgrade VERSION=v0.3.0
 # 指定的版本若比目前 local 還舊（例如從 v0.12.0-rc1 退回 v0.11.0）會被
 # 視為隱式 downgrade 拒絕（依 SemVer §11）。如果是刻意要 rollback，自
-# 行手改 template/.version。
+# 行手改 .base/.version。
 
 # 沒有 make 時的 fallback
-./template/upgrade.sh v0.3.0
+./.base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` 一次完成：
 
-1. `git subtree pull --prefix=template ... --squash`
-2. Post-pull 完整性檢查 — subtree marker（`template/.version`、
-   `template/init.sh`、`template/script/docker/setup.sh`）若不見了會
+1. `git subtree pull --prefix=.base ... --squash`
+2. Post-pull 完整性檢查 — subtree marker（`.base/.version`、
+   `.base/init.sh`、`.base/script/docker/setup.sh`）若不見了會
    `git reset --hard` rollback（防舊版 `git-subtree.sh` destructive FF）
-3. `./template/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
+3. `./.base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
    / `Makefile` …）、把 `.gitignore` 同步到 canonical entry set、
    `git rm --cached` 已經變成 derived artifact 的舊 tracked 檔（`.env`、
    `compose.yaml`、…），最後呼叫 `setup.sh apply` 重生 `.env` +
@@ -477,8 +482,8 @@ make upgrade VERSION=v0.3.0
 
 per-repo 檔案不會被覆蓋：`<repo>/setup.conf` 保留原樣、
 `<repo>/config/`（bashrc / tmux / terminator …）也不動 — 若上游
-`template/config/` 自上次 pull 後有變動，upgrade.sh 會印出
-`diff -ruN template/config config` 提示，由你自行 reconcile。
+`.base/config/` 自上次 pull 後有變動，upgrade.sh 會印出
+`diff -ruN .base/config config` 提示，由你自行 reconcile。
 
 不要手動 `git subtree pull` — 完整性檢查、init.sh resync、sed 步驟
 很容易漏掉。
@@ -496,7 +501,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/template/...@vX.Y.Z` ref，比對 template 最新 tag 後開 PR。subtree 本身仍需在本地跑 `make upgrade VERSION=vX.Y.Z` — Dependabot 只負責 workflow ref。
+Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比對 template 最新 tag 後開 PR。subtree 本身仍需在本地跑 `make upgrade VERSION=vX.Y.Z` — Dependabot 只負責 workflow ref。
 
 ## CI Reusable Workflows
 
@@ -506,7 +511,7 @@ Dependabot 會讀 `main.yaml` 裡的 `uses: ycpss91255-docker/template/...@vX.Y.
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1
     with:
       image_name: my_app
       build_args: |
@@ -517,7 +522,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: my_app
 ```
@@ -563,7 +568,7 @@ make -f Makefile.ci help  # 顯示 CI 指令
 ## 目錄結構
 
 ```
-template/
+.base/
 ├── init.sh                           # 初始化 repo（新建或既有）
 ├── upgrade.sh                        # 升級 template subtree 版本
 ├── script/

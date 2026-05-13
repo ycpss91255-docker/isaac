@@ -22,6 +22,9 @@ readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../docker/_lib.sh"
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -53,7 +56,7 @@ EOF
 
 # ── CI container setup ───────────────────────────────────────────────────────
 
-_die() { printf "[ci] ERROR: %s\n" "$*" >&2; exit 1; }
+_die() { _log_err ci "$*"; exit 1; }
 
 _install_deps() {
   command -v bats >/dev/null 2>&1 && return 0
@@ -102,6 +105,10 @@ _install_deps() {
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
   find "${REPO_ROOT}/script/docker" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
+  # #284: sub-libs under script/docker/lib/ also need linting; gitignore.sh
+  # has lived there unlinted since #172, this picks up both that file and
+  # the post-#284 sub-libs (log / env / conf / compose / config_summary).
+  find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"

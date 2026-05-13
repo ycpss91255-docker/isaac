@@ -195,7 +195,13 @@ COPY .base/script/docker/_lib.sh \
      .base/script/docker/i18n.sh \
      .base/script/docker/_tui_conf.sh \
      /lint/
-RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh
+# v0.28.0 PR #306 split _lib.sh into focused sub-libs under
+# .base/script/docker/lib/; mirror that layout under /lint/lib/ so the
+# /lint/-stage _lib.sh sources its sub-libs identically to the normal
+# .base/ layout. Without this the smoke stage's `bash /lint/build.sh -h`
+# fails with `/lint/lib/log.sh: No such file or directory`.
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)

@@ -112,8 +112,111 @@ on:
               build_contexts: |
                 repo_root=.
                 third_party=./vendor
+      cache_variant:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Suffix appended to the GHA buildx cache scope key (#272). Use
+          when the caller invokes build-worker.yaml multiple times with
+          the same `image_name` but different `build_args` (the
+          env/ros{,2}_distro pattern, where one `image_name: ros2_distro`
+          is shared across 4 matrix variants distinguished by
+          `BASE_IMAGE`). Pass the per-call matrix expression — e.g.
+          `matrix.target.name` from the caller's strategy.matrix — or any
+          per-call unique string to give each shard its own cache scope.
+
+          Single-call repos (agent/*, single-distro app/* repos) can
+          leave this empty — the default scope `${image_name}-${hardware}-cache`
+          is already per-(repo, arch). Multi-distro repos that embed the
+          distro in `image_name` (e.g. `image_name: ros1_bridge-humble`)
+          also do not need this — distro is already in the scope.
+
+          Resolved scope key shape:
+            ${image_name}[-${cache_variant}]-${matrix.hardware}-cache
+
+          Examples:
+            ai_agent          -> ai_agent-x86_64-cache
+            ros1_bridge-humble -> ros1_bridge-humble-x86_64-cache
+            ros2_distro + cache_variant=humble-desktop-full
+                              -> ros2_distro-humble-desktop-full-x86_64-cache
 
 jobs:
+  # ────────────────────────────────────────────────────────────────
+  # #273 — doc-only PR fast-pass.
+  #
+  # Classifies the PR diff against an allowlist of doc-only paths
+  # (markdown, doc/, LICENSE, gitignore, CODEOWNERS, dependabot). If
+  # NO file outside that allowlist changed, downstream build /
+  # compute-matrix jobs skip and the aggregator job (`docker-build`)
+  # short-circuits to success so branch protection's required
+  # status check still passes.
+  #
+  # Non-PR triggers (push to main / tag / workflow_dispatch) always
+  # report code_changed=true so release / post-merge runs are
+  # unaffected.
+  #
+  # Phase 2 (#273): classifier is now pure shell (`git diff --name-only
+  # base...head` + `case` glob match) instead of `dorny/paths-filter@v3`.
+  # The classifier logic is platform-agnostic shell — only the wrapping
+  # YAML + GITHUB_OUTPUT line binds to GitHub Actions. Future migration
+  # to a non-GitHub CI host (e.g. internal GitLab CI) needs only an
+  # adapter shim around the same case statement, no rewrite of the
+  # allowlist semantics. Bash glob `*` matches `/` inside `case` so
+  # `*.md` covers `doc/test/TEST.md` and `doc/*` covers nested paths.
+  # ────────────────────────────────────────────────────────────────
+  path-filter:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.classify.outputs.code_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # `git diff --name-only base...head` needs both refs reachable;
+          # PR events checkout only the merge ref by default.
+          fetch-depth: 0
+      - name: Classify changed paths (pure shell — #273 Phase 2)
+        id: classify
+        env:
+          # Pre-expand the two SHAs into env vars so the inline shell
+          # below uses plain `$base` / `$head` shell expansion — avoids
+          # embedding template tokens inside the case-glob body and
+          # keeps the classifier itself portable to non-GitHub CI hosts.
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          has_code=0
+          # Bash `case` globs treat `*` as matching `/` too, so `*.md`
+          # covers nested-path markdown files and `doc/*` covers any
+          # depth under doc/. Patterns must mirror the Phase 1 dorny
+          # allowlist 1:1 (issue body documents them):
+          #   **/*.md, doc/**, LICENSE, .gitignore,
+          #   .github/CODEOWNERS, .github/dependabot.yml
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              *.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml)
+                continue
+                ;;
+              *)
+                has_code=1
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          if [ "${has_code}" -eq 1 ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "code_changed=false" >> "${GITHUB_OUTPUT}"
+          fi
+
   # ────────────────────────────────────────────────────────────────
   # Parse the comma-separated `platforms` input into a matrix
   # definition. Each supported platform gets the right runner label
@@ -121,6 +224,8 @@ jobs:
   # ycpss91255-docker org) and a canonical HARDWARE build-arg value.
   # ────────────────────────────────────────────────────────────────
   compute-matrix:
+    needs: path-filter
+    if: needs.path-filter.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
@@ -162,7 +267,8 @@ jobs:
   # runtime pipeline runs per platform.
   # ────────────────────────────────────────────────────────────────
   build:
-    needs: compute-matrix
+    needs: [path-filter, compute-matrix]
+    if: needs.path-filter.outputs.code_changed == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
@@ -174,12 +280,12 @@ jobs:
       - name: Check template version
         run: |
           LOCAL_VER=""
-          if [ -f template/.version ]; then
-            LOCAL_VER=$(cat template/.version | tr -d '[:space:]')
+          if [ -f .base/.version ]; then
+            LOCAL_VER=$(tr -d '[:space:]' < .base/.version)
           fi
           if [ -n "${LOCAL_VER}" ]; then
             LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
-              https://github.com/ycpss91255-docker/template.git \
+              https://github.com/ycpss91255-docker/base.git \
               | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
             if [ -n "${LATEST_VER}" ] && [ "${LOCAL_VER}" != "${LATEST_VER}" ]; then
               echo "::warning::template ${LOCAL_VER} → ${LATEST_VER} available"
@@ -190,6 +296,21 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Compute cache scope
+        # #272 — derive a per-(repo, variant, arch) cache scope key.
+        # ${image_name}[-${cache_variant}]-${matrix.hardware}-cache.
+        # See `cache_variant` input description for naming rationale.
+        # `matrix.hardware` (x86_64 / aarch64) is preferred over
+        # `matrix.platform` (linux/amd64) because some buildx cache
+        # backends balk on `/` in scope keys.
+        id: cache
+        run: |
+          base="${{ inputs.image_name }}"
+          if [ -n "${{ inputs.cache_variant }}" ]; then
+            base="${base}-${{ inputs.cache_variant }}"
+          fi
+          echo "key=${base}-${{ matrix.hardware }}-cache" >> "${GITHUB_OUTPUT}"
 
       - name: Generate .env
         run: |
@@ -236,6 +357,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -254,6 +377,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -286,6 +411,8 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -303,6 +430,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -320,12 +449,19 @@ jobs:
   # actual build runs; this one just gates on them.
   # ────────────────────────────────────────────────────────────────
   docker-build:
-    needs: build
+    needs: [path-filter, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate matrix result
+        # #273 — short-circuit to success when the PR diff was doc-only,
+        # so branch protection's required `call-docker-build / docker-build`
+        # check still resolves green without the matrix actually running.
         run: |
+          if [ "${{ needs.path-filter.outputs.code_changed }}" = "false" ]; then
+            echo "Doc-only PR; full build matrix skipped. Required check passes (#273)."
+            exit 0
+          fi
           result="${{ needs.build.result }}"
           echo "Matrix build result: ${result}"
           if [ "${result}" != "success" ]; then

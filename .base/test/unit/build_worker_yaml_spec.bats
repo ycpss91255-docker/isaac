@@ -193,3 +193,133 @@ setup() {
   _bc="$(grep -A 3 '^      build_contexts:' "${WF}" | grep 'default:' | head -1)"
   [[ "${_bc}" == *'""'* ]]
 }
+
+# ── #272: GHA buildx cache (per-(repo, variant, arch)) ────────────────
+
+@test "build-worker.yaml: declares cache_variant input with empty default (#272)" {
+  # New optional input for repos that call build-worker.yaml multiple
+  # times with the same image_name but different build_args (the
+  # env/ros{,2}_distro pattern). Default empty so existing single-call
+  # callers see no scope-key shape change.
+  run grep -A 3 '^      cache_variant:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: string'
+  assert_output --partial 'default: ""'
+}
+
+@test "build-worker.yaml: Compute cache scope step emits id: cache with scope key in GITHUB_OUTPUT (#272)" {
+  # The step computes `${image_name}[-${cache_variant}]-${hardware}-cache`
+  # once at the top of the build job; all 4 build steps reference the
+  # output. Asserts presence + id so downstream `steps.cache.outputs.key`
+  # references resolve.
+  run grep -E '^        id: cache$' "${WF}"
+  assert_success
+  run grep -E '^          echo "key=\$\{base\}-\$\{\{ matrix\.hardware \}\}-cache" >> "\$\{GITHUB_OUTPUT\}"$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-from=type=gha (#272)" {
+  # Every docker/build-push-action call must read from the same GHA
+  # scope so feature-branch builds reuse the base branch's cache and
+  # subsequent steps within the same shard share intermediate layers.
+  run grep -c '^          cache-from: type=gha,scope=\${{ steps\.cache\.outputs\.key }}$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: 4 build steps all set cache-to=type=gha,...,mode=max (#272)" {
+  # mode=max exports all intermediate stage layers (including the heavy
+  # builder / source-build stages). The 10 GB GHA quota tradeoff is
+  # accepted; LRU eviction is expected to keep hot paths cached.
+  run grep -c '^          cache-to: type=gha,scope=\${{ steps\.cache\.outputs\.key }},mode=max$' "${WF}"
+  assert_success
+  assert_output "4"
+}
+
+@test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
+  # Single-distro repos (agent/* + ros1_bridge-${distro} pattern) leave
+  # cache_variant unset; the scope key reduces to
+  # ${image_name}-${hardware}-cache, which is already per-(repo, arch)
+  # and matches the existing matrix shape.
+  local _cv
+  _cv="$(grep -A 3 '^      cache_variant:' "${WF}" | grep 'default:' | head -1)"
+  [[ "${_cv}" == *'""'* ]]
+}
+
+# ── #273 Phase 1: doc-only PR fast-pass ────────────────────────────────
+
+@test "build-worker.yaml: declares path-filter job (#273)" {
+  # New job runs the doc-only classifier; outputs code_changed
+  # consumed by compute-matrix / build / docker-build downstream.
+  run grep -E '^  path-filter:$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: path-filter classifier is pure shell (#273 Phase 2: no dorny/paths-filter)" {
+  # Phase 2 — dorny/paths-filter@v3 dependency dropped; classification
+  # is now `git diff --name-only base...head` + `case` glob in inline
+  # shell. Asserts the `uses:` import is gone (comments mentioning
+  # `dorny` for historical context are still fine) AND the shell
+  # driver is present.
+  run grep -E '^\s+uses:\s+dorny/paths-filter' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+  run grep -F 'git diff --name-only "${BASE_SHA}...${HEAD_SHA}"' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: classifier reads EVENT_NAME / BASE_SHA / HEAD_SHA from env (#273 Phase 2)" {
+  # Template tokens pre-expand into env vars so the shell case body
+  # stays portable to non-GitHub CI hosts — only the YAML env: keys
+  # bind to GitHub context.
+  run grep -F 'EVENT_NAME: ${{ github.event_name }}' "${WF}"
+  assert_success
+  run grep -F 'BASE_SHA: ${{ github.event.pull_request.base.sha }}' "${WF}"
+  assert_success
+  run grep -F 'HEAD_SHA: ${{ github.event.pull_request.head.sha }}' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: non-pull_request event short-circuits to code_changed=true before git diff (#273 Phase 2)" {
+  # Push / tag / workflow_dispatch never run the classifier loop —
+  # the early `[ ... != pull_request ] && exit 0` arm is essential
+  # because BASE_SHA / HEAD_SHA are empty on non-PR events.
+  run grep -E '\[ "\$\{EVENT_NAME\}" != "pull_request" \]' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: doc-only allowlist case-glob covers all 6 documented paths (#273)" {
+  # **/*.md, doc/**, LICENSE, .gitignore, .github/CODEOWNERS,
+  # .github/dependabot.yml — match the issue body / design comment.
+  # Phase 2 expresses them as a single `case` arm with `|`-joined
+  # patterns; one grep checks the whole arm at once.
+  run grep -F '*.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: compute-matrix and build are gated on code_changed (#273)" {
+  # Both heavy jobs need needs.path-filter.outputs.code_changed == 'true'.
+  # Count = 2 means both jobs have the gate.
+  run grep -c "if: needs\\.path-filter\\.outputs\\.code_changed == 'true'" "${WF}"
+  assert_success
+  assert_output "2"
+}
+
+@test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
+  # The aggregator must report success when code_changed == 'false'
+  # so branch protection's required check still resolves green even
+  # though the matrix was skipped.
+  run grep -F 'needs.path-filter.outputs.code_changed }}" = "false"' "${WF}"
+  assert_success
+  # And it still needs both path-filter + build so the conditional
+  # has both data sources.
+  run grep -E '^    needs: \[path-filter, build\]$' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: non-pull_request event resolves code_changed=true (#273)" {
+  # Push to main / tag / workflow_dispatch must always run the full
+  # matrix — the doc-only fast-pass is PR-only.
+  run grep -F 'echo "code_changed=true"' "${WF}"
+  assert_success
+}

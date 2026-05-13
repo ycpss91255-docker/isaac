@@ -17,10 +17,12 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker"
+  mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/template/script/docker/i18n.sh"
+  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/exec.sh "${SANDBOX}/exec.sh"
 
   # Seed .env so _load_env / _compute_project_name succeed without bootstrap.
@@ -146,6 +148,51 @@ teardown() {
   assert_output --partial "exec"
 }
 
+# ── -- flag/CMD separator (issue #289) ──────────────────────────────────────
+
+@test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
+  assert_success
+  assert_output --partial " ls /tmp"
+  # The literal -- must not survive into the docker exec command line —
+  # confirm there's no ` -- ` standalone token in the captured docker args.
+  refute_output --partial " -- "
+}
+
+@test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
+  # The whole point of -- is to send a CMD starting with a dash to the
+  # container without exec.sh's own option parser capturing it.
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
+  assert_success
+  assert_output --partial "my-tool"
+  assert_output --partial "--version"
+  refute_output --partial " -- "
+}
+
+@test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
+  assert_success
+  assert_output --partial "echo hi"
+  refute_output --partial " -- "
+}
+
+@test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
+  echo "mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
+  assert_success
+  assert_output --partial "ls"
+}
+
+@test "exec.sh --help mentions the -- separator (#289)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  # Either the synopsis token [--] or the standalone Options entry.
+  assert_output --partial "--"
+}
+
 # ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh, #104) ─────
 
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
@@ -154,6 +201,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -166,6 +215,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -178,6 +229,8 @@ teardown() {
   ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -193,9 +246,10 @@ teardown() {
   # When -C points there, exec.sh's docker exec invocation must reference
   # the alt IMAGE_NAME, proving FILE_PATH was redirected.
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -216,9 +270,10 @@ teardown() {
 
 @test "exec.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
@@ -248,4 +303,32 @@ teardown() {
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "exec.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "exec.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/exec.sh" -v --dry-run
+  assert_success
+}
+
+@test "exec.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/exec.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "exec.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/exec.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
 }

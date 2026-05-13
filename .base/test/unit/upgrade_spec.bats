@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # Unit tests for upgrade.sh, focused on _warn_config_drift — the
-# helper that tells the user when the upstream template/config/ tree
+# helper that tells the user when the upstream .base/config/ tree
 # moved during a subtree pull so they can reconcile their per-repo
 # <repo>/config/ copy.
 
@@ -23,9 +23,16 @@ setup() {
 # harness sources only function bodies (sed-extracted), so the
 # top-level derivation never runs — the tests pin the conventional
 # subtree prefix to make the assertions deterministic.
-TEMPLATE_REL="template"
-_log() { printf '[upgrade] %s\n' "$*"; }
-_error() { printf '[upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
+TEMPLATE_REL=".base"
+# Stub the _log_* helpers (#278). Real upgrade.sh sources _lib.sh and
+# routes _log / _error through _log_info / _log_err; this harness
+# extracts function bodies via sed so we re-stub the surface those
+# bodies call.
+_log_info() { printf '[%s] INFO: %s\n' "$1" "${*:2}"; }
+_log_warn() { printf '[%s] WARNING: %s\n' "$1" "${*:2}" >&2; }
+_log_err()  { printf '[%s] ERROR: %s\n' "$1" "${*:2}" >&2; }
+_log()    { _log_info upgrade "$*"; }
+_error()  { _log_err upgrade "$*"; exit 1; }
 EOS
   sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_git_identity() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
@@ -42,7 +49,7 @@ teardown() {
 
 # ── _warn_config_drift logic ────────────────────────────────────────────────
 
-@test "_warn_config_drift silent when no template/config in HEAD" {
+@test "_warn_config_drift silent when no .base/config in HEAD" {
   local _git_dir="${TEMP_DIR}/empty"
   mkdir -p "${_git_dir}"
   git -C "${_git_dir}" init -q
@@ -53,18 +60,18 @@ teardown() {
 
 @test "_warn_config_drift silent when pre and post hashes match" {
   local _git_dir="${TEMP_DIR}/same"
-  mkdir -p "${_git_dir}/template/config"
+  mkdir -p "${_git_dir}/.base/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "one" > "${_git_dir}/template/config/bashrc"
+  echo "one" > "${_git_dir}/.base/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
 
   run bash -c "
     cd '${_git_dir}'
     source '${HARNESS}'
-    _pre=\$(git rev-parse HEAD:template/config)
+    _pre=\$(git rev-parse HEAD:.base/config)
     _warn_config_drift \"\${_pre}\"
   "
   assert_success
@@ -73,24 +80,24 @@ teardown() {
 
 @test "_warn_config_drift prints WARNING + diff hint when hashes differ" {
   local _git_dir="${TEMP_DIR}/drift"
-  mkdir -p "${_git_dir}/template/config"
+  mkdir -p "${_git_dir}/.base/config"
   git -C "${_git_dir}" init -q -b main
   git -C "${_git_dir}" config user.email t@t
   git -C "${_git_dir}" config user.name t
-  echo "original" > "${_git_dir}/template/config/bashrc"
+  echo "original" > "${_git_dir}/.base/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c1
   local _pre
-  _pre="$(git -C "${_git_dir}" rev-parse HEAD:template/config)"
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD:.base/config)"
 
-  echo "updated" > "${_git_dir}/template/config/bashrc"
+  echo "updated" > "${_git_dir}/.base/config/bashrc"
   git -C "${_git_dir}" add -A
   git -C "${_git_dir}" commit -q -m c2
 
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _warn_config_drift '${_pre}'"
   assert_success
-  assert_output --partial "WARNING: template/config/ changed"
-  assert_output --partial "diff -ruN template/config config"
+  assert_output --partial "WARNING: .base/config/ changed"
+  assert_output --partial "diff -ruN .base/config config"
   assert_output --partial "git diff ${_pre:0:12}"
 }
 
@@ -112,7 +119,7 @@ teardown() {
 @test "upgrade.sh captures pre-pull <subtree-prefix>/config tree hash" {
   # The WARNING only fires when we have both pre and post hashes —
   # guard against dropping the snapshot line. Path is parameterised
-  # via TEMPLATE_REL post-v0.25.0 so the `template/` -> `.base/`
+  # via TEMPLATE_REL post-v0.25.0 so the `.base/` -> `.base/`
   # rename keeps the snapshot working.
   run grep -F 'HEAD:${TEMPLATE_REL}/config' "${UPGRADE}"
   assert_success
@@ -197,10 +204,10 @@ teardown() {
 # return its _pre_head so the test can call _verify_subtree_intact.
 _mk_subtree_repo() {
   local _dir="$1"
-  mkdir -p "${_dir}/template/script/docker"
-  echo "v0.9.5" > "${_dir}/template/.version"
-  echo "#!/usr/bin/env bash" > "${_dir}/template/init.sh"
-  echo "#!/usr/bin/env bash" > "${_dir}/template/script/docker/setup.sh"
+  mkdir -p "${_dir}/.base/script/docker"
+  echo "v0.9.5" > "${_dir}/.base/.version"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/init.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/script/docker/setup.sh"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t
   git -C "${_dir}" config user.name t
@@ -220,13 +227,13 @@ _mk_subtree_repo() {
   assert_success
 }
 
-@test "_verify_subtree_intact rolls back when template/.version is missing" {
+@test "_verify_subtree_intact rolls back when .base/.version is missing" {
   local _git_dir="${TEMP_DIR}/intact_noversion"
   _mk_subtree_repo "${_git_dir}"
   local _pre
   _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
-  # Simulate the destructive FF: template/* moved up, template/.version gone.
-  rm "${_git_dir}/template/.version"
+  # Simulate the destructive FF: .base/* moved up, .base/.version gone.
+  rm "${_git_dir}/.base/.version"
 
   run bash -c "
     cd '${_git_dir}'
@@ -235,17 +242,17 @@ _mk_subtree_repo() {
   "
   assert_failure
   assert_output --partial "integrity check failed"
-  assert_output --partial "template/.version"
+  assert_output --partial ".base/.version"
   # Post-condition: marker is restored by the rollback `git reset --hard`.
-  [ -f "${_git_dir}/template/.version" ]
+  [ -f "${_git_dir}/.base/.version" ]
 }
 
-@test "_verify_subtree_intact rolls back when template/script/docker/setup.sh is missing" {
+@test "_verify_subtree_intact rolls back when .base/script/docker/setup.sh is missing" {
   local _git_dir="${TEMP_DIR}/intact_nosetup"
   _mk_subtree_repo "${_git_dir}"
   local _pre
   _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
-  rm "${_git_dir}/template/script/docker/setup.sh"
+  rm "${_git_dir}/.base/script/docker/setup.sh"
 
   run bash -c "
     cd '${_git_dir}'
@@ -253,8 +260,8 @@ _mk_subtree_repo() {
     _verify_subtree_intact '${_pre}'
   "
   assert_failure
-  assert_output --partial "template/script/docker/setup.sh"
-  [ -f "${_git_dir}/template/script/docker/setup.sh" ]
+  assert_output --partial ".base/script/docker/setup.sh"
+  [ -f "${_git_dir}/.base/script/docker/setup.sh" ]
 }
 
 # ── upgrade.sh structural invariants (safety guards) ───────────────────────
@@ -476,7 +483,7 @@ _mk_subtree_repo() {
 
 # ── _upgrade refuses implicit downgrade ─────────────────────────────────────
 #
-# Calling `./template/upgrade.sh v0.11.0` from a v0.12.0-rc1 working
+# Calling `./.base/upgrade.sh v0.11.0` from a v0.12.0-rc1 working
 # tree should refuse and exit non-zero before touching the working
 # tree. The user can still recover deliberately (e.g., set the version
 # file by hand or rerun with a clear --force flag if we ever add one).

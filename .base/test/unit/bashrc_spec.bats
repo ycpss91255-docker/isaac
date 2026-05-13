@@ -63,7 +63,7 @@ setup() {
 @test "bashrc has bashrc.d bootstrap loop sourcing ~/.bashrc.d/*.sh" {
   # Layered config + drop-in pattern: at interactive shell start,
   # source any *.sh under ~/.bashrc.d/ so template-side helpers
-  # (from template/config/shell/bashrc.d/) AND downstream-side
+  # (from .base/config/shell/bashrc.d/) AND downstream-side
   # helpers (from <repo>/config/shell/bashrc.d/) both get loaded.
   run grep -qF 'for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh' "${RC}"
   assert_success
@@ -79,7 +79,7 @@ setup() {
   assert_success
 }
 
-@test "bashrc.d/ directory exists in template/config/shell/" {
+@test "bashrc.d/ directory exists in .base/config/shell/" {
   # Empty placeholder so the dir exists in subtree (git doesn't
   # track empty dirs). Template-side helpers can drop *.sh here
   # later without touching Dockerfile.example.

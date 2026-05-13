@@ -1,7 +1,7 @@
 # template
 
-[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
+[![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -34,9 +34,9 @@ Shared template for Docker container repos in the [ycpss91255-docker](https://gi
 mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
-./template/init.sh
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
+./.base/init.sh
 
 # Upgrade to latest
 make upgrade-check   # check
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo (e.g. ros_noetic)"]
-        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats (repo-specific)"]
         main_yaml["main.yaml<br/>→ calls reusable workflows"]
@@ -134,6 +134,30 @@ flowchart LR
 | `dockerfile/Dockerfile.example` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
+
+### Wrapper UX cheat sheet (#291)
+
+Single canonical reference for what each user-facing script accepts.
+Downstream READMEs link here instead of duplicating the table.
+
+| Flag / form | `build.sh` | `run.sh` | `exec.sh` | `stop.sh` | `setup.sh` (CLI) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `-h` / `--help` | yes | yes | yes | yes | yes |
+| `-C` / `--chdir DIR` | yes | yes | yes | yes | — |
+| `--lang LANG` | yes | yes | yes | yes | yes |
+| `--dry-run` | yes | yes | yes | yes | — |
+| `-s` / `--setup` | yes | yes | — | — | — (target of `--setup`) |
+| `-t` / `--target TARGET` | yes (#280, alias to positional) | yes | yes | — (Q2: stays project-wide) | — |
+| `--instance NAME` | — (build-time concept) | yes | yes | yes | — |
+| `-q` / `--quiet` | — | — | — | — | yes (#285, on mutating subcommands) |
+| `--` separator | — | yes | yes (#289) | — | yes (per subcommand) |
+| Positional meaning | TARGET | CMD | CMD | `docker compose down` pass-through | subcommand name |
+
+Design decisions locked by #291:
+
+- **Q1** (build.sh positional vs flag): keep positional + `-t` / `--target` as a backwards-compatible alias. `./build.sh runtime` and `./build.sh -t runtime` both work; downstream READMEs may use either, but should prefer the flag form for parity with `run.sh` / `exec.sh`.
+- **Q2** (stop.sh `-t`): not adopted. `stop.sh` stays project-wide (`docker compose down`), since per-service stop has different docker-side semantics (`docker compose stop <service>`) and would conflate two cleanup verbs under one flag. Users wanting per-service control call `docker compose stop <service>` directly.
+- **Q3** (setup.sh positional): subcommand-first verb-style (`./setup.sh set <key> <value>`), unchanged. Different mental model from the wrapper trio's TARGET / CMD, matching `git` / `docker` CLI convention.
 
 ### Dockerfile stages (convention)
 
@@ -294,7 +318,10 @@ diagnostics pointing at the missing artifact.
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
+  - `script/entrypoint.sh` (canonical)
+  - any ros / app launch helpers etc.
+- `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `dockerfile/Dockerfile.example`, #275)
 - `doc/` and `README.md`
 - Repo-specific smoke tests
 
@@ -306,7 +333,7 @@ env/volumes, network mode, extra volume mounts — through a single
 regenerates both `.env` and `compose.yaml`; users never hand-edit those
 two derived artifacts.
 
-### One conf, six sections
+### One conf, seven sections
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -316,9 +343,11 @@ two derived artifacts.
 [network]  mode (host|bridge|none), ipc, privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
            mount_2..mount_N (extra host mounts; devices via /dev path)
+[logging]  driver (json-file default), max_size, max_file, compress
+           [logging.<svc>] for per-service key-level override
 ```
 
-Template default lives at `template/config/docker/setup.conf`
+Template default lives at `.base/config/docker/setup.conf`
 (post-v0.25.0); per-repo overrides go at `<repo>/config/docker/setup.conf`.
 Section-level **replace** strategy: a section present in the per-repo
 file fully replaces the template's section; omitted sections fall back
@@ -334,7 +363,7 @@ to opt out of mounting a workspace. Edit via:
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./template/init.sh --gen-conf # plain copy of template/config/docker/setup.conf
+./.base/init.sh --gen-conf # plain copy of .base/config/docker/setup.conf
                               # to <repo>/config/docker/setup.conf
 ```
 
@@ -364,8 +393,8 @@ Main
 `setup.sh` runs only when explicitly triggered — it is not re-run on
 every build or launch:
 
-- **`./template/init.sh`** runs it once after the skeleton lands
-- **`make upgrade` / `./template/upgrade.sh`** re-runs it via init.sh
+- **`./.base/init.sh`** runs it once after the skeleton lands
+- **`make upgrade` / `./.base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
   `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
@@ -457,11 +486,11 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 
 # 2. Add subtree
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
 
 # 3. Initialize symlinks (one command; runs setup.sh under the hood)
-./template/init.sh
+./.base/init.sh
 ```
 
 > `git subtree add` requires `HEAD` to exist. On a freshly `git init`-ed repo with no commits, it fails with `ambiguous argument 'HEAD'` and `working tree has modifications`. The empty commit creates `HEAD` so subtree can merge into it.
@@ -483,20 +512,20 @@ make upgrade
 make upgrade VERSION=v0.3.0
 # Pinning to a version OLDER than the current local pin (e.g. rolling
 # from v0.12.0-rc1 back to v0.11.0) is refused as an implicit downgrade
-# per SemVer §11. Edit template/.version manually if intentional.
+# per SemVer §11. Edit .base/.version manually if intentional.
 
 # Fallback if make is unavailable
-./template/upgrade.sh v0.3.0
+./.base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` handles the full cycle in one go:
 
-1. `git subtree pull --prefix=template ... --squash`
+1. `git subtree pull --prefix=.base ... --squash`
 2. Post-pull integrity check — `git reset --hard` rollback if subtree
-   markers (`template/.version`, `template/init.sh`,
-   `template/script/docker/setup.sh`) are missing (catches the
+   markers (`.base/.version`, `.base/init.sh`,
+   `.base/script/docker/setup.sh`) are missing (catches the
    destructive fast-forward seen on older `git-subtree.sh`)
-3. `./template/init.sh` re-runs to: resync root symlinks
+3. `./.base/init.sh` re-runs to: resync root symlinks
    (`build.sh` / `run.sh` / `Makefile` …), sync `.gitignore` against
    the canonical entry set, `git rm --cached` any tracked-but-now-derived
    files (`.env`, `compose.yaml`, …), and call `setup.sh apply` to
@@ -506,8 +535,8 @@ make upgrade VERSION=v0.3.0
 
 Your per-repo files are never overwritten: `<repo>/config/docker/setup.conf` stays
 as-is, and `<repo>/config/` (bashrc / tmux / terminator …) is left
-alone — if upstream `template/config/` moved since the last pull,
-upgrade.sh prints a `diff -ruN template/config config` hint so you can
+alone — if upstream `.base/config/` moved since the last pull,
+upgrade.sh prints a `diff -ruN .base/config config` hint so you can
 reconcile manually.
 
 Don't `git subtree pull` by hand — the integrity check, init.sh
@@ -527,7 +556,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot notices the `uses: ycpss91255-docker/template/...@vX.Y.Z` refs in
+Dependabot notices the `uses: ycpss91255-docker/base/...@vX.Y.Z` refs in
 `main.yaml`, compares against the template's latest tag, and files a PR. You
 still run `make upgrade VERSION=vX.Y.Z` locally to sync the subtree itself —
 Dependabot only bumps the workflow refs.
@@ -540,7 +569,7 @@ Repos replace local `build-worker.yaml` / `release-worker.yaml` with calls to th
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1
     with:
       image_name: my_app
       build_args: |
@@ -551,7 +580,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: my_app
 ```
@@ -610,7 +639,7 @@ jobs:
         target:
           - { name: 'standard',  base: 'python:3.11-slim',     is_latest: true }
           - { name: 'minimal',   base: 'python:3.11-alpine',   is_latest: false }
-    uses: ycpss91255-docker/template/.github/workflows/publish-worker.yaml@vX.Y.Z
+    uses: ycpss91255-docker/base/.github/workflows/publish-worker.yaml@vX.Y.Z
     with:
       image_name: my_image
       tag_suffix: "-${{ matrix.target.name }}"
@@ -654,7 +683,7 @@ See [TEST.md](doc/test/TEST.md) for details.
 ## Directory Structure
 
 ```
-template/
+.base/
 ├── init.sh                           # Initialize repo (new or existing)
 ├── upgrade.sh                        # Upgrade template subtree version
 ├── script/

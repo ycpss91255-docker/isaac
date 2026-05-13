@@ -25,8 +25,8 @@ setup() {
 
 # _seed_template_remote
 #   Build a tiny template layout matching what upgrade.sh's post-flight
-#   checks look for (markers: template/.version, template/init.sh,
-#   template/script/docker/setup.sh), wrap two tagged versions around it,
+#   checks look for (markers: .base/.version, .base/init.sh,
+#   .base/script/docker/setup.sh), wrap two tagged versions around it,
 #   and push to a bare repo we can treat as TEMPLATE_REMOTE.
 _seed_template_remote() {
   mkdir -p "${TMPL_WORK}/script/docker"
@@ -35,12 +35,19 @@ _seed_template_remote() {
   git -C "${TMPL_WORK}" config user.name t
 
   # v0.9.5: baseline subtree content. Use the real upgrade.sh under test so
-  # the downstream repo (which invokes ./template/upgrade.sh) runs the
+  # the downstream repo (which invokes ./.base/upgrade.sh) runs the
   # same code these tests validate.
   echo "v0.9.5" > "${TMPL_WORK}/.version"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/init.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
+  # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
+  # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
+  # all three surfaces into the fake remote.
+  mkdir -p "${TMPL_WORK}/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"
@@ -60,8 +67,8 @@ _seed_template_remote() {
 
 # _seed_downstream_repo
 #   Simulate a consumer repo at the moment right after `git subtree add
-#   --prefix=template ... v0.9.5 --squash`: a committed README, a
-#   main.yaml with @v0.9.5 references ready to be bumped, and template/ as
+#   --prefix=.base ... v0.9.5 --squash`: a committed README, a
+#   main.yaml with @v0.9.5 references ready to be bumped, and .base/ as
 #   a proper subtree.
 _seed_downstream_repo() {
   mkdir -p "${DOWN_DIR}/.github/workflows"
@@ -73,31 +80,31 @@ _seed_downstream_repo() {
   cat > "${DOWN_DIR}/.github/workflows/main.yaml" <<'YAML'
 jobs:
   build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.9.5
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.9.5
   release:
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.9.5
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.5
 YAML
   git -C "${DOWN_DIR}" add -A
   git -C "${DOWN_DIR}" commit -q -m "initial downstream"
 
-  git -C "${DOWN_DIR}" subtree add -q --prefix=template \
+  git -C "${DOWN_DIR}" subtree add -q --prefix=.base \
     "file://${TMPL_BARE}" v0.9.5 --squash
 }
 
 # ── Happy path ──────────────────────────────────────────────────────────────
 
-@test "upgrade.sh v0.9.7: bumps template/.version, pulls new content, updates main.yaml" {
+@test "upgrade.sh v0.9.7: bumps .base/.version, pulls new content, updates main.yaml" {
   cd "${DOWN_DIR}"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Upgrading: v0.9.5 → v0.9.7"
   assert_output --partial "Done! Upgraded to v0.9.7"
 
   # Version bumped
-  [ "$(cat template/.version)" = "v0.9.7" ]
+  [ "$(cat .base/.version)" = "v0.9.7" ]
   # New file from v0.9.7 arrived under the subtree prefix
-  [ -f "template/script/docker/new_script.sh" ]
+  [ -f ".base/script/docker/new_script.sh" ]
   # main.yaml @tag references bumped to v0.9.7
   grep -Fq "build-worker.yaml@v0.9.7" .github/workflows/main.yaml
   grep -Fq "release-worker.yaml@v0.9.7" .github/workflows/main.yaml
@@ -108,18 +115,18 @@ YAML
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 
-  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7 >/dev/null
+  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
   assert_success
   assert_output --partial "Already at v0.9.7"
-  [ "$(cat template/.version)" = "v0.9.7" ]
+  [ "$(cat .base/.version)" = "v0.9.7" ]
 }
 
 @test "upgrade.sh --check reports update available from v0.9.5 → v0.9.7" {
   cd "${DOWN_DIR}"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh --check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh --check
   # _check exits 1 when an update is available (documented contract).
   assert_failure
   assert_output --partial "Local:  v0.9.5"
@@ -148,7 +155,7 @@ YAML
   cd "${DOWN_DIR}"
   cp /source/script/docker/Makefile Makefile
 
-  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7 >/dev/null
+  env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
   assert_success
@@ -168,21 +175,21 @@ YAML
       HOME="${BATS_TEST_TMPDIR}" \
       GIT_CONFIG_GLOBAL=/dev/null \
       GIT_CONFIG_SYSTEM=/dev/null \
-      ./template/upgrade.sh v0.9.7
+      ./.base/upgrade.sh v0.9.7
   assert_failure
   assert_output --partial "git identity not configured"
   # Pre-flight aborted before subtree pull ran.
-  [ "$(cat template/.version)" = "v0.9.5" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
 @test "upgrade.sh fails fast when MERGE_HEAD is present" {
   cd "${DOWN_DIR}"
   touch .git/MERGE_HEAD
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./template/upgrade.sh v0.9.7
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
   assert_failure
   assert_output --partial "MERGE_HEAD present"
-  [ "$(cat template/.version)" = "v0.9.5" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
 # ── Rollback on destructive subtree pull ────────────────────────────────────
@@ -192,8 +199,8 @@ YAML
 
   # Install a git-subtree stub that simulates the Jetson v0.9.7 failure
   # mode: fetches the tag, then hard-resets HEAD to FETCH_HEAD (which
-  # has template content at REPO ROOT, not under template/). The
-  # resulting working tree loses template/.version and template-prefixed
+  # has template content at REPO ROOT, not under .base/). The
+  # resulting working tree loses .base/.version and template-prefixed
   # files.
   #
   # `git subtree` resolves via GIT_EXEC_PATH (default /usr/lib/git-core),
@@ -233,19 +240,19 @@ STUB
 
   run env GIT_EXEC_PATH="${_stub_dir}" \
       TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./template/upgrade.sh v0.9.7
+      ./.base/upgrade.sh v0.9.7
 
   assert_failure
   assert_output --partial "integrity check failed"
-  assert_output --partial "template/.version"
+  assert_output --partial ".base/.version"
   assert_output --partial "Rolling back"
   assert_output --partial "upgrade aborted"
 
   # Post-condition: repo restored. HEAD back to pre-pull, subtree markers
   # present, version still v0.9.5 — the user's working copy is usable.
   [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
-  [ -f "template/.version" ]
-  [ "$(cat template/.version)" = "v0.9.5" ]
-  [ -f "template/script/docker/setup.sh" ]
+  [ -f ".base/.version" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+  [ -f ".base/script/docker/setup.sh" ]
   [ -f "README.md" ]
 }
