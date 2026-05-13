@@ -1,0 +1,49 @@
+
+# Write Hello and alias to bashrc
+echo 'Hello Docker!'
+
+alias_func() {
+  alias ebc='vim ${HOME}/.bashrc'
+  alias sbc='source ${HOME}/.bashrc && \
+    echo "sourced ${HOME}/.bashrc"'
+}
+
+color_git_branch() {
+  local color_prompt=yes
+
+  [[ -z $BASH_VERSION || $- != *i* ]] && return 0
+
+  parse_git_branch() {
+    local ref=""
+    ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 0
+    if [[ "$ref" == "HEAD" ]]; then
+      ref=$(git describe --tags --exact-match 2>/dev/null \
+        || git rev-parse --short HEAD 2>/dev/null) || return 0
+    fi
+    [[ -n "$ref" ]] && printf '(%s)' "$ref"
+  }
+
+  # debian_chroot is populated by /etc/bash.bashrc when running inside
+  # a chroot; harmless when unset (PS1 substitution is guarded with :+).
+  # shellcheck disable=SC2154
+  if [[ "${color_prompt}" == "yes" ]]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[01;31m\]$(parse_git_branch)\[\033[00m\]\$ '
+  else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w$(parse_git_branch)\$ '
+  fi
+}
+
+alias_func
+color_git_branch
+
+# Source any drop-in snippets in ~/.bashrc.d/. Both template helpers
+# (shipped via template/config/shell/bashrc.d/) and downstream
+# repo-local helpers (shipped via <repo>/config/shell/bashrc.d/) end
+# up here. See ycpss91255-docker/template#254 for the layered
+# config/ override + bashrc.d drop-in design.
+if [[ -d "${HOME}/.bashrc.d" ]]; then
+  for _bashrc_d_f in "${HOME}/.bashrc.d/"*.sh; do
+    [[ -r "${_bashrc_d_f}" ]] && source "${_bashrc_d_f}"
+  done
+  unset _bashrc_d_f
+fi

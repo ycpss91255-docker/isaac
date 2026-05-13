@@ -1,0 +1,277 @@
+name: Publish Docker Image
+
+# Reusable workflow that pushes a downstream repo's Dockerfile target
+# stage to a container registry (default: GHCR) on tag push.
+#
+# Opt-in: callers explicitly add a `call-publish` job to their main.yaml
+# that references this workflow. Existing repos that don't reference it
+# are unaffected.
+#
+# Typical use case: foundational image repos (`ros_distro`,
+# `ros2_distro`) that other repos consume via Docker `FROM`. App repos
+# (urg_node, realsense, sick) that want to inherit from those bases use
+# `FROM ghcr.io/<org>/ros_distro:vX.Y.Z-<variant>` in their own
+# Dockerfile.
+#
+# Tag scheme:
+#   ${registry}/${owner}/${image_name}:${GITHUB_REF_NAME}${tag_suffix}
+#
+# When `is_latest: true`, also pushes:
+#   ${registry}/${owner}/${image_name}:latest${tag_suffix}
+#
+# So a v0.1.0 release of `<image_name>` with a 2-variant matrix
+# (`standard` flagged is_latest=true, `minimal` not) produces:
+#   ghcr.io/<org>/<image_name>:v0.1.0-standard
+#   ghcr.io/<org>/<image_name>:latest-standard          (latest flag)
+#   ghcr.io/<org>/<image_name>:v0.1.0-minimal
+#
+# The reused inputs (build_args / context_path / dockerfile_path /
+# build_contexts / platforms / test_tools_version) mirror
+# build-worker.yaml so callers can share matrix definitions across
+# build + publish jobs.
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+        description: |
+          Image repository name on the registry, without the registry /
+          owner prefix (e.g. `ros_distro`). The full image reference
+          becomes `${registry}/${owner}/${image_name}`.
+      tag_suffix:
+        required: false
+        type: string
+        default: ""
+        description: |
+          String appended to both `:${version}` and `:latest` tags.
+          Convention: `-<matrix-entry-name>` so each variant lands on
+          its own tag (e.g. `-standard`, `-minimal`). Empty default =
+          bare `:${version}` / `:latest` tags (single-variant repos).
+      is_latest:
+        required: false
+        type: boolean
+        default: false
+        description: |
+          When true, also push `:latest${tag_suffix}` alongside
+          `:${version}${tag_suffix}`. Multi-variant repos should set
+          this to `true` only on the canonical default variant so
+          downstream `:latest-...` consumers point at the variant the
+          maintainer recommends.
+      registry:
+        required: false
+        type: string
+        default: "ghcr.io"
+        description: |
+          Container registry hostname. Default `ghcr.io` uses
+          GITHUB_TOKEN for auth (no extra secrets needed). For Docker
+          Hub set `docker.io` and ensure the caller passes
+          `secrets: inherit` so DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
+          can be picked up via `secrets.*` -- this workflow itself
+          only handles GHCR auth in MVP; Docker Hub auth via
+          alternative secrets is a follow-up.
+      target:
+        required: false
+        type: string
+        default: "devel"
+        description: |
+          Dockerfile target stage to publish. Default `devel` makes
+          this image suitable as a `FROM` base for downstream app
+          repos (full dev environment baked in). Set to `runtime` to
+          publish the slim production image instead.
+      build_args:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Multi-line KEY=VALUE build args, same shape as
+          build-worker.yaml. Typically the caller passes
+          `BASE_IMAGE=<upstream>` here per matrix entry.
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+        description: |
+          Comma-separated target platforms (same parser as
+          build-worker.yaml). Each platform is published as a separate
+          manifest entry inside the same image tag, so consumers can
+          `docker pull` the tag and get the right arch automatically.
+
+          MVP supports linux/amd64 + linux/arm64 (publishes a multi-arch
+          manifest list). When upstream base images are amd64-only,
+          callers should leave this at the default; multi-arch base
+          images publish to linux/arm64 via native arm64 runners (no
+          QEMU emulation).
+      context_path:
+        required: false
+        type: string
+        default: "."
+        description: |
+          Build context (mirrors build-worker.yaml). Defaults to repo
+          root.
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional explicit Dockerfile path. Empty defers to
+          `<context_path>/Dockerfile`.
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional newline-separated `<name>=<location>` pairs (mirrors
+          build-worker.yaml). Forwarded to docker/build-push-action's
+          build-contexts.
+      test_tools_version:
+        required: false
+        type: string
+        default: "latest"
+        description: |
+          Tag of `ghcr.io/ycpss91255-docker/test-tools:<tag>`. The
+          downstream Dockerfile reads this as a build-arg even when
+          publishing the devel/runtime stage (the test stage is
+          declared FROM ${TEST_TOOLS_IMAGE} for the lint pass);
+          callers should pin to the template release they upgraded
+          from for reproducibility.
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # Same matrix-shaping logic as build-worker.yaml so the published
+  # tags align with the build matrix the caller already runs.
+  # ────────────────────────────────────────────────────────────────
+  compute-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          items=""
+          IFS=',' read -ra plats <<< "${PLATFORMS}"
+          for p in "${plats[@]}"; do
+            p="$(echo "${p}" | tr -d '[:space:]')"
+            case "${p}" in
+              linux/amd64)
+                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"},'
+                ;;
+              linux/arm64)
+                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"aarch64"},'
+                ;;
+              "")
+                continue
+                ;;
+              *)
+                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
+                exit 1
+                ;;
+            esac
+          done
+          if [ -z "${items}" ]; then
+            echo "::error::No valid platforms found in '${PLATFORMS}'"
+            exit 1
+          fi
+          json="{\"include\":[${items%,}]}"
+          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+
+  # ────────────────────────────────────────────────────────────────
+  # Build + push per-platform image. Each platform's image gets the
+  # full set of computed tags; docker/build-push-action with multiple
+  # tags on a single push call writes one manifest containing all of
+  # them.
+  #
+  # When the caller's matrix has multiple platforms, the per-platform
+  # outputs end up in separate "tag-platform" image entries on the
+  # registry; the manifest-list aggregation step below stitches them
+  # into a single multi-arch manifest under each final tag.
+  # ────────────────────────────────────────────────────────────────
+  publish:
+    needs: compute-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest_amd64: ${{ steps.export.outputs.digest_amd64 }}
+      digest_arm64: ${{ steps.export.outputs.digest_arm64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image_name }}
+          REF: ${{ github.ref_name }}
+          SUFFIX: ${{ inputs.tag_suffix }}
+          IS_LATEST: ${{ inputs.is_latest }}
+        run: |
+          base="${REGISTRY}/${OWNER}/${IMAGE}"
+          version_tag="${base}:${REF}${SUFFIX}"
+          tags="${version_tag}"
+          if [ "${IS_LATEST}" = "true" ]; then
+            tags="${tags}"$'\n'"${base}:latest${SUFFIX}"
+          fi
+          # Multiline output via heredoc form
+          {
+            echo "tags<<TAGS_EOF"
+            printf '%s\n' "${tags}"
+            echo "TAGS_EOF"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Computed tags:"
+          printf '  %s\n' "${tags}"
+
+      - name: Generate .env
+        run: |
+          cat > .env << EOF
+          USER_NAME=ci
+          USER_GROUP=ci
+          USER_UID=1000
+          USER_GID=1000
+          HARDWARE=${{ matrix.hardware }}
+          DOCKER_HUB_USER=ci
+          GPU_ENABLED=false
+          IMAGE_NAME=${{ inputs.image_name }}
+          WS_PATH=/tmp/workspace
+          EOF
+          mkdir -p /tmp/workspace
+
+      - name: Build and push (${{ matrix.platform }})
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: ${{ inputs.target }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            ${{ inputs.build_args }}
