@@ -2,7 +2,7 @@
 
 **[English](README.md)** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
 
-NVIDIA Isaac Sim 5.1.0 Docker development environment, built on top of [`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template).
+NVIDIA Isaac Sim 5.1.0 Docker development environment, built on top of [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base) (previously `ycpss91255-docker/template`).
 
 Image scope covers Isaac Sim itself plus the env wiring needed for its bundled ROS 2 bridge to talk cross-container. Downstream application nodes (CoreSAM, AGV bring-up) and the ROS 1 / ROS 2 bridge for Noetic interop live in sibling docker folders.
 
@@ -32,7 +32,7 @@ Inside the container:
 /isaac-sim/runapp.sh           # local GUI (requires X11; run `xhost +local:docker` on the host first)
 ```
 
-> A `run.sh -t {headless|gui}` shortcut is in flight via [template issue #215](https://github.com/ycpss91255-docker/template/issues/215). Until that lands, use the manual launchers above.
+> A `run.sh -t {headless|gui}` shortcut is in flight via [base issue #215](https://github.com/ycpss91255-docker/base/issues/215). Until that lands, use the manual launchers above.
 
 ## Connecting to the WebRTC livestream
 

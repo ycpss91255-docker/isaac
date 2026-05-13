@@ -10,11 +10,14 @@
 # isolation that broke the old test-tools:local CI pattern.
 #
 # Stages:
-#   sys     - User/group, locale, timezone
-#   base    - Development tools and packages
-#   devel   - Application-specific tools + entrypoint
-#   test    - Lint + smoke test (ephemeral, discarded after build)
-#   runtime - Minimal runtime image (optional)
+#   sys        - User/group, locale, timezone
+#   devel-base - Development tools and packages (renamed from `base` in
+#                base repo v0.21.0 for symmetry with runtime-base)
+#   devel      - Application-specific tools + entrypoint
+#   devel-test - Lint + smoke test (ephemeral, discarded after build;
+#                renamed from `test` in base repo v0.21.0 for symmetry
+#                with runtime-test)
+#   runtime    - Minimal runtime image (optional)
 
 ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
@@ -75,8 +78,8 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
         usermod -aG isaac-sim "${USER_NAME}"; \
     fi
 
-############################## base ##############################
-FROM sys AS base
+############################## devel-base ##############################
+FROM sys AS devel-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -98,14 +101,14 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ############################## devel ##############################
-FROM base AS devel
+FROM devel-base AS devel
 
 ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-# <repo>/config is a per-repo copy of template/config seeded by
-# init.sh. Edit files there freely; template upgrades do not touch
+# <repo>/config is a per-repo copy of .base/config seeded by
+# init.sh. Edit files there freely; base upgrades do not touch
 # this directory (upgrade.sh prints a diff hint when upstream moves).
 ARG CONFIG_SRC="config"
 
@@ -162,11 +165,11 @@ EXPOSE 22
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
-############################## test ##############################
+############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
-FROM devel AS test
+FROM devel AS devel-test
 
 USER root
 
@@ -188,9 +191,9 @@ COPY script/*.sh /lint/script/
 # Issue #104: removing these used to be compensated by inline
 # `_detect_lang` fallbacks in every script — now the canonical
 # definition lives once in i18n.sh.
-COPY template/script/docker/_lib.sh \
-     template/script/docker/i18n.sh \
-     template/script/docker/_tui_conf.sh \
+COPY .base/script/docker/_lib.sh \
+     .base/script/docker/i18n.sh \
+     .base/script/docker/_tui_conf.sh \
      /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh
 RUN cd /lint && hadolint Dockerfile
@@ -202,8 +205,8 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from template + repo-specific)
-COPY template/test/smoke/ /smoke_test/
+# Smoke test (shared from base + repo-specific)
+COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/ /smoke_test/
 
 ARG USER

@@ -1,0 +1,8 @@
+# Empty placeholder so this directory exists in the subtree (git
+# does not track empty directories). Drop *.sh files here in the
+# template-side helpers for cross-repo conveniences. Downstream
+# overrides go under <repo>/config/shell/bashrc.d/ and overlay via
+# the layered COPY chain in Dockerfile.example.
+#
+# See ycpss91255-docker/template#254 for the layered config/
+# override design.

@@ -1,1 +1,1 @@
-template/script/docker/setup.sh
+.base/script/docker/setup.sh
