@@ -1,7 +1,7 @@
 name: Release test-tools image to GHCR
 
 # Multi-arch (linux/amd64 + linux/arm64) build of
-# template/dockerfile/Dockerfile.test-tools, pushed to
+# .base/dockerfile/Dockerfile.test-tools, pushed to
 # ghcr.io/ycpss91255-docker/test-tools tagged with the release version
 # and :latest. Downstream repo Dockerfiles consume this via
 # `ARG TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<ver>`,
@@ -61,7 +61,7 @@ jobs:
       - name: Build and push multi-arch test-tools image
         # This workflow runs inside the template repo, not a downstream
         # consumer, so the Dockerfile lives at `dockerfile/...`, not
-        # `template/dockerfile/...` (the latter is only the subtree path
+        # `.base/dockerfile/...` (the latter is only the subtree path
         # downstream repos see and is what build-worker.yaml uses since
         # that workflow executes in the downstream's checkout).
         uses: docker/build-push-action@v7

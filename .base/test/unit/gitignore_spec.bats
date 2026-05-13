@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for template/script/docker/lib/gitignore.sh.
+# Unit tests for .base/script/docker/lib/gitignore.sh.
 #
 # Issue #172: init.sh / upgrade.sh need to sync a canonical .gitignore set
 # (.env, .env.bak, compose.yaml, setup.conf.bak, coverage/,

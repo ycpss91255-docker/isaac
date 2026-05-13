@@ -3,7 +3,7 @@
 # Contains: ShellCheck, Hadolint, Bats (with bats-support + bats-assert + bats-mock)
 #
 # Usage:
-#   docker build -t test-tools:local -f template/dockerfile/Dockerfile.test-tools .
+#   docker build -t test-tools:local -f .base/dockerfile/Dockerfile.test-tools .
 #   Then in repo Dockerfile:
 #     COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
 

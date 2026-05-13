@@ -1006,9 +1006,12 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "no per-repo setup.conf"
-  refute_output --partial "[setup] INFO:"
+  # #186 regression guard: the heads-up must NOT be demoted to INFO
+  # (where it would scroll past). The env_done line legitimately uses
+  # INFO level post-#290, so scope the refute to the warning's body.
+  refute_output --partial "[setup] INFO: no per-repo setup.conf"
 }
 
 @test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
@@ -1022,7 +1025,7 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1048,24 +1051,30 @@ EOF
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
   assert_success
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "未找到"
 }
 
 @test "apply resolves default _base_path via BASH_SOURCE when --base-path omitted" {
   # apply without --base-path walks 3 levels up from its own location
   # (script/docker/../../.. = repo root).
-  mkdir -p "${TEMP_DIR}/sandbox_repo/template/script/docker" \
-           "${TEMP_DIR}/sandbox_repo/template/config/docker"
+  mkdir -p "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib" \
+           "${TEMP_DIR}/sandbox_repo/.base/config/docker"
   cp /source/script/docker/setup.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh"
   cp /source/script/docker/i18n.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/i18n.sh"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/i18n.sh"
   cp /source/script/docker/_tui_conf.sh \
-    "${TEMP_DIR}/sandbox_repo/template/script/docker/_tui_conf.sh"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/template/config/docker/setup.conf"
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  cp /source/script/docker/_lib.sh \
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh \
+    "${TEMP_DIR}/sandbox_repo/.base/script/docker/lib/"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox_repo/.base/config/docker/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox_repo/template/script/docker/setup.sh" apply
+  run bash "${TEMP_DIR}/sandbox_repo/.base/script/docker/setup.sh" apply
   assert_success
   assert [ -f "${TEMP_DIR}/sandbox_repo/.env" ]
 }
@@ -1168,7 +1177,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "no per-repo setup.conf"
 }
 
@@ -1180,7 +1189,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "per-repo setup.conf has no section"
 }
 
@@ -1202,7 +1211,7 @@ EOF
     source /source/script/docker/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
   "
-  assert_output --partial "[setup] WARN:"
+  assert_output --partial "[setup] WARNING:"
   assert_output --partial "未找到"
 }
 
@@ -1216,14 +1225,18 @@ EOF
   # End-to-end: invoke the script as a subprocess (the way build.sh / run.sh
   # do after B-1) instead of `source` + function call. Validates the
   # subcommand dispatch path actually works when the script is executed.
-  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker" \
-           "${TEMP_DIR}/sandbox/template/config/docker"
-  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
-  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
-  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/template/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker/lib" \
+           "${TEMP_DIR}/sandbox/.base/config/docker"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/.base/config/docker/setup.conf"
 
-  bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" apply \
+  bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
   # #174: drift hash covers template + setup.conf. Mutating .local
@@ -1233,7 +1246,7 @@ EOF
 mode = off
 EOF
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     check-drift --base-path "${TEMP_DIR}/sandbox"
   assert_failure
   assert_output --partial "drift detected"
@@ -1455,18 +1468,22 @@ EOF
 }
 
 @test "set / show / list run end-to-end via subprocess" {
-  mkdir -p "${TEMP_DIR}/sandbox/template/script/docker" \
+  mkdir -p "${TEMP_DIR}/sandbox/.base/script/docker/lib" \
            "${TEMP_DIR}/sandbox/config/docker"
-  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/template/script/docker/setup.sh"
-  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/template/script/docker/i18n.sh"
-  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/template/script/docker/_tui_conf.sh"
+  cp /source/script/docker/setup.sh "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh"
+  cp /source/script/docker/i18n.sh "${TEMP_DIR}/sandbox/.base/script/docker/i18n.sh"
+  cp /source/script/docker/_tui_conf.sh "${TEMP_DIR}/sandbox/.base/script/docker/_tui_conf.sh"
+  # setup.sh sources _lib.sh for the _log_* helpers (#290); _lib.sh
+  # is an umbrella that sources lib/*.sh sub-libs post-#284.
+  cp /source/script/docker/_lib.sh "${TEMP_DIR}/sandbox/.base/script/docker/_lib.sh"
+  cp /source/script/docker/lib/*.sh "${TEMP_DIR}/sandbox/.base/script/docker/lib/"
   cp /source/config/docker/setup.conf "${TEMP_DIR}/sandbox/config/docker/setup.conf"
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
   assert_success
 
-  run bash "${TEMP_DIR}/sandbox/template/script/docker/setup.sh" \
+  run bash "${TEMP_DIR}/sandbox/.base/script/docker/setup.sh" \
     show network.mode --base-path "${TEMP_DIR}/sandbox"
   assert_success
   assert_output "bridge"
@@ -1705,8 +1722,8 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)" {
-  mkdir -p "${TEMP_DIR}/template/config/docker"
-  cp /source/config/docker/setup.conf "${TEMP_DIR}/template/config/docker/setup.conf"
+  mkdir -p "${TEMP_DIR}/.base/config/docker"
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/.base/config/docker/setup.conf"
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 # user-customized
 [network]
@@ -1714,7 +1731,7 @@ mode = bridge
 EOF
   : > "${TEMP_DIR}/config/docker/setup.conf"
   run bash -c "
-    _SETUP_SCRIPT_DIR='${TEMP_DIR}/template/script/docker'
+    _SETUP_SCRIPT_DIR='${TEMP_DIR}/.base/script/docker'
     mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
     source /source/script/docker/setup.sh
     main reset --yes --base-path '${TEMP_DIR}'
@@ -1859,22 +1876,22 @@ EOF
 
 @test "_setup_msg returns English messages by default" {
   _LANG="en"
-  [[ "$(_setup_msg env_done)" =~ updated ]]
+  [[ "$(_setup_msg env "done")" =~ updated ]]
 }
 
 @test "_setup_msg returns Traditional Chinese messages when _LANG=zh-TW" {
   _LANG="zh-TW"
-  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
 }
 
 @test "_setup_msg returns Simplified Chinese messages when _LANG=zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_setup_msg env_done)" =~ 更新完成 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完成 ]]
 }
 
 @test "_setup_msg returns Japanese messages when _LANG=ja" {
   _LANG="ja"
-  [[ "$(_setup_msg env_done)" =~ 更新完了 ]]
+  [[ "$(_setup_msg env "done")" =~ 更新完了 ]]
 }
 
 # Exercise every (key, language) branch so kcov sees the zh-CN / ja / default
@@ -1883,27 +1900,27 @@ EOF
 
 @test "_setup_msg env_comment and unknown_arg are defined in zh" {
   _LANG="zh-TW"
-  [[ "$(_setup_msg env_comment)" =~ 自動偵測 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 未知參數 ]]
+  [[ "$(_setup_msg env comment)" =~ 自動偵測 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知參數 ]]
 }
 
 @test "_setup_msg env_comment and unknown_arg are defined in zh-CN" {
   _LANG="zh-CN"
-  [[ "$(_setup_msg env_comment)" =~ 自动检测 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 未知参数 ]]
+  [[ "$(_setup_msg env comment)" =~ 自动检测 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 未知参数 ]]
 }
 
 @test "_setup_msg env_comment and unknown_arg are defined in ja" {
   _LANG="ja"
-  [[ "$(_setup_msg env_comment)" =~ 自動検出 ]]
-  [[ "$(_setup_msg unknown_arg)" =~ 不明な引数 ]]
+  [[ "$(_setup_msg env comment)" =~ 自動検出 ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ 不明な引数 ]]
 }
 
 @test "_msg falls back to English when _LANG is unknown" {
   _LANG="xx"
-  [[ "$(_setup_msg env_done)" =~ updated ]]
-  [[ "$(_setup_msg env_comment)" =~ Auto-detected ]]
-  [[ "$(_setup_msg unknown_arg)" =~ "Unknown argument" ]]
+  [[ "$(_setup_msg env "done")" =~ updated ]]
+  [[ "$(_setup_msg env comment)" =~ Auto-detected ]]
+  [[ "$(_setup_msg errors unknown_arg)" =~ "Unknown argument" ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2207,7 +2224,7 @@ EOF
 # expected line appears in compose.yaml or .env. Companion negative
 # tests confirm the corresponding compose / env block is omitted when
 # the key is empty / cleared. Ensures every key documented in
-# template/config/docker/setup.conf has a setting → output assertion.
+# .base/config/docker/setup.conf has a setting → output assertion.
 # ════════════════════════════════════════════════════════════════════
 
 # ── [deploy] ─────────────────────────────────────────────────────────
@@ -3619,4 +3636,131 @@ EOF
   "
   assert_failure
   assert_output --partial "[stage:sys]"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #285 — --quiet flag + success confirmation output
+# ════════════════════════════════════════════════════════════════════
+
+@test "setup.sh set: prints 3-line confirmation by default" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main set --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output --partial "[setup] set [build] arg_4 = ROS2_DISTRO=jazzy"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run './setup.sh apply'"
+}
+
+@test "setup.sh set --quiet: produces empty stdout" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh set -q: short form also suppresses output" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main set -q --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh set --quiet: still writes the value (mutation not skipped)" {
+  bash -c "
+    source /source/script/docker/setup.sh
+    main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
+  "
+  run cat "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  assert_output --partial "arg_4 = ROS2_DISTRO=jazzy"
+}
+
+@test "setup.sh add: prints 3-line confirmation by default" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main add --base-path '${TEMP_DIR}' build.arg HARDWARE=arm64
+  "
+  assert_success
+  assert_output --partial "[setup] add [build] arg_"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run './setup.sh apply'"
+}
+
+@test "setup.sh add --quiet: produces empty stdout" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main add --quiet --base-path '${TEMP_DIR}' build.arg HARDWARE=arm64
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh remove: prints 3-line confirmation by default" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+[build]
+arg_1 = HARDWARE=arm64
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main remove --base-path '${TEMP_DIR}' build.arg_1
+  "
+  assert_success
+  assert_output --partial "[setup] remove [build] arg_1"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run './setup.sh apply'"
+}
+
+@test "setup.sh remove --quiet: produces empty stdout" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<EOC
+[build]
+arg_1 = HARDWARE=arm64
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main remove --quiet --base-path '${TEMP_DIR}' build.arg_1
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh reset --yes: prints next: hint and file: by default" {
+  : > "${TEMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main reset --yes --base-path '${TEMP_DIR}'
+  "
+  assert_success
+  assert_output --partial "[setup]"
+  assert_output --partial "[setup] file:"
+  assert_output --partial "[setup] next: run './setup.sh apply'"
+}
+
+@test "setup.sh reset --yes --quiet: produces empty stdout" {
+  : > "${TEMP_DIR}/config/docker/setup.conf"
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main reset --yes --quiet --base-path '${TEMP_DIR}'
+  "
+  assert_success
+  assert_output ""
+}
+
+@test "setup.sh apply --quiet: suppresses the env_done + USER=... summary" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --quiet --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "[setup] USER="
 }

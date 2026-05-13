@@ -404,6 +404,46 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
+@test "_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)" {
+  local _fp="${BATS_TEST_TMPDIR}"
+  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  run bash -c "
+    FORCE_COLOR=1 source ${LIB}
+    FORCE_COLOR=1
+    FILE_PATH='${_fp}'
+    _print_config_summary build
+  "
+  assert_success
+  # Dividers wrapped in dim ANSI (\033[2m...\033[0m)
+  assert_output --partial $'\033[2m──'
+  # Section headers wrapped in bold ANSI (\033[1m...\033[0m)
+  assert_output --partial $'\033[1mFiles\033[0m'
+  assert_output --partial $'\033[1mIdentity\033[0m'
+  assert_output --partial $'\033[1mVariables\033[0m'
+  assert_output --partial $'\033[1msetup.conf\033[0m'
+  assert_output --partial $'\033[1mResolved\033[0m'
+  # Indented value lines stay un-styled
+  refute_output --partial $'\033[1m  setup.conf'
+  refute_output --partial $'\033[2m  setup.conf'
+}
+
+@test "_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)" {
+  local _fp="${BATS_TEST_TMPDIR}"
+  _write_sample_conf "${_fp}/config/docker/setup.conf"
+  run bash -c "
+    NO_COLOR=1 FORCE_COLOR=1 source ${LIB}
+    NO_COLOR=1 FORCE_COLOR=1
+    FILE_PATH='${_fp}'
+    _print_config_summary build
+  "
+  assert_success
+  # No ANSI escape sequences anywhere in output
+  refute_output --partial $'\033['
+  # Headers still present as plain text
+  assert_output --partial "Files"
+  assert_output --partial "Resolved"
+}
+
 @test "_print_config_summary warns when setup.conf exists but has no [section] headers" {
   # Empty / comments-only setup.conf is the same situation as missing
   # from a behavior standpoint (every section falls back to template

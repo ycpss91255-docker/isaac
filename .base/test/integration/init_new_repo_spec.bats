@@ -2,7 +2,7 @@
 #
 # Integration test: init.sh creating a brand-new repo from scratch.
 #
-# Verifies that running `./template/init.sh` in an empty directory produces
+# Verifies that running `./.base/init.sh` in an empty directory produces
 # a complete, internally-consistent repo skeleton (Dockerfile, compose.yaml,
 # symlinks, .env.example, doc tree, .github/workflows, etc.).
 #
@@ -17,12 +17,12 @@ setup() {
   REPO_NAME="myapp_test"
   TMP_ROOT="$(mktemp -d)"
   REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
-  mkdir -p "${REPO_DIR}/template"
+  mkdir -p "${REPO_DIR}/.base"
 
-  # Mirror the template into REPO_DIR/template/ so init.sh's TEMPLATE_DIR
+  # Mirror the template into REPO_DIR/.base/ so init.sh's TEMPLATE_DIR
   # detection (../template relative to itself) works correctly. Use cp -a
   # to preserve executable bits and symlinks.
-  cp -a /source/. "${REPO_DIR}/template/"
+  cp -a /source/. "${REPO_DIR}/.base/"
 
   cd "${REPO_DIR}"
 }
@@ -36,40 +36,40 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "init.sh detects empty dir and creates new repo skeleton" {
-  run bash template/init.sh
+  run bash .base/init.sh
   assert_success
   assert_output --partial "Done"
 }
 
 @test "new repo: Dockerfile is copied from template" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/Dockerfile" ]
 }
 
 @test "new repo: compose.yaml exists and references the repo name" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep "${REPO_NAME}" "${REPO_DIR}/compose.yaml"
   assert_success
 }
 
 @test "new repo: .env.example is NOT generated (image name via setup.conf rules)" {
-  bash template/init.sh
+  bash .base/init.sh
   [[ ! -f "${REPO_DIR}/.env.example" ]]
 }
 
 @test "new repo: script/entrypoint.sh exists and is executable" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/script/entrypoint.sh" ]
 }
 
 @test "new repo: smoke test skeleton exists for the repo" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/test/smoke/${REPO_NAME}_env.bats" ]
 }
 
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/.github/workflows/main.yaml" ]
   # Accept semver tag or "main" branch fallback (when offline / no tags)
   run grep -E 'build-worker\.yaml@(v[0-9]+\.[0-9]+\.[0-9]+|main)' \
@@ -85,7 +85,7 @@ teardown() {
   # live in the caller's (i.e. new repo's) main.yaml. Without it,
   # the first downstream tag push fails with HTTP 403 from the
   # action-gh-release step (ros1_bridge v1.5.0 release surfaced this).
-  bash template/init.sh
+  bash .base/init.sh
   local _yaml="${REPO_DIR}/.github/workflows/main.yaml"
   assert [ -f "${_yaml}" ]
   # Must have a top-level `permissions:` block declaring contents: write.
@@ -96,12 +96,12 @@ teardown() {
 }
 
 @test "new repo: .gitignore exists" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/.gitignore" ]
 }
 
 @test "new repo: doc/ tree exists with README translations" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/README.md" ]
   assert [ -f "${REPO_DIR}/doc/README.zh-TW.md" ]
   assert [ -f "${REPO_DIR}/doc/README.zh-CN.md" ]
@@ -109,48 +109,48 @@ teardown() {
 }
 
 @test "new repo: doc/test/TEST.md exists" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/doc/test/TEST.md" ]
 }
 
 @test "new repo: doc/changelog/CHANGELOG.md exists" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/doc/changelog/CHANGELOG.md" ]
 }
 
-@test "new repo: build.sh symlink → template/script/docker/build.sh" {
-  bash template/init.sh
+@test "new repo: build.sh symlink → .base/script/docker/build.sh" {
+  bash .base/init.sh
   assert [ -L "${REPO_DIR}/build.sh" ]
   run readlink "${REPO_DIR}/build.sh"
-  assert_output "template/script/docker/build.sh"
+  assert_output ".base/script/docker/build.sh"
 }
 
 @test "new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct" {
-  bash template/init.sh
+  bash .base/init.sh
   for f in run.sh exec.sh stop.sh Makefile; do
     assert [ -L "${REPO_DIR}/${f}" ]
   done
   run readlink "${REPO_DIR}/run.sh"
-  assert_output "template/script/docker/run.sh"
+  assert_output ".base/script/docker/run.sh"
   run readlink "${REPO_DIR}/exec.sh"
-  assert_output "template/script/docker/exec.sh"
+  assert_output ".base/script/docker/exec.sh"
   run readlink "${REPO_DIR}/stop.sh"
-  assert_output "template/script/docker/stop.sh"
+  assert_output ".base/script/docker/stop.sh"
   run readlink "${REPO_DIR}/Makefile"
-  assert_output "template/script/docker/Makefile"
+  assert_output ".base/script/docker/Makefile"
 }
 
 @test "new repo: config/ is an empty placeholder (template#254 layered override)" {
-  bash template/init.sh
+  bash .base/init.sh
   # Must NOT be a symlink — edits should stay in the user's own
   # repo, not leak into the subtree where subtree pulls would fight
   # them. Must be a real directory.
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
-  # Pre-#254 init.sh seeded a FULL copy of template/config/ here.
+  # Pre-#254 init.sh seeded a FULL copy of .base/config/ here.
   # Post-#254 (template v0.22.0+) init.sh creates an empty
   # placeholder with just a .gitkeep -- the Dockerfile's layered
-  # COPY chain reads template/config/ as defaults and <repo>/config/
+  # COPY chain reads .base/config/ as defaults and <repo>/config/
   # as overrides, so an empty <repo>/config/ means "no overrides,
   # use all template defaults". Downstream adds files only when
   # they want to override a specific template file.
@@ -174,34 +174,34 @@ teardown() {
   # init.sh must not overwrite it.
   mkdir -p "${REPO_DIR}/config/custom"
   echo "user-override" > "${REPO_DIR}/config/custom/marker"
-  bash template/init.sh
+  bash .base/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
 }
 
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
-  # An older init.sh created config → template/config as a symlink.
+  # An older init.sh created config → .base/config as a symlink.
   # Re-running the post-#254 init.sh on such a repo must replace the
   # symlink with the empty placeholder (mkdir through a symlink
   # would otherwise pollute the subtree target).
-  ln -s template/config "${REPO_DIR}/config"
-  bash template/init.sh
+  ln -s .base/config "${REPO_DIR}/config"
+  bash .base/init.sh
   assert [ ! -L "${REPO_DIR}/config" ]
   assert [ -d "${REPO_DIR}/config" ]
   assert [ -f "${REPO_DIR}/config/.gitkeep" ]
 }
 
-@test "Dockerfile.example references CONFIG_SRC=\"config\" (not template/config)" {
+@test "Dockerfile.example references CONFIG_SRC=\"config\" (not .base/config)" {
   # Sanity: the per-repo copy only pays off if Dockerfile points at it.
   run grep -F 'ARG CONFIG_SRC="config"' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F 'ARG CONFIG_SRC="template/config"' /source/dockerfile/Dockerfile.example
+  run grep -F 'ARG CONFIG_SRC=".base/config"' /source/dockerfile/Dockerfile.example
   assert_failure
 }
 
-@test "Dockerfile.example has layered config COPY chain (template#254): template/config first, then config" {
-  # Layered file-level override: layer 1 brings template/config/
+@test "Dockerfile.example has layered config COPY chain (template#254): .base/config first, then config" {
+  # Layered file-level override: layer 1 brings .base/config/
   # defaults, layer 2 overlays <repo>/config/. Files in layer 2
   # override same-path files from layer 1; files only in layer 1
   # remain. Order matters -- if layer 2 came first, layer 1 would
@@ -210,17 +210,17 @@ teardown() {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # Both COPY lines exist with --chown / --chmod metadata.
-  run grep -E '^COPY --chown=.* template/config "\$\{CONFIG_DIR\}"$' "${_df}"
+  run grep -E '^COPY --chown=.* .base/config "\$\{CONFIG_DIR\}"$' "${_df}"
   assert_success
   run grep -E '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}"
   assert_success
-  # Order: template/config COPY line number must be LESS than
+  # Order: .base/config COPY line number must be LESS than
   # config-src COPY line number.
   local _line1 _line2
-  _line1=$(grep -nE '^COPY --chown=.* template/config "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
+  _line1=$(grep -nE '^COPY --chown=.* .base/config "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
   _line2=$(grep -nE '^COPY --chown=.* "\$\{CONFIG_SRC\}" "\$\{CONFIG_DIR\}"$' "${_df}" | head -1 | cut -d: -f1)
   [[ "${_line1}" -lt "${_line2}" ]] || {
-    echo "expected template/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
+    echo "expected .base/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
     return 1
   }
 }
@@ -230,7 +230,7 @@ teardown() {
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
   # The shell-setup RUN block must mkdir ~/.bashrc.d AND copy
   # *.sh from CONFIG_DIR/shell/bashrc.d/ into it. The cp -n form
-  # tolerates missing source files (template/config/shell/bashrc.d/
+  # tolerates missing source files (.base/config/shell/bashrc.d/
   # is empty by default; only an explicit .gitkeep ships).
   run grep -F 'mkdir -p "${HOME}/.bashrc.d"' "${_df}"
   assert_success
@@ -238,75 +238,75 @@ teardown() {
   assert_success
 }
 
-@test "new repo: template/.version exists (no legacy VERSION / .template_version)" {
-  bash template/init.sh
-  assert [ -f "${REPO_DIR}/template/.version" ]
-  assert [ ! -f "${REPO_DIR}/template/VERSION" ]
+@test "new repo: .base/.version exists (no legacy VERSION / .template_version)" {
+  bash .base/init.sh
+  assert [ -f "${REPO_DIR}/.base/.version" ]
+  assert [ ! -f "${REPO_DIR}/.base/VERSION" ]
   assert [ ! -f "${REPO_DIR}/.template_version" ]
-  run cat "${REPO_DIR}/template/.version"
+  run cat "${REPO_DIR}/.base/.version"
   # Accept semver with optional pre-release suffix (e.g. v0.10.0-rc1).
   assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 }
 
 @test "new repo: re-running init.sh on the result is idempotent" {
-  bash template/init.sh
+  bash .base/init.sh
   # Second run should hit _init_existing_repo (Dockerfile exists)
-  run bash template/init.sh
+  run bash .base/init.sh
   assert_success
 }
 
 @test "new repo: init.sh creates setup_tui.sh symlink (not legacy tui.sh)" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -L "${REPO_DIR}/setup_tui.sh" ]
   run readlink "${REPO_DIR}/setup_tui.sh"
-  assert_output "template/script/docker/setup_tui.sh"
+  assert_output ".base/script/docker/setup_tui.sh"
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
 }
 
 @test "new repo: init.sh removes stale tui.sh symlink from earlier versions" {
-  bash template/init.sh
+  bash .base/init.sh
   # Simulate an upgrade from the old name by planting the legacy symlink
-  ln -sf "template/script/docker/setup_tui.sh" "${REPO_DIR}/tui.sh"
-  run bash template/init.sh
+  ln -sf ".base/script/docker/setup_tui.sh" "${REPO_DIR}/tui.sh"
+  run bash .base/init.sh
   assert_success
   assert [ ! -e "${REPO_DIR}/tui.sh" ]
   assert [ -L "${REPO_DIR}/setup_tui.sh" ]
 }
 
 @test "new repo: build.sh -h works against the generated symlink" {
-  bash template/init.sh
+  bash .base/init.sh
   run bash "${REPO_DIR}/build.sh" -h
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "new repo: run.sh -h works against the generated symlink" {
-  bash template/init.sh
+  bash .base/init.sh
   run bash "${REPO_DIR}/run.sh" -h
   assert_success
 }
 
 @test "new repo: exec.sh -h works against the generated symlink" {
-  bash template/init.sh
+  bash .base/init.sh
   run bash "${REPO_DIR}/exec.sh" -h
   assert_success
 }
 
 @test "new repo: stop.sh -h works against the generated symlink" {
-  bash template/init.sh
+  bash .base/init.sh
   run bash "${REPO_DIR}/stop.sh" -h
   assert_success
 }
 
-@test "new repo: setup.sh symlink → template/script/docker/setup.sh" {
-  bash template/init.sh
+@test "new repo: setup.sh symlink → .base/script/docker/setup.sh" {
+  bash .base/init.sh
   assert [ -L "${REPO_DIR}/setup.sh" ]
   run readlink "${REPO_DIR}/setup.sh"
-  assert_output "template/script/docker/setup.sh"
+  assert_output ".base/script/docker/setup.sh"
 }
 
 @test "new repo: setup.sh -h works against the generated symlink" {
-  bash template/init.sh
+  bash .base/init.sh
   run bash "${REPO_DIR}/setup.sh" -h
   assert_success
   assert_output --partial "Usage"
@@ -319,9 +319,9 @@ teardown() {
 @test "init.sh --gen-conf copies setup.conf to repo root" {
   # init.sh auto-creates setup.conf via workspace writeback; remove it first
   # to exercise the --gen-conf copy path directly.
-  bash template/init.sh
+  bash .base/init.sh
   rm -f "${REPO_DIR}/config/docker/setup.conf"
-  bash template/init.sh --gen-conf
+  bash .base/init.sh --gen-conf
   assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
   # Sanity: copied file contains the full section schema
   run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/config/docker/setup.conf"
@@ -331,8 +331,8 @@ teardown() {
 @test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
   # init.sh auto-creates <repo>/config/docker/setup.conf via setup.sh workspace writeback,
   # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
-  bash template/init.sh
-  run bash template/init.sh --gen-conf
+  bash .base/init.sh
+  run bash .base/init.sh --gen-conf
   assert_failure
   assert_output --partial "already exists"
 }
@@ -342,26 +342,26 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "new repo: .gitignore contains compose.yaml (derived artifact)" {
-  bash template/init.sh
+  bash .base/init.sh
   run grep -x 'compose.yaml' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
 @test "new repo: .gitignore contains .env (derived artifact)" {
-  bash template/init.sh
+  bash .base/init.sh
   run grep -x '.env' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
 @test "new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run head -n 1 "${REPO_DIR}/compose.yaml"
   assert_output --partial "AUTO-GENERATED"
 }
 
 @test "new repo: compose.yaml ships devices: /dev:/dev by default" {
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep -E '^    devices:$' "${REPO_DIR}/compose.yaml"
   assert_success
@@ -373,7 +373,7 @@ teardown() {
   # Regression: fresh repo previously produced an empty [volumes] mount_1
   # which made the TUI volumes menu appear blank on first open. First-init
   # must write the detected workspace path into mount_1.
-  bash template/init.sh
+  bash .base/init.sh
   run grep -E '^mount_1 = .+$' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
   # Must NOT be exactly `mount_1 =` (empty value)
@@ -385,7 +385,7 @@ teardown() {
   # setup.sh on first run (no <repo>/config/docker/setup.conf) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
   # setup.conf became the source of truth for WS_PATH.
-  bash template/init.sh
+  bash .base/init.sh
   assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
   run grep '^mount_1' "${REPO_DIR}/config/docker/setup.conf"
   assert_success
