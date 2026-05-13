@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup.sh - Auto-detect system parameters and generate .env + compose.yaml
 #
-# Reads <repo>/setup.conf (or template/setup.conf default) for the repo's
+# Reads <repo>/setup.conf (or .base/setup.conf default) for the repo's
 # runtime configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
@@ -15,7 +15,7 @@
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
 # ── i18n messages ──────────────────────────────────────────────
-# Resolve the symlink (<repo>/setup.sh → template/script/docker/setup.sh)
+# Resolve the symlink (<repo>/setup.sh → .base/script/docker/setup.sh)
 # so sibling sources (i18n.sh / _tui_conf.sh) are located in the
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
@@ -24,128 +24,158 @@ _SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
 source "${_SETUP_SCRIPT_DIR}/i18n.sh"
 # shellcheck disable=SC1091
 source "${_SETUP_SCRIPT_DIR}/_tui_conf.sh"
+# _lib.sh provides _log_err / _log_warn / _log_info (#278). Sourcing
+# here makes them available throughout setup.sh's emission paths after
+# the #290 refactor that routes user-facing output through the
+# log-helper family instead of raw `printf "[setup] LEVEL: ..."` lines.
+# _lib.sh is idempotent (guarded by _DOCKER_LIB_SOURCED); its
+# transitive i18n.sh source is a no-op redefinition since we already
+# sourced i18n.sh above.
+# shellcheck disable=SC1091
+source "${_SETUP_SCRIPT_DIR}/_lib.sh"
 
-# Renamed from `_msg` to `_setup_msg` (closes #101) so sourcing this
-# file from build.sh / run.sh doesn't silently shadow their own
-# top-level `_msg()` (which carries different keys like
-# drift_regen / err_no_env / err_rerun_setup). The shadowed key
-# lookup would silently return empty — `printf "%s\n" ""` ate the
-# drift-regen status line on every fresh-host / setup.conf-changed
-# run. Defensive namespacing fixes the class of bug for setup.sh's
-# internal i18n table; future helpers added to setup.sh should
-# follow the `_setup_*` prefix convention.
-_setup_msg() {
-  local _key="${1}"
-  case "${_LANG}" in
-    zh-TW)
-      case "${_key}" in
-        env_done)         echo ".env 與 compose.yaml 更新完成" ;;
-        env_comment)      echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
-        unknown_arg)      echo "未知參數" ;;
-        unknown_subcmd)   echo "未知子指令" ;;
-        unknown_section)  echo "未知 section" ;;
-        invalid_value)    echo "無效的值" ;;
-        key_not_found)    echo "找不到鍵" ;;
-        section_not_found) echo "找不到 section" ;;
-        usage_set)        echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_show)       echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
-        usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
-        usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        reset_confirm)    echo "將以模板預設值覆寫 setup.conf（舊檔備份為 setup.conf.bak / .env.bak）。繼續嗎？" ;;
-        reset_aborted)    echo "已取消，未變更任何檔案" ;;
-        reset_done)       echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
-        reset_needs_yes)  echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
-        warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
-        warn_empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
-        stage_invalid_format) echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
-        stage_baseline_collision) echo "Dockerfile stage 名稱與 template 內建 stage 衝突，請改名" ;;
-        stage_reserved_tag) echo "Dockerfile stage 名稱使用 template 控制的 image tag namespace，請改名" ;;
-        stage_unknown_referenced) echo "setup.conf 內 [stage:...] 對應的 stage 在 Dockerfile 中不存在，已忽略該區段" ;;
-        stage_override_key_not_allowed) echo "[stage:...] 區段內含不在 per-stage 允許清單內的 key，已忽略該 key" ;;
-      esac ;;
-    zh-CN)
-      case "${_key}" in
-        env_done)         echo ".env 与 compose.yaml 更新完成" ;;
-        env_comment)      echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
-        unknown_arg)      echo "未知参数" ;;
-        unknown_subcmd)   echo "未知子命令" ;;
-        unknown_section)  echo "未知 section" ;;
-        invalid_value)    echo "无效的值" ;;
-        key_not_found)    echo "找不到键" ;;
-        section_not_found) echo "找不到 section" ;;
-        usage_set)        echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_show)       echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
-        usage_list)       echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
-        usage_add)        echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_remove)     echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        reset_confirm)    echo "将以模板默认值覆写 setup.conf（旧文件备份为 setup.conf.bak / .env.bak）。继续吗？" ;;
-        reset_aborted)    echo "已取消，未更改任何文件" ;;
-        reset_done)       echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
-        reset_needs_yes)  echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
-        warn_no_repo_conf) echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
-        warn_empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
-        stage_invalid_format) echo "Dockerfile stage 名称格式无效，已跳过该 stage" ;;
-        stage_baseline_collision) echo "Dockerfile stage 名称与 template 内建 stage 冲突，请改名" ;;
-        stage_reserved_tag) echo "Dockerfile stage 名称使用 template 控制的 image tag namespace，请改名" ;;
-        stage_unknown_referenced) echo "setup.conf 内 [stage:...] 对应的 stage 在 Dockerfile 中不存在，已忽略该区段" ;;
-        stage_override_key_not_allowed) echo "[stage:...] 区段内含不在 per-stage 允许清单内的 key，已忽略该 key" ;;
-      esac ;;
-    ja)
-      case "${_key}" in
-        env_done)         echo ".env と compose.yaml 更新完了" ;;
-        env_comment)      echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
-        unknown_arg)      echo "不明な引数" ;;
-        unknown_subcmd)   echo "不明なサブコマンド" ;;
-        unknown_section)  echo "不明な section" ;;
-        invalid_value)    echo "無効な値" ;;
-        key_not_found)    echo "キーが見つかりません" ;;
-        section_not_found) echo "section が見つかりません" ;;
-        usage_set)        echo "使い方: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_show)       echo "使い方: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
-        usage_list)       echo "使い方: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
-        usage_add)        echo "使い方: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_remove)     echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        reset_confirm)    echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
-        reset_aborted)    echo "中断されました。ファイルは変更されていません" ;;
-        reset_done)       echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
-        reset_needs_yes)  echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
-        warn_no_repo_conf) echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
-        warn_empty_repo_conf) echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
-        stage_invalid_format) echo "Dockerfile stage 名のフォーマットが無効です。該当 stage はスキップされます" ;;
-        stage_baseline_collision) echo "Dockerfile stage 名が template 管理の stage と衝突しています。改名してください" ;;
-        stage_reserved_tag) echo "Dockerfile stage 名が template が管理する image tag namespace を使用しています。改名してください" ;;
-        stage_unknown_referenced) echo "setup.conf 内の [stage:...] が指す stage が Dockerfile に存在しません。該当セクションは無視されます" ;;
-        stage_override_key_not_allowed) echo "[stage:...] セクション内に per-stage 許可リスト外の key が含まれています。該当 key は無視されます" ;;
-      esac ;;
-    *)
-      case "${_key}" in
-        env_done)         echo ".env + compose.yaml updated" ;;
-        env_comment)      echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
-        unknown_arg)      echo "Unknown argument" ;;
-        unknown_subcmd)   echo "Unknown subcommand" ;;
-        unknown_section)  echo "Unknown section" ;;
-        invalid_value)    echo "Invalid value" ;;
-        key_not_found)    echo "Key not found" ;;
-        section_not_found) echo "Section not found" ;;
-        usage_set)        echo "Usage: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_show)       echo "Usage: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
-        usage_list)       echo "Usage: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
-        usage_add)        echo "Usage: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        usage_remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
-        reset_confirm)    echo "Overwrite setup.conf with template default? (prior setup.conf → .bak, prior .env → .env.bak)" ;;
-        reset_aborted)    echo "Aborted; no files changed" ;;
-        reset_done)       echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
-        reset_needs_yes)  echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
-        warn_no_repo_conf) echo "no per-repo setup.conf — using template defaults for all sections" ;;
-        warn_empty_repo_conf) echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
-        stage_invalid_format) echo "invalid Dockerfile stage name format; stage skipped" ;;
-        stage_baseline_collision) echo "Dockerfile stage name collides with a template-managed baseline stage; rename it" ;;
-        stage_reserved_tag) echo "Dockerfile stage name uses a template-controlled image tag namespace; rename it" ;;
-        stage_unknown_referenced) echo "setup.conf [stage:...] references a stage missing from the Dockerfile; section ignored" ;;
-        stage_override_key_not_allowed) echo "[stage:...] section contains a key outside the per-stage allowlist; key ignored" ;;
-      esac ;;
+# i18n message table, split per category and routed through _log_*
+# (closes #290). Renamed from a monolithic `_msg` to `_setup_msg`
+# (closes #101) so sourcing this file from build.sh / run.sh doesn't
+# silently shadow their own top-level `_msg()`. The category split
+# mirrors #278 PR-2 (which did the same for build/run/exec/stop):
+# each _setup_msg_<category> returns plain i18n body only; tag +
+# LEVEL keyword are added by the _log_* caller (English-only; level
+# keyword no longer translated — see #283).
+
+_setup_msg_env() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:done)     echo ".env 與 compose.yaml 更新完成" ;;
+    zh-CN:done)     echo ".env 与 compose.yaml 更新完成" ;;
+    ja:done)        echo ".env と compose.yaml 更新完了" ;;
+    *:done)         echo ".env + compose.yaml updated" ;;
+    zh-TW:comment)  echo "自動偵測欄位請勿手動修改，如需變更 WS_PATH 可直接編輯此檔案" ;;
+    zh-CN:comment)  echo "自动检测字段请勿手动修改，如需变更 WS_PATH 可直接编辑此文件" ;;
+    ja:comment)     echo "自動検出フィールドは手動で編集しないでください。WS_PATH の変更はこのファイルを直接編集してください" ;;
+    *:comment)      echo "Auto-detected fields, do not edit manually. Edit WS_PATH if needed" ;;
   esac
+}
+
+_setup_msg_errors() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:unknown_arg)       echo "未知參數" ;;
+    zh-CN:unknown_arg)       echo "未知参数" ;;
+    ja:unknown_arg)          echo "不明な引数" ;;
+    *:unknown_arg)           echo "Unknown argument" ;;
+    zh-TW:unknown_subcmd)    echo "未知子指令" ;;
+    zh-CN:unknown_subcmd)    echo "未知子命令" ;;
+    ja:unknown_subcmd)       echo "不明なサブコマンド" ;;
+    *:unknown_subcmd)        echo "Unknown subcommand" ;;
+    zh-TW:unknown_section)   echo "未知 section" ;;
+    zh-CN:unknown_section)   echo "未知 section" ;;
+    ja:unknown_section)      echo "不明な section" ;;
+    *:unknown_section)       echo "Unknown section" ;;
+    zh-TW:invalid_value)     echo "無效的值" ;;
+    zh-CN:invalid_value)     echo "无效的值" ;;
+    ja:invalid_value)        echo "無効な値" ;;
+    *:invalid_value)         echo "Invalid value" ;;
+    zh-TW:key_not_found)     echo "找不到鍵" ;;
+    zh-CN:key_not_found)     echo "找不到键" ;;
+    ja:key_not_found)        echo "キーが見つかりません" ;;
+    *:key_not_found)         echo "Key not found" ;;
+    zh-TW:section_not_found) echo "找不到 section" ;;
+    zh-CN:section_not_found) echo "找不到 section" ;;
+    ja:section_not_found)    echo "section が見つかりません" ;;
+    *:section_not_found)     echo "Section not found" ;;
+  esac
+}
+
+_setup_msg_warnings() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:no_repo_conf)    echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
+    zh-CN:no_repo_conf)    echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
+    ja:no_repo_conf)       echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+    *:no_repo_conf)        echo "no per-repo setup.conf — using template defaults for all sections" ;;
+    zh-TW:empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
+    zh-CN:empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
+    ja:empty_repo_conf)    echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+    *:empty_repo_conf)     echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
+  esac
+}
+
+# usage_* messages are short subcommand-usage hints printed directly
+# (no [setup] / LEVEL prefix) — they are help text, not log lines.
+_setup_msg_usage() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:set)    echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:set)    echo "用法: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
+    ja:set)       echo "使い方: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
+    *:set)        echo "Usage: setup.sh set <section>.<key> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:show)   echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:show)   echo "用法: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
+    ja:show)      echo "使い方: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
+    *:show)       echo "Usage: setup.sh show <section>[.<key>] [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:list)   echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:list)   echo "用法: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+    ja:list)      echo "使い方: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+    *:list)       echo "Usage: setup.sh list [<section>] [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:add)    echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:add)    echo "用法: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    ja:add)       echo "使い方: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    *:add)        echo "Usage: setup.sh add <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-TW:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    zh-CN:remove) echo "用法: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    ja:remove)    echo "使い方: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+    *:remove)     echo "Usage: setup.sh remove <section>.<key> | <section>.<list> <value> [--base-path PATH] [--lang LANG]" ;;
+  esac
+}
+
+_setup_msg_reset() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:confirm)   echo "將以模板預設值覆寫 setup.conf（舊檔備份為 setup.conf.bak / .env.bak）。繼續嗎？" ;;
+    zh-CN:confirm)   echo "将以模板默认值覆写 setup.conf（旧文件备份为 setup.conf.bak / .env.bak）。继续吗？" ;;
+    ja:confirm)      echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
+    *:confirm)       echo "Overwrite setup.conf with template default? (prior setup.conf → .bak, prior .env → .env.bak)" ;;
+    zh-TW:aborted)   echo "已取消，未變更任何檔案" ;;
+    zh-CN:aborted)   echo "已取消，未更改任何文件" ;;
+    ja:aborted)      echo "中断されました。ファイルは変更されていません" ;;
+    *:aborted)       echo "Aborted; no files changed" ;;
+    zh-TW:done)      echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
+    zh-CN:done)      echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
+    ja:done)         echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
+    *:done)          echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
+    zh-TW:needs_yes) echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
+    zh-CN:needs_yes) echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
+    ja:needs_yes)    echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
+    *:needs_yes)     echo "Non-interactive: pass --yes to confirm reset (prevents accidental destruction)" ;;
+  esac
+}
+
+_setup_msg_stage() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:invalid_format)           echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
+    zh-CN:invalid_format)           echo "Dockerfile stage 名称格式无效，已跳过该 stage" ;;
+    ja:invalid_format)              echo "Dockerfile stage 名のフォーマットが無効です。該当 stage はスキップされます" ;;
+    *:invalid_format)               echo "invalid Dockerfile stage name format; stage skipped" ;;
+    zh-TW:baseline_collision)       echo "Dockerfile stage 名稱與 template 內建 stage 衝突，請改名" ;;
+    zh-CN:baseline_collision)       echo "Dockerfile stage 名称与 template 内建 stage 冲突，请改名" ;;
+    ja:baseline_collision)          echo "Dockerfile stage 名が template 管理の stage と衝突しています。改名してください" ;;
+    *:baseline_collision)           echo "Dockerfile stage name collides with a template-managed baseline stage; rename it" ;;
+    zh-TW:reserved_tag)             echo "Dockerfile stage 名稱使用 template 控制的 image tag namespace，請改名" ;;
+    zh-CN:reserved_tag)             echo "Dockerfile stage 名称使用 template 控制的 image tag namespace，请改名" ;;
+    ja:reserved_tag)                echo "Dockerfile stage 名が template が管理する image tag namespace を使用しています。改名してください" ;;
+    *:reserved_tag)                 echo "Dockerfile stage name uses a template-controlled image tag namespace; rename it" ;;
+    zh-TW:unknown_referenced)       echo "setup.conf 內 [stage:...] 對應的 stage 在 Dockerfile 中不存在，已忽略該區段" ;;
+    zh-CN:unknown_referenced)       echo "setup.conf 内 [stage:...] 对应的 stage 在 Dockerfile 中不存在，已忽略该区段" ;;
+    ja:unknown_referenced)          echo "setup.conf 内の [stage:...] が指す stage が Dockerfile に存在しません。該当セクションは無視されます" ;;
+    *:unknown_referenced)           echo "setup.conf [stage:...] references a stage missing from the Dockerfile; section ignored" ;;
+    zh-TW:override_key_not_allowed) echo "[stage:...] 區段內含不在 per-stage 允許清單內的 key，已忽略該 key" ;;
+    zh-CN:override_key_not_allowed) echo "[stage:...] 区段内含不在 per-stage 允许清单内的 key，已忽略该 key" ;;
+    ja:override_key_not_allowed)    echo "[stage:...] セクション内に per-stage 許可リスト外の key が含まれています。該当 key は無視されます" ;;
+    *:override_key_not_allowed)     echo "[stage:...] section contains a key outside the per-stage allowlist; key ignored" ;;
+  esac
+}
+
+# Dispatcher — keeps a single _setup_msg call shape across the script.
+_setup_msg() {
+  local _category="${1:?_setup_msg requires category}"
+  local _key="${2:?_setup_msg requires key}"
+  "_setup_msg_${_category}" "${_key}"
 }
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
@@ -207,10 +237,15 @@ Subcommands:
 Options:
   -h, --help            Show this help and exit.
   --base-path PATH      Repo root to operate on. Defaults to the repo
-                        containing this script (template/../..).
+                        containing this script (.base/../..).
   --lang LANG           Set message language (en|zh-TW|zh-CN|ja).
                         Defaults to $SETUP_LANG or auto-detected from
                         $LANG.
+  -q, --quiet           Suppress the success-confirmation lines on
+                        set / add / remove / reset / apply. Errors
+                        still go to stderr. Used by setup_tui.sh to
+                        avoid double-printing after its `[tui] saved`
+                        line.
 
 Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/.env          Exported variables + SETUP_* drift metadata
@@ -334,7 +369,7 @@ detect_gui() {
 #
 # Reads one section [<section>] from <file> into parallel arrays.
 # Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in template/setup.conf,
+# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
 # caller should use _load_setup_conf which handles the merge (replace strategy).
 _parse_ini_section() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
@@ -387,7 +422,7 @@ _parse_ini_section() {
 #
 # #201: collapsed back to 2-file model. <repo>/setup.conf is the user
 # override (committed, not gitignored, survives template upgrade because
-# template subtree pull never touches it — it lives outside template/).
+# template subtree pull never touches it — it lives outside .base/).
 _load_setup_conf() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _section="${2:?"${FUNCNAME[0]}: missing section"}"
@@ -1147,6 +1182,93 @@ _resolve_stage_list() {
   fi
 }
 
+# _parse_logging_svc_sections <file> <out_array>
+#
+# Emit each service name that has a `[logging.<svc>]` section in <file>
+# (in the order they appear). Mirrors `_parse_stage_sections` but for
+# the per-service logging override namespace (#310).
+_parse_logging_svc_sections() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local -n _plss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  _plss_out=()
+  [[ -f "${_file}" ]] || return 0
+  local _line
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" =~ ^\[logging\.([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
+      _plss_out+=("${BASH_REMATCH[1]}")
+    fi
+  done < "${_file}"
+}
+
+# _collect_logging <base_path> <global_out> <per_svc_out>
+#
+# Resolve [logging] + [logging.<svc>] for the compose generator. Output
+# layout:
+#
+#   global_out   newline-separated KEY=VALUE for the effective global
+#                [logging] section. Resolution rule mirrors [security]
+#                (line 3328 area): if the per-repo setup.conf has a
+#                [logging] section, that section fully replaces the
+#                template default (per CLAUDE.md "section-level
+#                replace, no key-level merge inside a section"). If
+#                the per-repo file omits the section, template
+#                defaults apply.
+#
+#   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
+#                [logging.<svc>] sections in the per-repo setup.conf.
+#                Key-level merge against global_out happens in
+#                `_emit_logging_block` at compose-emit time — only
+#                keys present in [logging.<svc>] override the
+#                corresponding global key; absent keys fall through.
+#                Template setup.conf does not ship per-svc sections;
+#                if one ever appears there it is honored too (parsed
+#                only from the per-repo file in practice, since the
+#                template loader path uses _SETUP_SCRIPT_DIR).
+_collect_logging() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
+  local -n _cl_per_svc="${3:?"${FUNCNAME[0]}: missing per_svc outvar"}"
+  _cl_global=""
+  _cl_per_svc=""
+
+  local _conf
+  if [[ -n "${SETUP_CONF:-}" ]]; then
+    _conf="${SETUP_CONF}"
+  else
+    _conf="${_base}/config/docker/setup.conf"
+  fi
+
+  # Global [logging] — per-repo first, fall back to template if absent.
+  local -a _g_keys=() _g_vals=()
+  [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
+  if (( ${#_g_keys[@]} == 0 )); then
+    local _tpl="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
+  fi
+  local i
+  local -a _g_lines=()
+  for (( i = 0; i < ${#_g_keys[@]}; i++ )); do
+    _g_lines+=("${_g_keys[i]}=${_g_vals[i]}")
+  done
+  (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
+
+  # Per-service [logging.<svc>] sections (per-repo only).
+  [[ -f "${_conf}" ]] || return 0
+  local -a _svcs=()
+  _parse_logging_svc_sections "${_conf}" _svcs
+  local _svc
+  local -a _ps_lines=()
+  for _svc in "${_svcs[@]}"; do
+    local -a _sk=() _sv=()
+    _parse_ini_section "${_conf}" "logging.${_svc}" _sk _sv
+    for (( i = 0; i < ${#_sk[@]}; i++ )); do
+      _ps_lines+=("${_svc}:${_sk[i]}=${_sv[i]}")
+    done
+  done
+  (( ${#_ps_lines[@]} > 0 )) && _cl_per_svc="$(printf '%s\n' "${_ps_lines[@]}")"
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
 #                       <gpu_count> <gpu_caps> <extras_array_ref>
@@ -1229,6 +1351,69 @@ generate_compose_yaml() {
   local _build_network="${22:-}"
   local _runtime="${23:-}"
   local _additional_contexts_str="${24:-}"
+  local _logging_global_str="${25:-}"
+  local _logging_per_svc_str="${26:-}"
+
+  # _logging_svc_kv <svc> <out_assoc_name>
+  #
+  # Resolve effective logging KV map for compose service <svc>:
+  #   1. seed with global [logging] entries (`_logging_global_str`)
+  #   2. overlay per-service [logging.<svc>] entries — key-level merge
+  #
+  # If both inputs are empty the map stays empty and the emitter
+  # downstream skips the `logging:` block entirely (back-compat with
+  # downstream repos that haven't adopted [logging] yet).
+  _logging_svc_kv() {
+    local _svc="$1"
+    local -n _lkv="$2"
+    _lkv=()
+    local _line _k _v
+    if [[ -n "${_logging_global_str}" ]]; then
+      while IFS= read -r _line; do
+        [[ -z "${_line}" ]] && continue
+        _k="${_line%%=*}"
+        _v="${_line#*=}"
+        _lkv["${_k}"]="${_v}"
+      done <<< "${_logging_global_str}"
+    fi
+    if [[ -n "${_logging_per_svc_str}" ]]; then
+      while IFS= read -r _line; do
+        [[ -z "${_line}" ]] && continue
+        [[ "${_line%%:*}" == "${_svc}" ]] || continue
+        _line="${_line#*:}"
+        _k="${_line%%=*}"
+        _v="${_line#*=}"
+        _lkv["${_k}"]="${_v}"
+      done <<< "${_logging_per_svc_str}"
+    fi
+  }
+
+  # _emit_logging_block <svc>
+  #
+  # Emit compose `logging:` mapping for service <svc>. Maps the four
+  # setup.conf keys (driver / max_size / max_file / compress) to the
+  # corresponding Docker compose option names (driver as scalar;
+  # max-size / max-file / compress as `options:` sub-keys, dash-named
+  # per Docker docs). No-op when the effective KV map is empty.
+  _emit_logging_block() {
+    local _svc="$1"
+    local -A _kv=()
+    _logging_svc_kv "${_svc}" _kv
+    (( ${#_kv[@]} == 0 )) && return 0
+    echo "    logging:"
+    [[ -n "${_kv[driver]:-}" ]] && echo "      driver: ${_kv[driver]}"
+    local _have_opts=0 _k
+    for _k in max_size max_file compress; do
+      [[ -n "${_kv[${_k}]:-}" ]] && _have_opts=1 && break
+    done
+    if (( _have_opts )); then
+      echo "      options:"
+      [[ -n "${_kv[max_size]:-}" ]] && echo "        max-size: \"${_kv[max_size]}\""
+      [[ -n "${_kv[max_file]:-}" ]] && echo "        max-file: \"${_kv[max_file]}\""
+      [[ -n "${_kv[compress]:-}" ]] && echo "        compress: \"${_kv[compress]}\""
+    fi
+    return 0
+  }
 
   # additional_contexts emitter: forwards `[additional_contexts]
   # context_N = NAME=PATH` entries to compose.yaml's
@@ -1301,9 +1486,9 @@ generate_compose_yaml() {
     _validate_stage_name "${_stage}" || _vrc=$?
     case "${_vrc}" in
       0) _emit_stages+=("${_stage}") ;;
-      1) printf '[setup] WARN: %s: %q\n' "$(_setup_msg stage_invalid_format)" "${_stage}" >&2 ;;
-      2) printf '[setup] ERROR: %s: %q\n' "$(_setup_msg stage_baseline_collision)" "${_stage}" >&2; return 1 ;;
-      3) printf '[setup] ERROR: %s: %q\n' "$(_setup_msg stage_reserved_tag)" "${_stage}" >&2; return 1 ;;
+      1) _log_warn setup "$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" ;;
+      2) _log_err setup "$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")"; return 1 ;;
+      3) _log_err setup "$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")"; return 1 ;;
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
 
@@ -1324,17 +1509,15 @@ generate_compose_yaml() {
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
       sys|base|test)
-        printf '[setup] ERROR: %s: [stage:%s]\n' \
-          "$(_setup_msg stage_baseline_collision)" "${_cs}" >&2
+        _log_err setup "$(_setup_msg stage baseline_collision): [stage:${_cs}]"
         return 1
         ;;
       latest|v[0-9]*)
-        printf '[setup] ERROR: %s: [stage:%s]\n' \
-          "$(_setup_msg stage_reserved_tag)" "${_cs}" >&2
+        _log_err setup "$(_setup_msg stage reserved_tag): [stage:${_cs}]"
         return 1
         ;;
       devel)
-        printf '[setup] WARN: [stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel.\n' >&2
+        _log_warn setup "[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
         continue
         ;;
     esac
@@ -1344,8 +1527,7 @@ generate_compose_yaml() {
       [[ "${_es}" == "${_cs}" ]] && _is_emitted=1 && break
     done
     if (( ! _is_emitted )); then
-      printf '[setup] WARN: %s: [stage:%s]\n' \
-        "$(_setup_msg stage_unknown_referenced)" "${_cs}" >&2
+      _log_warn setup "$(_setup_msg stage unknown_referenced): [stage:${_cs}]"
     fi
   done
 
@@ -1541,6 +1723,7 @@ YAML
               capabilities: ${_caps_yaml}
 YAML
     fi
+    _emit_logging_block devel
 
     # Auto-emit a service per non-baseline stage parsed from the
     # Dockerfile (#215). Each service:
@@ -1584,9 +1767,7 @@ YAML
           _so_filtered_keys+=("${_so_keys[_ki]}")
           _so_filtered_values+=("${_so_values[_ki]}")
         else
-          printf '[setup] WARN: %s: %q (stage=%s)\n' \
-            "$(_setup_msg stage_override_key_not_allowed)" \
-            "${_so_keys[_ki]}" "${_emit_stage}" >&2
+          _log_warn setup "$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})"
         fi
       done
       local _has_overrides=0
@@ -1616,6 +1797,15 @@ YAML
     profiles:
       - ${_emit_stage}
 YAML
+        # Per-stage [logging.<stage>] override (if any). Without an
+        # override compose `extends: devel` already covers logging:
+        # compose extends merges mapping sub-keys so devel's logging
+        # block carries over — emit only when the stage actually
+        # diverges from devel.
+        if [[ -n "${_logging_per_svc_str}" ]] && \
+           grep -qE "^${_emit_stage}:" <<< "${_logging_per_svc_str}"; then
+          _emit_logging_block "${_emit_stage}"
+        fi
         continue
       fi
 
@@ -1861,6 +2051,10 @@ YAML
               capabilities: ${_eff_caps_yaml}
 YAML
       fi
+      # Stage emits a standalone block (no `extends: devel`), so it
+      # carries no inherited logging — always emit the effective
+      # logging block when [logging] or [logging.<stage>] is set.
+      _emit_logging_block "${_emit_stage}"
     done
 
     cat <<YAML
@@ -1890,6 +2084,7 @@ YAML
     profiles:
       - test
 YAML
+    _emit_logging_block test
     if [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
@@ -1952,7 +2147,7 @@ write_env() {
   local _build_network="${1:-}"
 
   local _comment=""
-  _comment="$(_setup_msg env_comment)"
+  _comment="$(_setup_msg env comment)"
   cat > "${_env_file}" << EOF
 # Auto-generated by setup.sh on $(date '+%Y-%m-%d %H:%M:%S')
 # ${_comment}
@@ -2117,7 +2312,7 @@ _setup_check_drift() {
         shift 2
         ;;
       *)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
     esac
@@ -2149,9 +2344,9 @@ _announce_template_default_fallback() {
   # source of truth post-#201.
   local _repo_conf="${_base}/config/docker/setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
-    printf "[setup] WARN: %s\n" "$(_setup_msg warn_no_repo_conf)" >&2
+    _log_warn setup "$(_setup_msg warnings no_repo_conf)"
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
-    printf "[setup] WARN: %s\n" "$(_setup_msg warn_empty_repo_conf)" >&2
+    _log_warn setup "$(_setup_msg warnings empty_repo_conf)"
   fi
 }
 
@@ -2259,11 +2454,12 @@ _setup_validate_kv() {
 # `apply` explicitly when they want the derived artifacts refreshed.
 #
 # Usage: _setup_set <section>.<key> <value> [--base-path PATH]
-#                                           [--lang LANG]
+#                                           [--lang LANG] [-q|--quiet]
 # ════════════════════════════════════════════════════════════════════
 _setup_set() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured the next bare arg is the value, even if
@@ -2271,7 +2467,7 @@ _setup_set() {
     # invalid value path that the validator must reject — not a flag).
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2292,6 +2488,10 @@ _setup_set() {
         _sanitize_lang _LANG "setup"
         shift 2
         ;;
+      -q|--quiet)
+        _quiet=1
+        shift
+        ;;
       --)
         shift
         if [[ $# -gt 0 && -z "${_spec}" ]]; then
@@ -2302,7 +2502,7 @@ _setup_set() {
         fi
         ;;
       -*)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
       *)
@@ -2311,7 +2511,7 @@ _setup_set() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          _log_err setup "$(_setup_msg errors unknown_arg): $1"
           return 1
         fi
         shift
@@ -2320,31 +2520,30 @@ _setup_set() {
   done
 
   if [[ -z "${_spec}" || "${_have_value}" -eq 0 ]]; then
-    _setup_msg usage_set >&2
+    _setup_msg usage set >&2
     return 1
   fi
 
   # Split <section>.<key>; the first '.' is the separator (keys
   # themselves never contain dots in setup.conf).
   if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage_set >&2
+    _setup_msg usage set >&2
     return 1
   fi
   local _section="${_spec%%.*}"
   local _key="${_spec#*.}"
   if [[ -z "${_section}" || -z "${_key}" ]]; then
-    _setup_msg usage_set >&2
+    _setup_msg usage set >&2
     return 1
   fi
 
   if ! _setup_known_section "${_section}"; then
-    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
     return 2
   fi
 
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
-    printf "[setup] %s: %s.%s = %s\n" \
-      "$(_setup_msg invalid_value)" "${_section}" "${_key}" "${_value}" >&2
+    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}"
     return 2
   fi
 
@@ -2361,6 +2560,12 @@ _setup_set() {
   fi
 
   _upsert_conf_value "${_conf}" "${_section}" "${_key}" "${_value}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2397,14 +2602,14 @@ _setup_show() {
         shift 2
         ;;
       -*)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          _log_err setup "$(_setup_msg errors unknown_arg): $1"
           return 1
         fi
         shift
@@ -2413,7 +2618,7 @@ _setup_show() {
   done
 
   if [[ -z "${_spec}" ]]; then
-    _setup_msg usage_show >&2
+    _setup_msg usage show >&2
     return 1
   fi
 
@@ -2427,7 +2632,7 @@ _setup_show() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
     return 2
   fi
 
@@ -2452,7 +2657,7 @@ _setup_show() {
         return 0
       fi
     done
-    printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_ns_key}" >&2
+    _log_err setup "$(_setup_msg errors key_not_found): ${_ns_key}"
     return 1
   fi
 
@@ -2465,7 +2670,7 @@ _setup_show() {
     fi
   done
   if (( _printed == 0 )); then
-    printf "[setup] %s: %s\n" "$(_setup_msg section_not_found)" "${_section}" >&2
+    _log_err setup "$(_setup_msg errors section_not_found): ${_section}"
     return 1
   fi
   return 0
@@ -2500,14 +2705,14 @@ _setup_list() {
         shift 2
         ;;
       -*)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          _log_err setup "$(_setup_msg errors unknown_arg): $1"
           return 1
         fi
         shift
@@ -2578,6 +2783,7 @@ _setup_list() {
 _setup_add() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     # Once <spec> is captured, the next bare arg is the value, even if
@@ -2585,7 +2791,7 @@ _setup_add() {
     # flags). Same shape as _setup_set.
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2606,6 +2812,10 @@ _setup_add() {
         _sanitize_lang _LANG "setup"
         shift 2
         ;;
+      -q|--quiet)
+        _quiet=1
+        shift
+        ;;
       --)
         shift
         if [[ $# -gt 0 && -z "${_spec}" ]]; then
@@ -2616,7 +2826,7 @@ _setup_add() {
         fi
         ;;
       -*)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
       *)
@@ -2625,7 +2835,7 @@ _setup_add() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          _log_err setup "$(_setup_msg errors unknown_arg): $1"
           return 1
         fi
         shift
@@ -2634,23 +2844,23 @@ _setup_add() {
   done
 
   if [[ -z "${_spec}" || "${_have_value}" -eq 0 ]]; then
-    _setup_msg usage_add >&2
+    _setup_msg usage add >&2
     return 1
   fi
 
   if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage_add >&2
+    _setup_msg usage add >&2
     return 1
   fi
   local _section="${_spec%%.*}"
   local _list="${_spec#*.}"
   if [[ -z "${_section}" || -z "${_list}" ]]; then
-    _setup_msg usage_add >&2
+    _setup_msg usage add >&2
     return 1
   fi
 
   if ! _setup_known_section "${_section}"; then
-    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
     return 2
   fi
 
@@ -2717,12 +2927,17 @@ _setup_add() {
   local _new_key="${_list}_${_new_idx}"
 
   if ! _setup_validate_kv "${_section}" "${_new_key}" "${_value}"; then
-    printf "[setup] %s: %s.%s = %s\n" \
-      "$(_setup_msg invalid_value)" "${_section}" "${_new_key}" "${_value}" >&2
+    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}"
     return 2
   fi
 
   _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2747,11 +2962,12 @@ _setup_add() {
 _setup_remove() {
   local _base_path=""
   local _spec="" _value="" _have_value=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     if [[ -n "${_spec}" && "${_have_value}" -eq 0 ]]; then
       case "$1" in
-        --base-path|--lang|-h|--help)
+        --base-path|--lang|-q|--quiet|-h|--help)
           ;;
         *)
           _value="$1"; _have_value=1; shift
@@ -2772,6 +2988,10 @@ _setup_remove() {
         _sanitize_lang _LANG "setup"
         shift 2
         ;;
+      -q|--quiet)
+        _quiet=1
+        shift
+        ;;
       --)
         shift
         if [[ $# -gt 0 && -z "${_spec}" ]]; then
@@ -2782,7 +3002,7 @@ _setup_remove() {
         fi
         ;;
       -*)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
       *)
@@ -2791,7 +3011,7 @@ _setup_remove() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+          _log_err setup "$(_setup_msg errors unknown_arg): $1"
           return 1
         fi
         shift
@@ -2800,18 +3020,18 @@ _setup_remove() {
   done
 
   if [[ -z "${_spec}" || "${_spec}" != *.* ]]; then
-    _setup_msg usage_remove >&2
+    _setup_msg usage remove >&2
     return 1
   fi
   local _section="${_spec%%.*}"
   local _rest="${_spec#*.}"
   if [[ -z "${_section}" || -z "${_rest}" ]]; then
-    _setup_msg usage_remove >&2
+    _setup_msg usage remove >&2
     return 1
   fi
 
   if ! _setup_known_section "${_section}"; then
-    printf "[setup] %s: %s\n" "$(_setup_msg unknown_section)" "${_section}" >&2
+    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
     return 2
   fi
 
@@ -2823,7 +3043,7 @@ _setup_remove() {
   # a removable input).
   local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
-    printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_spec}" >&2
+    _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
     return 1
   fi
 
@@ -2841,8 +3061,7 @@ _setup_remove() {
       fi
     done
     if [[ -z "${_target_key}" ]]; then
-      printf "[setup] %s: %s.%s = %s\n" \
-        "$(_setup_msg key_not_found)" "${_section}" "${_rest}" "${_value}" >&2
+      _log_err setup "$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}"
       return 1
     fi
   else
@@ -2855,7 +3074,7 @@ _setup_remove() {
       fi
     done
     if (( ! _found )); then
-      printf "[setup] %s: %s\n" "$(_setup_msg key_not_found)" "${_spec}" >&2
+      _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
       return 1
     fi
     _target_key="${_rest}"
@@ -2871,6 +3090,12 @@ _setup_remove() {
   _write_setup_conf "${_conf}" "${_tmp}" \
     _empty_s _empty_k _empty_v "${_section}.${_target_key}"
   rm -f "${_tmp}"
+
+  if [[ "${_quiet}" -eq 0 ]]; then
+    printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2896,6 +3121,7 @@ _setup_remove() {
 _setup_reset() {
   local _base_path=""
   local _yes=0
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2904,6 +3130,10 @@ _setup_reset() {
         ;;
       -y|--yes)
         _yes=1
+        shift
+        ;;
+      -q|--quiet)
+        _quiet=1
         shift
         ;;
       --base-path)
@@ -2916,7 +3146,7 @@ _setup_reset() {
         shift 2
         ;;
       *)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
     esac
@@ -2940,16 +3170,16 @@ _setup_reset() {
 
   if (( ! _yes )); then
     if [[ ! -t 0 ]]; then
-      printf "[setup] %s\n" "$(_setup_msg reset_needs_yes)" >&2
+      _log_err setup "$(_setup_msg reset needs_yes)"
       return 1
     fi
-    printf "[setup] %s [y/N]: " "$(_setup_msg reset_confirm)"
+    printf "[setup] %s [y/N]: " "$(_setup_msg reset confirm)"
     local _ans=""
     read -r _ans
     case "${_ans}" in
       y|Y|yes|YES) ;;
       *)
-        printf "[setup] %s\n" "$(_setup_msg reset_aborted)" >&2
+        _log_warn setup "$(_setup_msg reset aborted)"
         return 1
         ;;
     esac
@@ -2964,7 +3194,11 @@ _setup_reset() {
     cp -f "${_env}" "${_env}.bak"
   fi
 
-  printf "[setup] %s\n" "$(_setup_msg reset_done)"
+  if [[ "${_quiet}" -eq 0 ]]; then
+    _log_info setup "$(_setup_msg reset "done")"
+    printf '[setup] file: %s\n' "${_conf}"
+    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2979,6 +3213,7 @@ _setup_reset() {
 # ════════════════════════════════════════════════════════════════════
 _setup_apply() {
   local _base_path=""
+  local _quiet=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2994,8 +3229,12 @@ _setup_apply() {
         _sanitize_lang _LANG "setup"
         shift 2
         ;;
+      -q|--quiet)
+        _quiet=1
+        shift
+        ;;
       *)
-        printf "[setup] %s: %s\n" "$(_setup_msg unknown_arg)" "$1" >&2
+        _log_err setup "$(_setup_msg errors unknown_arg): $1"
         return 1
         ;;
     esac
@@ -3287,6 +3526,10 @@ _setup_apply() {
   local _shm_size=""
   _get_conf_value _res_k _res_v "shm_size" "" _shm_size
 
+  # ── [logging] + [logging.<svc>] (#310) ──
+  local _logging_global_str="" _logging_per_svc_str=""
+  _collect_logging "${_base_path}" _logging_global_str _logging_per_svc_str
+
   # ── Resolve final enabled states ──
   local gpu_enabled_eff="" gui_enabled_eff=""
   _resolve_gpu "${gpu_mode}" "${gpu_detected}" gpu_enabled_eff
@@ -3342,14 +3585,18 @@ _setup_apply() {
     "${build_network}" \
     "${runtime_resolved}" \
     "${_additional_contexts_str}" \
+    "${_logging_global_str}" \
+    "${_logging_per_svc_str}" \
     || return $?
 
-  printf "[setup] %s\n" "$(_setup_msg env_done)"
-  printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
-    "${user_name}" "${user_uid}" "${user_gid}" \
-    "${gpu_enabled_eff}" "${gpu_mode}" \
-    "${gui_enabled_eff}" "${gui_mode}" \
-    "${image_name}" "${ws_path}"
+  if [[ "${_quiet}" -eq 0 ]]; then
+    _log_info setup "$(_setup_msg env "done")"
+    printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
+      "${user_name}" "${user_uid}" "${user_gid}" \
+      "${gpu_enabled_eff}" "${gpu_mode}" \
+      "${gui_enabled_eff}" "${gui_mode}" \
+      "${image_name}" "${ws_path}"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -3386,7 +3633,7 @@ main() {
       shift
       ;;
     *)
-      printf "[setup] %s: %s\n" "$(_setup_msg unknown_subcmd)" "$1" >&2
+      _log_err setup "$(_setup_msg errors unknown_subcmd): $1"
       return 1
       ;;
   esac

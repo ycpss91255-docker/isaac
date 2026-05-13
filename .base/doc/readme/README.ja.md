@@ -1,7 +1,7 @@
 # template
 
-[![Self Test](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/template/actions/workflows/self-test.yaml)
-[![codecov](https://codecov.io/gh/ycpss91255-docker/template/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/template)
+[![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
@@ -34,9 +34,9 @@
 mkdir <repo_name> && cd <repo_name>
 git init
 git commit --allow-empty -m "chore: initial commit"
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
-./template/init.sh
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
+./.base/init.sh
 
 # 最新版にアップグレード
 make upgrade-check   # 確認
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例: my_app）"]
-        symlinks["build.sh → template/script/docker/build.sh<br/>run.sh → template/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 固有）"]
         main_yaml["main.yaml<br/>→ 再利用可能な workflows を呼び出し"]
@@ -287,7 +287,10 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `Dockerfile`
 - `compose.yaml`
 - `.env.example`
-- `script/entrypoint.sh`
+- `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
+  - `script/entrypoint.sh`（canonical）
+  - ros / アプリ起動 helper 等
+- `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dockerfile/Dockerfile.example` 参照、#275）
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
@@ -299,7 +302,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
 する必要はありません。
 
-### 単一 conf、6 つの section
+### 単一 conf、7 つの section
 
 ```
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
@@ -309,9 +312,11 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [network]  mode (host|bridge|none)、ipc、privileged
 [volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
            mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
+[logging]  driver（デフォルト json-file）、max_size、max_file、compress
+           [logging.<svc>] で個別 service に key-level override 可能
 ```
 
-テンプレート既定値は `template/setup.conf`；repo ごとの上書きは
+テンプレート既定値は `.base/setup.conf`；repo ごとの上書きは
 `<repo>/setup.conf`。セクションレベル **replace** 戦略：repo ファイルに
 section があれば template の section を全置換；無ければ template 既定値を継承。
 
@@ -325,7 +330,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
 ./setup_tui.sh volumes              # 特定 section に直接ジャンプ
 ./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
-./template/init.sh --gen-conf # template/setup.conf を repo ルートに単純コピー
+./.base/init.sh --gen-conf # .base/setup.conf を repo ルートに単純コピー
 ```
 
 ### インタラクティブ TUI
@@ -358,8 +363,8 @@ Main
 `setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
 の度に再実行されることはありません：
 
-- **`./template/init.sh`** がスケルトン生成後に 1 回自動実行
-- **`make upgrade` / `./template/upgrade.sh`** が subtree pull の後に
+- **`./.base/init.sh`** がスケルトン生成後に 1 回自動実行
+- **`make upgrade` / `./.base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
   baseline で `.env` / `compose.yaml` を再生成した状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
@@ -453,11 +458,11 @@ git init
 git commit --allow-empty -m "chore: initial commit"
 
 # 2. subtree 追加
-git subtree add --prefix=template \
-    https://github.com/ycpss91255-docker/template.git main --squash
+git subtree add --prefix=.base \
+    https://github.com/ycpss91255-docker/base.git main --squash
 
 # 3. symlink 初期化（ワンコマンド）
-./template/init.sh
+./.base/init.sh
 ```
 
 > `git subtree add` は `HEAD` の存在を前提とします。`git init` 直後でコミットが無い repo では `ambiguous argument 'HEAD'` と `working tree has modifications` で失敗します。空コミットで `HEAD` を作成しておけば subtree がマージできます。
@@ -479,21 +484,21 @@ make upgrade
 make upgrade VERSION=v0.3.0
 # 指定したバージョンが現在の local pin より古い場合（例：v0.12.0-rc1 から
 # v0.11.0 への巻き戻し）は SemVer §11 に従って暗黙の downgrade として
-# 拒否されます。意図的な rollback の場合は template/.version を手動編集
+# 拒否されます。意図的な rollback の場合は .base/.version を手動編集
 # してください。
 
 # make が使えない場合のフォールバック
-./template/upgrade.sh v0.3.0
+./.base/upgrade.sh v0.3.0
 ```
 
 `upgrade.sh` は一度に完結します：
 
-1. `git subtree pull --prefix=template ... --squash`
-2. Post-pull 整合性チェック — subtree マーカー（`template/.version`、
-   `template/init.sh`、`template/script/docker/setup.sh`）が消えた場合は
+1. `git subtree pull --prefix=.base ... --squash`
+2. Post-pull 整合性チェック — subtree マーカー（`.base/.version`、
+   `.base/init.sh`、`.base/script/docker/setup.sh`）が消えた場合は
    `git reset --hard` で rollback（旧 `git-subtree.sh` の destructive FF
    対策）
-3. `./template/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
+3. `./.base/init.sh` 再実行：root symlinks（`build.sh` / `run.sh`
    / `Makefile` …）の再同期、`.gitignore` を canonical entry set に
    同期、derived artifact になった旧 tracked ファイル（`.env`、
    `compose.yaml`、…）を `git rm --cached`、最後に `setup.sh apply` を
@@ -503,8 +508,8 @@ make upgrade VERSION=v0.3.0
 
 per-repo のファイルは上書きされません：`<repo>/setup.conf` はそのまま
 保持され、`<repo>/config/`（bashrc / tmux / terminator …）も触りません
-— 上流の `template/config/` が前回 pull 以降変わっていれば、
-upgrade.sh が `diff -ruN template/config config` のヒントを表示するの
+— 上流の `.base/config/` が前回 pull 以降変わっていれば、
+upgrade.sh が `diff -ruN .base/config config` のヒントを表示するの
 で、必要に応じて手動で reconcile してください。
 
 手動で `git subtree pull` しないでください — 整合性チェック、init.sh
@@ -523,7 +528,7 @@ updates:
       interval: "weekly"
 ```
 
-Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `make upgrade VERSION=vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
+Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/base/...@vX.Y.Z` ref を見て、template の最新 tag と照合して PR を出します。subtree 自体は引き続きローカルで `make upgrade VERSION=vX.Y.Z` を実行する必要があります — Dependabot が扱うのは workflow ref のみです。
 
 ## CI Reusable Workflows
 
@@ -533,7 +538,7 @@ Dependabot は `main.yaml` 内の `uses: ycpss91255-docker/template/...@vX.Y.Z` 
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1
     with:
       image_name: my_app
       build_args: |
@@ -544,7 +549,7 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v1
     with:
       archive_name_prefix: my_app
 ```
@@ -590,7 +595,7 @@ make -f Makefile.ci help  # CI ターゲット表示
 ## ディレクトリ構造
 
 ```
-template/
+.base/
 ├── init.sh                           # repo 初期化（新規または既存）
 ├── upgrade.sh                        # template subtree バージョンアップグレード
 ├── script/

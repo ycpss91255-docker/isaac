@@ -2,9 +2,9 @@
 # upgrade.sh - Upgrade template subtree to the latest version
 #
 # Run from the repo root:
-#   ./template/upgrade.sh              # upgrade to latest tag
-#   ./template/upgrade.sh v0.3.0       # upgrade to specific version
-#   ./template/upgrade.sh --check      # check if update available
+#   ./.base/upgrade.sh              # upgrade to latest tag
+#   ./.base/upgrade.sh v0.3.0       # upgrade to specific version
+#   ./.base/upgrade.sh --check      # check if update available
 
 set -euo pipefail
 
@@ -12,25 +12,28 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 readonly REPO_ROOT
-# Subtree prefix is the directory upgrade.sh lives in, so a downstream
-# rename (e.g. template/ -> .base/) is picked up automatically: every
-# filesystem reference, the subtree-pull --prefix= flag, and integrity
-# marker uses the same prefix the script was invoked through.
+# Subtree prefix is the directory upgrade.sh lives in (now standardised
+# to .base/ post-#263), picked up automatically: every filesystem
+# reference, the subtree-pull --prefix= flag, and integrity marker uses
+# the same prefix the script was invoked through.
 TEMPLATE_REL="$(basename "${SCRIPT_DIR}")"
 readonly TEMPLATE_REL
 # Default to HTTPS so users without an SSH key (fresh clone, CI runner,
 # first-time contributor) can `./${TEMPLATE_REL}/upgrade.sh` out of the
 # box. Export TEMPLATE_REMOTE=git@github.com:... to opt into SSH (needed
 # for private forks, or when the user prefers agent-based auth).
-TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/template.git}"
+TEMPLATE_REMOTE="${TEMPLATE_REMOTE:-https://github.com/ycpss91255-docker/base.git}"
 readonly TEMPLATE_REMOTE
 VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/script/docker/_lib.sh"
+
 cd "${REPO_ROOT}"
 
-_log() { printf "[upgrade] %s\n" "$*"; }
-_error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
+_log() { _log_info upgrade "$*"; }
+_error() { _log_err upgrade "$*"; exit 1; }
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -38,7 +41,7 @@ _error() { printf "[upgrade] ERROR: %s\n" "$*" >&2; exit 1; }
 # destructive fast-forward have been seen on Jetson L4T shipping older
 # git-subtree.sh). These helpers keep `upgrade.sh` safe regardless: fail
 # fast if the repo is not in a state where subtree pull can succeed
-# cleanly, and roll back if the pull ran but left `template/` in a shape
+# cleanly, and roll back if the pull ran but left `.base/` in a shape
 # that doesn't match a subtree (e.g. markers missing, working tree
 # contains template-repo root files at <repo>/ root).
 
@@ -89,9 +92,9 @@ _verify_subtree_intact() {
   local _marker
   for _marker in "${_markers[@]}"; do
     if [[ ! -f "${_marker}" ]]; then
-      printf "[upgrade] ERROR: post-pull integrity check failed — '%s' missing.\n" "${_marker}" >&2
-      printf "[upgrade] Likely cause: git-subtree fast-forwarded destructively.\n" >&2
-      printf "[upgrade] Rolling back to %s ...\n" "${_pre_head:0:12}" >&2
+      _log_err upgrade "post-pull integrity check failed — '${_marker}' missing."
+      _log_err upgrade "Likely cause: git-subtree fast-forwarded destructively."
+      _log_info upgrade "Rolling back to ${_pre_head:0:12} ..."
       git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
       _error "upgrade aborted; repo restored to pre-upgrade state"
     fi
@@ -303,13 +306,13 @@ COMMIT
 
   # Post-pull: warn when the upstream config baseline moved so the
   # user can reconcile <repo>/config/ (seeded by init.sh, user-owned
-  # afterwards) against the new template/config/. Silent when the
+  # afterwards) against the new .base/config/. Silent when the
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
-  # Same pattern for template/setup.conf: post-#201 the user's per-repo
+  # Same pattern for .base/setup.conf: post-#201 the user's per-repo
   # setup.conf is the override file (committed, never overwritten by
-  # template upgrades). When the upstream template/setup.conf adds new
+  # template upgrades). When the upstream .base/setup.conf adds new
   # sections / keys / changes defaults, point the user at the diff so
   # they can opt in.
   _warn_setup_conf_drift "${_pre_setup_conf_hash}"

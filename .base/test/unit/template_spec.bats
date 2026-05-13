@@ -56,15 +56,15 @@ setup() {
   assert_success
 }
 
-@test "Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)" {
+@test "Makefile upgrade target uses ./.base/upgrade.sh (not ./.base/script/upgrade.sh)" {
   # Regression: the Makefile symlinked into every downstream repo has
-  # called `./template/script/upgrade.sh` since v0.10.x, but upgrade.sh
-  # actually lives at template root (`./template/upgrade.sh`). The
+  # called `./.base/script/upgrade.sh` since v0.10.x, but upgrade.sh
+  # actually lives at template root (`./.base/upgrade.sh`). The
   # broken target produced "No such file or directory" on `make upgrade`
   # / `make upgrade-check` for fresh consumer repos.
-  run grep -E '^[[:space:]]+\./template/upgrade\.sh' /source/script/docker/Makefile
+  run grep -E '^[[:space:]]+\./.base/upgrade\.sh' /source/script/docker/Makefile
   assert_success
-  refute_output --partial "./template/script/upgrade.sh"
+  refute_output --partial "./.base/script/upgrade.sh"
 }
 
 @test "Makefile.ci exists (template CI)" {
@@ -101,7 +101,7 @@ setup() {
   # treats exit 1 as success — the check itself succeeded, the user-
   # facing message already conveys the result. Exit codes ≥2 (genuine
   # failures) still propagate.
-  run grep -E '\./template/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
+  run grep -E '\./.base/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
       /source/script/docker/Makefile
   assert_success
 }
@@ -152,16 +152,16 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Path reference: scripts call template/script/docker/setup.sh
+# Path reference: scripts call .base/script/docker/setup.sh
 # ════════════════════════════════════════════════════════════════════
 
-@test "build.sh references template/script/docker/setup.sh" {
-  run grep "template/script/docker/setup.sh" /source/script/docker/build.sh
+@test "build.sh references .base/script/docker/setup.sh" {
+  run grep ".base/script/docker/setup.sh" /source/script/docker/build.sh
   assert_success
 }
 
-@test "run.sh references template/script/docker/setup.sh" {
-  run grep "template/script/docker/setup.sh" /source/script/docker/run.sh
+@test "run.sh references .base/script/docker/setup.sh" {
+  run grep ".base/script/docker/setup.sh" /source/script/docker/run.sh
   assert_success
 }
 
@@ -220,14 +220,15 @@ setup() {
 # Docker compose project name (-p)
 # ════════════════════════════════════════════════════════════════════
 
-@test "_lib.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME" {
-  # Project name derivation lives in _lib.sh and is shared by all callers.
-  run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/_lib.sh
+@test "lib/compose.sh derives PROJECT_NAME from DOCKER_HUB_USER and IMAGE_NAME" {
+  # Project name derivation lives in lib/compose.sh (#284 split out of _lib.sh)
+  # and is shared by all callers via the _lib.sh umbrella.
+  run grep -E 'PROJECT_NAME=.*DOCKER_HUB_USER.*IMAGE_NAME' /source/script/docker/lib/compose.sh
   assert_success
 }
 
-@test "_lib.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/_lib.sh
+@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
+  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
   assert_success
 }
 
@@ -261,18 +262,18 @@ setup() {
   assert_success
 }
 
-@test "_lib.sh defines _load_env helper" {
-  run grep -E '^_load_env\(\)' /source/script/docker/_lib.sh
+@test "lib/env.sh defines _load_env helper" {
+  run grep -E '^_load_env\(\)' /source/script/docker/lib/env.sh
   assert_success
 }
 
-@test "_lib.sh defines _compute_project_name helper" {
-  run grep -E '^_compute_project_name\(\)' /source/script/docker/_lib.sh
+@test "lib/compose.sh defines _compute_project_name helper" {
+  run grep -E '^_compute_project_name\(\)' /source/script/docker/lib/compose.sh
   assert_success
 }
 
-@test "_lib.sh defines _compose wrapper" {
-  run grep -E '^_compose\(\)' /source/script/docker/_lib.sh
+@test "lib/compose.sh defines _compose wrapper" {
+  run grep -E '^_compose\(\)' /source/script/docker/lib/compose.sh
   assert_success
 }
 
@@ -466,9 +467,11 @@ setup() {
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
 EOF
-  mkdir -p "${_tmp}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${_tmp}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/template/script/docker/i18n.sh" 2>/dev/null || true
+  mkdir -p "${_tmp}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh"
@@ -485,9 +488,11 @@ EOF
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
 EOF
-  mkdir -p "${_tmp}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${_tmp}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/template/script/docker/i18n.sh" 2>/dev/null || true
+  mkdir -p "${_tmp}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${_tmp}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${_tmp}/.base/script/docker/i18n.sh" 2>/dev/null || true
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${_tmp}/.base/script/docker/lib/"
   cp /source/script/docker/exec.sh "${_tmp}/exec.sh"
 
   run bash "${_tmp}/exec.sh" --dry-run
@@ -582,11 +587,15 @@ EOF
 
 _stage_lint_layout() {
   # Simulate Dockerfile.example's /lint/ stage: script + helpers in one
-  # flat directory. Callers pass the script file under test.
+  # flat directory, with the lib/ sub-directory (#284 umbrella sources
+  # lib/*.sh — Dockerfile.example COPYs `.base/script/docker/lib /lint/lib`
+  # to mirror it). Callers pass the script file under test.
   local _dest="${1:?}" _script="${2:?}"
   cp "/source/script/docker/${_script}" "${_dest}/${_script}"
   cp /source/script/docker/_lib.sh   "${_dest}/_lib.sh"
   cp /source/script/docker/i18n.sh   "${_dest}/i18n.sh"
+  mkdir -p "${_dest}/lib"
+  cp /source/script/docker/lib/*.sh  "${_dest}/lib/"
 }
 
 @test "build.sh -h works in /lint/ layout (flat dir with _lib.sh + i18n.sh, issue #104)" {
@@ -629,7 +638,7 @@ _stage_lint_layout() {
 }
 
 @test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
-  # No template/script/docker/_lib.sh nor sibling _lib.sh → explicit
+  # No .base/script/docker/_lib.sh nor sibling _lib.sh → explicit
   # non-zero exit + error message pointing the user at the two
   # expected paths. Better UX than the old silent inline fallback
   # that hid the absence.
@@ -646,11 +655,11 @@ _stage_lint_layout() {
   # Structural guard: if the Dockerfile COPY is dropped, the /lint/
   # smoke test (script_help.bats) would break silently for new
   # downstream repos. Pin it here.
-  run grep -F 'template/script/docker/_lib.sh' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/script/docker/_lib.sh' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F 'template/script/docker/i18n.sh' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/script/docker/i18n.sh' /source/dockerfile/Dockerfile.example
   assert_success
-  run grep -F 'template/script/docker/_tui_conf.sh' /source/dockerfile/Dockerfile.example
+  run grep -F '.base/script/docker/_tui_conf.sh' /source/dockerfile/Dockerfile.example
   assert_success
 }
 
@@ -764,8 +773,8 @@ _stage_lint_layout() {
 
 @test "upgrade.sh reads version from <subtree-prefix>/.version" {
   # Post-v0.25.0 the subtree prefix is parameterised (TEMPLATE_REL) so
-  # the rename `template/` -> `.base/` works without code change. Assert
-  # the parameterised form rather than the literal `template/` prefix.
+  # the rename `.base/` -> `.base/` works without code change. Assert
+  # the parameterised form rather than the literal `.base/` prefix.
   run grep -F '${TEMPLATE_REL}/.version' /source/upgrade.sh
   assert_success
 }
@@ -773,7 +782,7 @@ _stage_lint_layout() {
 @test "upgrade.sh does not reference legacy VERSION or .template_version" {
   # After the .version rename, upgrade.sh must not mention either
   # legacy filename — no backward-compat fallback is carried.
-  run grep -cE 'template/VERSION|\.template_version' /source/upgrade.sh
+  run grep -cE '.base/VERSION|\.template_version' /source/upgrade.sh
   assert_failure
   assert_output "0"
 }
@@ -805,13 +814,13 @@ _stage_lint_layout() {
   local _tmp _yaml
   _tmp="$(mktemp -d)"
   _yaml="${_tmp}/main.yaml"
-  mkdir -p "${_tmp}/template" "${_tmp}/.github/workflows"
+  mkdir -p "${_tmp}/.base" "${_tmp}/.github/workflows"
   cat > "${_yaml}" <<'EOF'
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.5.0
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.5.0
   call-release:
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.5.0
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.5.0
 EOF
   # Source upgrade.sh and exercise just the sed block by inlining the
   # production sed commands here, mirroring what upgrade.sh does.
@@ -846,9 +855,9 @@ EOF
   cat > "${_yaml}" <<'EOF'
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.10.0-rc1
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.10.0-rc1
   call-release:
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.10.0-rc1
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.10.0-rc1
 EOF
   local _seds
   _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
@@ -879,9 +888,9 @@ EOF
   cat > "${_yaml}" <<'EOF'
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.10.0-rc2
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.10.0-rc2
   call-release:
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v0.9.9
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.9
 EOF
   local _seds
   _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
@@ -1129,13 +1138,13 @@ EOF
 # pip relocation: config/pip/ -> dockerfile/setup/pip/ (#261)
 #
 # config/ is the user-facing override surface post-#254 (layered COPY:
-# template/config/ defaults + <repo>/config/ overlay = runtime files
+# .base/config/ defaults + <repo>/config/ overlay = runtime files
 # in the user's interactive shell). pip/setup.sh was the odd one out --
 # build-time install scaffolding that ran once then got wiped by
 # `sudo rm -rf ${CONFIG_DIR}`, never user-facing. Mental-model
 # violation against #254's drop-in semantics + forced every downstream
 # to keep pip/setup.sh in their <repo>/config/ snapshot. #261 moves
-# it to template/dockerfile/setup/pip/ -- a separate dir intended for
+# it to .base/dockerfile/setup/pip/ -- a separate dir intended for
 # build-time scaffolding only, copied into ${SETUP_DIR} (no layered
 # override, single source of truth), cleared alongside CONFIG_DIR.
 #
@@ -1163,10 +1172,10 @@ EOF
   assert_success
 }
 
-@test "Dockerfile.example COPYs template/dockerfile/setup into SETUP_DIR (#261)" {
+@test "Dockerfile.example COPYs .base/dockerfile/setup into SETUP_DIR (#261)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^COPY --chmod=0755 template/dockerfile/setup "\$\{SETUP_DIR\}"$' "${_df}"
+  run grep -E '^COPY --chmod=0755 .base/dockerfile/setup "\$\{SETUP_DIR\}"$' "${_df}"
   assert_success
 }
 
@@ -1250,14 +1259,14 @@ EOF
 
 @test "release-test-tools.yaml uses template-repo-local Dockerfile path" {
   # Regression: this workflow runs in the template repo, so Dockerfile.test-tools
-  # path must be `dockerfile/...` (not `template/dockerfile/...` which is the
+  # path must be `dockerfile/...` (not `.base/dockerfile/...` which is the
   # downstream subtree path used by build-worker.yaml).
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
   [[ -f "${_yaml}" ]] || skip "release-test-tools.yaml not present in /source"
   run grep -E '^\s*file: dockerfile/Dockerfile\.test-tools$' "${_yaml}"
   assert_success
   # And must NOT have the subtree-prefixed path:
-  run grep -c 'file: template/dockerfile/Dockerfile.test-tools' "${_yaml}"
+  run grep -c 'file: .base/dockerfile/Dockerfile.test-tools' "${_yaml}"
   assert_output "0"
 }
 
@@ -1289,7 +1298,7 @@ EOF
   assert_success
   assert_output --partial 'Dockerfile'
   assert_output --partial 'build.sh'
-  assert_output --partial 'template/'
+  assert_output --partial '.base/'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1316,7 +1325,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "setup.sh default _base_path uses /.." {
-  # In template, setup.sh is at template/script/docker/setup.sh
+  # In template, setup.sh is at .base/script/docker/setup.sh
   # So it should go up 1 level (/..) to reach repo root
   run grep -E '\.\./\.\.' /source/script/docker/setup.sh
   assert_success  # Should have ../../ ../../ (that was old docker_setup_helper/src/ pattern)

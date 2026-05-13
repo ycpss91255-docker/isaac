@@ -28,14 +28,14 @@ setup() {
   REPO_NAME="myapp_test"
   TMP_ROOT="$(mktemp -d)"
   REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
-  mkdir -p "${REPO_DIR}/template"
-  cp -a /source/. "${REPO_DIR}/template/"
+  mkdir -p "${REPO_DIR}/.base"
+  cp -a /source/. "${REPO_DIR}/.base/"
 
   # Make the repo look like a committed consumer repo: Dockerfile is
   # present (so init.sh's existing-repo path fires), build.sh is
   # symlinked exactly as init.sh would have produced it.
   touch "${REPO_DIR}/Dockerfile"
-  ln -s template/script/docker/build.sh "${REPO_DIR}/build.sh"
+  ln -s .base/script/docker/build.sh "${REPO_DIR}/build.sh"
 
   cd "${REPO_DIR}"
 }
@@ -52,7 +52,7 @@ teardown() {
 _seed_stale_setup_conf() {
   local _host="$1"
   mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/template/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  cp "${REPO_DIR}/.base/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
   # shellcheck disable=SC2016  # ${USER_NAME} is a literal in setup.conf
   sed -i "s|^mount_1 =.*|mount_1 = ${_host}:/home/\${USER_NAME}/work|" \
     "${REPO_DIR}/config/docker/setup.conf"
@@ -102,7 +102,7 @@ _seed_stale_setup_conf() {
   # Same shape as above but with a repo whose committed setup.conf
   # already uses the portable form (the happy case after v0.9.4+).
   mkdir -p "${REPO_DIR}/config/docker"
-  cp "${REPO_DIR}/template/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
+  cp "${REPO_DIR}/.base/config/docker/setup.conf" "${REPO_DIR}/config/docker/setup.conf"
   # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
   sed -i 's|^mount_1 =.*|mount_1 = ${WS_PATH}:/home/${USER_NAME}/work|' \
     "${REPO_DIR}/config/docker/setup.conf"

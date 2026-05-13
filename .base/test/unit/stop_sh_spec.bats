@@ -15,10 +15,12 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker"
+  mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/template/script/docker/i18n.sh"
+  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   ln -s /source/script/docker/stop.sh "${SANDBOX}/stop.sh"
 
   # Seed .env so _load_env succeeds.
@@ -151,6 +153,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -163,6 +167,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -175,6 +181,8 @@ teardown() {
   ln -s /source/script/docker/stop.sh "${_tmp}/stop.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/stop.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -187,9 +195,10 @@ teardown() {
 
 @test "stop.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -206,9 +215,10 @@ teardown() {
 
 @test "stop.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
@@ -237,4 +247,32 @@ teardown() {
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "stop.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+}
+
+@test "stop.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/stop.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "stop.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/stop.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
 }

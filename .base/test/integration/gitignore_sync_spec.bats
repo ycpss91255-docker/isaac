@@ -14,8 +14,8 @@ setup() {
 
   TMP_ROOT="$(mktemp -d)"
   REPO_DIR="${TMP_ROOT}/myrepo"
-  mkdir -p "${REPO_DIR}/template"
-  cp -a /source/. "${REPO_DIR}/template/"
+  mkdir -p "${REPO_DIR}/.base"
+  cp -a /source/. "${REPO_DIR}/.base/"
   cd "${REPO_DIR}"
 }
 
@@ -28,7 +28,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "init.sh new-repo: .gitignore contains all 7 canonical entries" {
-  bash template/init.sh
+  bash .base/init.sh
   local _entry
   for _entry in .env .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
@@ -37,7 +37,7 @@ teardown() {
 }
 
 @test "init.sh new-repo: .gitignore has the 'managed by template' marker" {
-  bash template/init.sh
+  bash .base/init.sh
   run grep -F 'managed by template' "${REPO_DIR}/.gitignore"
   assert_success
 }
@@ -65,7 +65,7 @@ EOF
 
 @test "init.sh existing-repo: appends missing canonical entries to user .gitignore" {
   _seed_existing_repo
-  bash template/init.sh
+  bash .base/init.sh
 
   # User entry preserved verbatim
   run grep -xF '.claude/' "${REPO_DIR}/.gitignore"
@@ -92,7 +92,7 @@ EOF
   run git -C "${REPO_DIR}" ls-files compose.yaml
   assert_output "compose.yaml"
 
-  bash template/init.sh
+  bash .base/init.sh
 
   # No longer in index
   run git -C "${REPO_DIR}" ls-files compose.yaml
@@ -116,7 +116,7 @@ EOF
   git -C "${REPO_DIR}" add config/docker/setup.conf
   git -C "${REPO_DIR}" commit -q -m "track setup.conf"
 
-  bash template/init.sh
+  bash .base/init.sh
 
   # setup.conf still tracked by git
   run git -C "${REPO_DIR}" ls-files config/docker/setup.conf
@@ -131,11 +131,11 @@ EOF
 
 @test "init.sh existing-repo: idempotent — second run produces no .gitignore changes" {
   _seed_existing_repo
-  bash template/init.sh
+  bash .base/init.sh
   local _first
   _first="$(cat "${REPO_DIR}/.gitignore")"
 
-  bash template/init.sh
+  bash .base/init.sh
   local _second
   _second="$(cat "${REPO_DIR}/.gitignore")"
 
@@ -161,6 +161,12 @@ _seed_upgrade_fixture() {
   cp /source/init.sh "${TMPL_WORK}/init.sh"
   cp /source/upgrade.sh "${TMPL_WORK}/upgrade.sh"
   cp /source/script/docker/lib/gitignore.sh "${TMPL_WORK}/script/docker/lib/gitignore.sh"
+  # init.sh / upgrade.sh source _lib.sh on load (#278: route _log / _error
+  # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
+  # sub-libs (#284), so copy all three surfaces.
+  cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
@@ -203,14 +209,14 @@ EOF
   cat > "${DOWN_DIR}/.github/workflows/main.yaml" <<'YAML'
 jobs:
   build:
-    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v9.0.0
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v9.0.0
   release:
-    uses: ycpss91255-docker/template/.github/workflows/release-worker.yaml@v9.0.0
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v9.0.0
 YAML
   git -C "${DOWN_DIR}" add -A
   git -C "${DOWN_DIR}" commit -q -m "initial"
 
-  git -C "${DOWN_DIR}" subtree add -q --prefix=template \
+  git -C "${DOWN_DIR}" subtree add -q --prefix=.base \
     "file://${TMPL_BARE}" v9.0.0 --squash
 }
 
@@ -219,7 +225,7 @@ YAML
   cd "${DOWN_DIR}"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./template/upgrade.sh v9.0.1
+      ./.base/upgrade.sh v9.0.1
   assert_success
   assert_output --partial "Done! Upgraded to v9.0.1"
 
@@ -252,12 +258,12 @@ YAML
   cd "${DOWN_DIR}"
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./template/upgrade.sh v9.0.1 >/dev/null
+      ./.base/upgrade.sh v9.0.1 >/dev/null
   local _post_first
   _post_first="$(git -C "${DOWN_DIR}" rev-parse HEAD)"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
-      ./template/upgrade.sh v9.0.1
+      ./.base/upgrade.sh v9.0.1
   assert_success
   assert_output --partial "Already at v9.0.1"
 

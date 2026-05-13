@@ -15,18 +15,20 @@ setup() {
   export TEMP_DIR
 
   SANDBOX="${TEMP_DIR}/repo"
-  mkdir -p "${SANDBOX}/template/script/docker" \
+  mkdir -p "${SANDBOX}/.base/script/docker/lib" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/template/script/docker/i18n.sh"
+  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
+  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
   # Symlink (not copy) so kcov attributes coverage to /source/script/docker/run.sh.
   ln -s /source/script/docker/run.sh "${SANDBOX}/run.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock setup.sh (subprocess-only after #49 Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift baseline)
@@ -58,7 +60,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -152,7 +154,7 @@ teardown() {
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -184,7 +186,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "regenerating"
@@ -253,11 +255,11 @@ EOS
 }
 
 @test "run.sh fails with clear error if setup.sh produced no .env" {
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_failure
   assert_output --partial ".env"
@@ -373,6 +375,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -385,6 +389,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -397,6 +403,8 @@ EOS
   ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
   cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
   cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  mkdir -p "${_tmp}/lib"
+  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -612,14 +620,14 @@ EOS
   # Replace mock setup.sh with one that logs to a shared timeline.
   EVENT_LOG="${TEMP_DIR}/timeline.log"
   export EVENT_LOG
-  cat > "${SANDBOX}/template/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 case "${1:-}" in
   check-drift) printf '%s\n' "setup-check-drift" >> "${EVENT_LOG}"; exit 0 ;;
   apply)       printf '%s\n' "setup-apply"       >> "${EVENT_LOG}"; exit 0 ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/template/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
 
   cat > "${SANDBOX}/build.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -647,11 +655,12 @@ EOS
 
 @test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
-  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
-  chmod +x "${ALT}/template/script/docker/setup.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/setup.sh"
 
   run bash "${SANDBOX}/run.sh" -C "${ALT}" --dry-run --detach
   assert_success
@@ -662,11 +671,12 @@ EOS
 
 @test "run.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/template/script/docker"
-  cp /source/script/docker/_lib.sh "${ALT}/template/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/template/script/docker/i18n.sh"
-  cp "${SANDBOX}/template/script/docker/setup.sh" "${ALT}/template/script/docker/setup.sh"
-  chmod +x "${ALT}/template/script/docker/setup.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib"
+  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
+  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/setup.sh"
 
   run bash "${SANDBOX}/run.sh" --chdir "${ALT}" --dry-run --detach
   assert_success
@@ -691,4 +701,32 @@ EOS
   assert_success
   assert_output --partial "-C"
   assert_output --partial "--chdir"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# -v / --verbose / -vv / --very-verbose (BUILDKIT_PROGRESS=plain, #311)
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh -v / --verbose / -vv / --very-verbose are mentioned in usage help (#311)" {
+  run bash "${SANDBOX}/run.sh" --help
+  assert_success
+  assert_output --partial "-v, --verbose"
+  assert_output --partial "-vv, --very-verbose"
+  assert_output --partial "BUILDKIT_PROGRESS=plain"
+}
+
+@test "run.sh -v --dry-run is accepted and exits 0 (#311)" {
+  run bash "${SANDBOX}/run.sh" -v --dry-run
+  assert_success
+}
+
+@test "run.sh --verbose long form is accepted (#311)" {
+  run bash "${SANDBOX}/run.sh" --verbose --dry-run
+  assert_success
+}
+
+@test "run.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
+  run --separate-stderr bash "${SANDBOX}/run.sh" -vv --dry-run
+  assert_success
+  [[ "${stderr}" == *"+ "* ]]
 }

@@ -2157,7 +2157,9 @@ _do_reset() {
   # Reset deletes the per-repo override (setup.conf). The next apply
   # re-bootstraps it from the template baseline + detected workspace.
   rm -f "${FILE_PATH}/config/docker/setup.conf"
-  "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
+  # --quiet so apply's confirmation lines don't double-print after the
+  # TUI's own `[tui] saved` line (#285).
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -2211,7 +2213,9 @@ _commit_and_setup() {
   _saved_fmt="$(_tui_msg saved)"
   # shellcheck disable=SC2059
   printf "[tui] ${_saved_fmt}\n" "${_repo_conf}"
-  "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
+  # --quiet so apply's confirmation lines don't double-print after the
+  # TUI's own `[tui] saved` line (#285).
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}"
 }
 
 # ── main ─────────────────────────────────────────────────────────────────
@@ -2282,7 +2286,9 @@ main() {
   # setup.sh apply so mount_1 detection seeds the file before the TUI
   # opens its menus.
   if [[ ! -f "${_repo_conf}" ]]; then
-    "${_TUI_SCRIPT_DIR}/setup.sh" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
+    # --quiet so apply's confirmation lines don't double-print after the
+  # TUI's own `[tui] saved` line (#285).
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
       >/dev/null 2>&1 || true
   fi
   _load_current "${_repo_conf}" "${_tpl_conf}"
