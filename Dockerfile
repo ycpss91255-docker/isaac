@@ -10,11 +10,14 @@
 # isolation that broke the old test-tools:local CI pattern.
 #
 # Stages:
-#   sys     - User/group, locale, timezone
-#   base    - Development tools and packages
-#   devel   - Application-specific tools + entrypoint
-#   test    - Lint + smoke test (ephemeral, discarded after build)
-#   runtime - Minimal runtime image (optional)
+#   sys        - User/group, locale, timezone
+#   devel-base - Development tools and packages (renamed from `base` in
+#                base repo v0.21.0 for symmetry with runtime-base)
+#   devel      - Application-specific tools + entrypoint
+#   devel-test - Lint + smoke test (ephemeral, discarded after build;
+#                renamed from `test` in base repo v0.21.0 for symmetry
+#                with runtime-test)
+#   runtime    - Minimal runtime image (optional)
 
 ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
@@ -75,8 +78,8 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
         usermod -aG isaac-sim "${USER_NAME}"; \
     fi
 
-############################## base ##############################
-FROM sys AS base
+############################## devel-base ##############################
+FROM sys AS devel-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -98,7 +101,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ############################## devel ##############################
-FROM base AS devel
+FROM devel-base AS devel
 
 ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
@@ -162,11 +165,11 @@ EXPOSE 22
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
-############################## test ##############################
+############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
-FROM devel AS test
+FROM devel AS devel-test
 
 USER root
 
