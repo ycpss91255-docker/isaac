@@ -2,7 +2,7 @@
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
-NVIDIA Isaac Sim 5.1.0 Docker 開発環境。[`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template) をベースに構築。
+NVIDIA Isaac Sim 5.1.0 Docker 開発環境。[`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（旧名 `ycpss91255-docker/template`）をベースに構築。
 
 イメージのスコープは Isaac Sim 本体に加え、同梱の ROS 2 bridge がコンテナ間通信できるための env 配線まで。下流のアプリケーションノード（CoreSAM、AGV bring-up）と Noetic 互換用の ROS 1 / ROS 2 bridge は隣接する docker folder に配置。
 
@@ -32,7 +32,7 @@ NGC イメージ（`nvcr.io/nvidia/isaac-sim:5.1.0`）は公開取得可能、`d
 /isaac-sim/runapp.sh           # ローカル GUI（X11 必要；host 側で先に `xhost +local:docker`）
 ```
 
-> `run.sh -t {headless|gui}` ショートカットは [template issue #215](https://github.com/ycpss91255-docker/template/issues/215) で進行中。実装前は上記の手動 launcher を使用。
+> `run.sh -t {headless|gui}` ショートカットは [base issue #215](https://github.com/ycpss91255-docker/base/issues/215) で進行中。実装前は上記の手動 launcher を使用。
 
 ## WebRTC livestream への接続
 

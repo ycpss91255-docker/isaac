@@ -2,7 +2,7 @@
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
-NVIDIA Isaac Sim 5.1.0 Docker 開發環境，以 [`ycpss91255-docker/template`](https://github.com/ycpss91255-docker/template) 為基礎建立。
+NVIDIA Isaac Sim 5.1.0 Docker 開發環境，以 [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（前身為 `ycpss91255-docker/template`）為基礎建立。
 
 Image scope 涵蓋 Isaac Sim 本體，加上其內建 ROS 2 bridge 跨容器通訊所需的 env wiring。下游 application node（CoreSAM、AGV bring-up）以及對接 Noetic 的 ROS 1 / ROS 2 bridge 放在相鄰的 docker folder。
 
@@ -32,7 +32,7 @@ NGC image（`nvcr.io/nvidia/isaac-sim:5.1.0`）公開可拉，不需 `docker log
 /isaac-sim/runapp.sh           # 本機 GUI（需要 X11；host 端先跑 `xhost +local:docker`）
 ```
 
-> `run.sh -t {headless|gui}` 快捷功能在 [template issue #215](https://github.com/ycpss91255-docker/template/issues/215) 推進中。落地前先用上述手動 launcher。
+> `run.sh -t {headless|gui}` 快捷功能在 [base issue #215](https://github.com/ycpss91255-docker/base/issues/215) 推進中。落地前先用上述手動 launcher。
 
 ## 連接 WebRTC livestream
 
