@@ -467,6 +467,25 @@ EOS
   assert_output --partial "-t test-tools:local"
 }
 
+@test "build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)" {
+  # When the caller has its own test-tools provisioning (CI pre-builds
+  # via buildx GHA cache; downstream production builds pin to a GHCR
+  # rolling/release tag), the internal `docker build -t test-tools:local`
+  # in build.sh is wasted work. Set TEST_TOOLS_IMAGE and assert the
+  # internal build step does not run; the main `docker compose build`
+  # still runs (that's not what we're skipping).
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+
+  TEST_TOOLS_IMAGE=test-tools:local bash "${SANDBOX}/build.sh"
+  run cat "${DOCKER_LOG}"
+  refute_output --partial "-t test-tools:local"
+}
+
 # ── i18n log lines (bootstrap / drift / err_no_env) ────────────────────────
 # These exercise _msg() for every language on every log line that build.sh
 # emits directly. Usage-text coverage lives above; these assert that the

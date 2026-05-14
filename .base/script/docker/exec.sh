@@ -294,7 +294,19 @@ main() {
 
   # Precheck: refuse with a friendly hint if the target container is not
   # running. Skipped under --dry-run since the user is asking what *would* run.
-  local _container_name="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  # Container name mirrors compose.yaml's `container_name:`:
+  #   - devel:           ${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}
+  #   - non-devel stage: ${USER_NAME}-${IMAGE_NAME}-${TARGET}${INSTANCE_SUFFIX}
+  # The ${USER_NAME} prefix landed in #322 (multi-user host
+  # disambiguation); the per-stage ${TARGET} suffix is the convention
+  # auto-emitted for headless / gui / test stages (#215). Refs #335 --
+  # before this fix, the precheck always grepped for the devel-flavoured
+  # name and aborted any ./exec.sh -t <non-devel> invocation.
+  local _container_name="${USER_NAME}-${IMAGE_NAME}"
+  if [[ "${TARGET}" != "devel" ]]; then
+    _container_name="${_container_name}-${TARGET}"
+  fi
+  _container_name="${_container_name}${INSTANCE_SUFFIX}"
   if [[ "${DRY_RUN}" != true ]] \
       && ! docker ps --format '{{.Names}}' | grep -qx "${_container_name}"; then
     # Compose the error + matching hint into a single multi-line _log_err

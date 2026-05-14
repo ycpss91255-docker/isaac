@@ -362,6 +362,84 @@ detect_gui() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _is_ssh_x11
+#
+# Detect if the current session is using SSH X11 forwarding.
+# Returns 0 (success) when SSH_CONNECTION is set AND DISPLAY matches
+# the "localhost:N[.M]" pattern that SSH writes for X11 tunnels.
+# Returns non-zero otherwise (local X session, no display, etc.).
+#
+# Used by the SSH X11 cookie-rewrite + non-host-network warn path
+# in apply flow (refs base#321).
+# ════════════════════════════════════════════════════════════════════
+_is_ssh_x11() {
+  [[ -n "${SSH_CONNECTION:-}" ]] || return 1
+  [[ "${DISPLAY:-}" =~ ^localhost:[0-9]+(\.[0-9]+)?$ ]] || return 1
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_ssh_x11_cookie <file_path>
+#
+# Rewrite the X11 authentication cookie for the current DISPLAY so it
+# is accepted regardless of hostname (the container's hostname differs
+# from the host's). Standard `ssh + Docker + X11` recipe:
+#
+#   xauth nlist $DISPLAY | sed 's/^..../ffff/' | xauth -f <out> nmerge -
+#
+# The `ffff` family code in the cookie's first 4 bytes tells libX11
+# "ignore the hostname when matching", so the container can find the
+# cookie under its own hostname. The rewritten cookie is written to
+# `<file_path>/.docker.xauth`, which gets mounted into the container by
+# generate_compose_yaml's existing XAUTHORITY mount line (XAUTHORITY
+# in .env points at this path; see write_env's _ssh_x11_xauth arg).
+#
+# Echoes the absolute path on success. Returns non-zero (and logs a
+# warning) if `xauth` is not installed; caller should fall through to
+# leaving XAUTHORITY untouched in .env. Refs base#321.
+#
+# Usage:
+#   local _xauth_path
+#   _xauth_path="$(_setup_ssh_x11_cookie "${_file_path}")" || _xauth_path=""
+# ════════════════════════════════════════════════════════════════════
+_setup_ssh_x11_cookie() {
+  local _file_path="${1:?_setup_ssh_x11_cookie requires <file_path>}"
+  if ! command -v xauth >/dev/null 2>&1; then
+    _log_warn setup "SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
+    return 1
+  fi
+  local _out="${_file_path}/.docker.xauth"
+  : > "${_out}"
+  # `-i` (ignore locks) bypasses ~/.Xauthority lockfile contention from
+  # parallel xauth invocations (e.g. another tmux session, ssh-agent,
+  # or DE startup hook holding flock). Without -i, `xauth nlist`
+  # silently returns empty output (the lock error goes to stderr,
+  # exit 0) on a contended file, the sed pipeline gets nothing, and
+  # nmerge writes a 0-byte cookie file — defeating the rewrite. Read
+  # is a non-mutating op so ignoring the lock is safe.
+  # Family-byte rewrite: 'ffff' means "any host" so libX11 inside the
+  # container does not fail the hostname check.
+  xauth -i nlist "${DISPLAY}" 2>/dev/null \
+    | sed -e 's/^..../ffff/' \
+    | xauth -i -f "${_out}" nmerge - >/dev/null 2>&1 || {
+        _log_warn setup "xauth cookie rewrite failed; XAUTHORITY left at host value."
+        return 1
+      }
+  # Defensive: verify the rewrite actually produced content. The pipe
+  # above can succeed (all three commands exit 0) yet write 0 bytes if
+  # nlist hit a soft failure (e.g. wrong DISPLAY key under SSH X11
+  # forwarding). Treat empty output as failure so the caller falls back
+  # to leaving XAUTHORITY untouched rather than emitting an empty
+  # cookie path into .env (which then makes the container mount a
+  # 0-byte cookie and fail X11 auth silently).
+  if [[ ! -s "${_out}" ]]; then
+    _log_warn setup "xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
+    return 1
+  fi
+  printf '%s\n' "${_out}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
 # ════════════════════════════════════════════════════════════════════
 
@@ -1590,7 +1668,7 @@ YAML
     _emit_user_build_args
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
-    container_name: ${_name}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
     stdin_open: true
@@ -1791,7 +1869,7 @@ YAML
         _emit_additional_contexts_block
         cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
@@ -1890,7 +1968,7 @@ YAML
       _emit_user_build_args
       cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_emit_stage}
-    container_name: ${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
+    container_name: \${USER_NAME}-${_name}-${_emit_stage}\${INSTANCE_SUFFIX:-}
     stdin_open: false
     tty: false
     profiles:
@@ -2144,7 +2222,11 @@ write_env() {
   local _network_name="${1:-}"; shift || true
   local _user_build_args="${1:-}"; shift || true
   local _target_arch="${1:-}"; shift || true
-  local _build_network="${1:-}"
+  local _build_network="${1:-}"; shift || true
+  # SSH X11 forwarding cookie override (#321). Empty when not in an
+  # SSH X11 session, in which case host's XAUTHORITY flows through to
+  # compose unchanged.
+  local _ssh_x11_xauth="${1:-}"
 
   local _comment=""
   _comment="$(_setup_msg env comment)"
@@ -2186,6 +2268,22 @@ SETUP_DOCKERFILE_HASH=${_dockerfile_hash}
 SETUP_GUI_DETECTED=${_gui_detected}
 SETUP_TIMESTAMP=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')
 EOF
+
+  # ── SSH X11 forwarding cookie override (#321) ──
+  # Set by apply flow when _is_ssh_x11 detects an SSH X11 session.
+  # Compose reads .env via --env-file and uses the value here for
+  # `${XAUTHORITY:-}` substitution in the GUI block. Without this,
+  # libX11 inside the container looks up the cookie under the
+  # container's hostname (a Docker-assigned random) and fails because
+  # SSH wrote the cookie keyed to the host's hostname. The rewritten
+  # cookie at .docker.xauth uses the `ffff` family code so the
+  # hostname check is skipped.
+  if [[ -n "${_ssh_x11_xauth:-}" ]]; then
+    {
+      printf '\n# ── SSH X11 forwarding cookie override (#321) ──\n'
+      printf 'XAUTHORITY=%s\n' "${_ssh_x11_xauth}"
+    } >> "${_env_file}"
+  fi
 
   # ── Extra [build] args (user-added, beyond APT_MIRROR_* / TZ) ──
   # Appended after the fixed block so downstream consumers read them
@@ -3550,6 +3648,20 @@ _setup_apply() {
     _user_build_args_str="$(printf '%s\n' "${_user_build_args[@]}")"
   fi
 
+  # ── SSH X11 forwarding cookie rewrite (#321) ──
+  # When the user is on an SSH X11 forward (`ssh -X` / `ssh -Y`),
+  # rewrite their per-session cookie so libX11 inside the container
+  # accepts it regardless of hostname. Also warn when [network] mode
+  # is non-host because `localhost:N` (which SSH writes into DISPLAY)
+  # only reaches the host's SSH X11 listener via host networking.
+  local _ssh_x11_xauth=""
+  if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11; then
+    _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
+    if [[ "${net_mode}" != "host" ]]; then
+      _log_warn setup "SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321."
+    fi
+  fi
+
   # ── Generate artifacts ──
   write_env "${_env_file}" \
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
@@ -3562,7 +3674,8 @@ _setup_apply() {
     "${network_name}" \
     "${_user_build_args_str}" \
     "${target_arch}" \
-    "${build_network}"
+    "${build_network}" \
+    "${_ssh_x11_xauth}"
 
   local runtime_resolved=""
   _resolve_runtime "${runtime_mode}" runtime_resolved

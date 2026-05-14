@@ -96,6 +96,55 @@ teardown() {
   assert_output --partial "down"
 }
 
+# ── --remove-orphans + COMPOSE_PROFILES='*' for profile-gated services (#341) ─
+
+@test "stop.sh passes --remove-orphans to compose down (#341)" {
+  # Profile-gated services (#215 auto-emitted headless / gui / test stages)
+  # are silently skipped by a bare `compose down`. --remove-orphans catches
+  # containers from prior compose.yaml shapes the current file no longer
+  # declares; COMPOSE_PROFILES='*' (env, not argv) activates every profile.
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "--remove-orphans"
+}
+
+@test "stop.sh --all also threads --remove-orphans through each down (#341)" {
+  printf 'mockuser-mockimg-foo_default\nmockuser-mockimg-bar_default\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --dry-run --all
+  assert_success
+  # --all calls down once per instance; each invocation must carry the flag.
+  local _count
+  _count="$(printf '%s\n' "${output}" | grep -c -- '--remove-orphans' || true)"
+  [[ "${_count}" -ge 2 ]]
+}
+
+# ── -v / --verbose lists project containers before down (#345) ────────────────
+
+@test "stop.sh -v lists project containers before down (#345)" {
+  # Seed the docker stub so _down_one's ps filter returns a non-empty list.
+  printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+  assert_output --partial "Tearing down containers in project"
+  assert_output --partial "mockuser-mockimg (running)"
+}
+
+@test "stop.sh -v with no matching containers prints empty-project hint (#345)" {
+  : > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" -v --dry-run
+  assert_success
+  assert_output --partial "No containers found for project"
+  refute_output --partial "Tearing down containers in project"
+}
+
+@test "stop.sh without -v does NOT emit the verbose container listing (#345 default)" {
+  printf 'mockuser-mockimg (running)\n' > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "Tearing down containers in project"
+  refute_output --partial "No containers found for project"
+}
+
 @test "stop.sh --instance foo stops named instance" {
   run bash "${SANDBOX}/stop.sh" --dry-run --instance foo
   assert_success
@@ -275,4 +324,42 @@ teardown() {
   run --separate-stderr bash "${SANDBOX}/stop.sh" -vv --dry-run
   assert_success
   [[ "${stderr}" == *"+ "* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --prune flag (lightweight opt-in cleanup after down, #319)
+# ════════════════════════════════════════════════════════════════════
+
+@test "stop.sh --prune is mentioned in usage help (#319)" {
+  run bash "${SANDBOX}/stop.sh" --help
+  assert_success
+  assert_output --partial "--prune"
+  assert_output --partial "until=10m"
+  assert_output --partial "until=24h"
+}
+
+@test "stop.sh --prune --dry-run prints down + network prune + image prune (#319)" {
+  run bash "${SANDBOX}/stop.sh" --prune --dry-run
+  assert_success
+  assert_output --partial "down"
+  assert_output --partial "docker network prune -f --filter until=10m"
+  assert_output --partial "docker image prune -f --filter until=24h"
+}
+
+@test "stop.sh without --prune does NOT emit prune commands (#319)" {
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  refute_output --partial "docker network prune"
+  refute_output --partial "docker image prune"
+}
+
+@test "stop.sh --all --prune --dry-run prunes even when no instances found (#319)" {
+  # docker_ps_a.out is empty → --all branch finds zero projects → prints
+  # "no instances" message; --prune should still run cleanup so a stale
+  # repo with leftover orphan networks gets reclaimed.
+  : > "${DOCKER_PS_A_FILE}"
+  run bash "${SANDBOX}/stop.sh" --all --prune --dry-run
+  assert_success
+  assert_output --partial "No instances found"
+  assert_output --partial "docker network prune -f --filter until=10m"
 }

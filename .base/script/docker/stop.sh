@@ -71,7 +71,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 停止並移除容器。預設只停止 default instance。
 
@@ -80,17 +80,20 @@ usage() {
   -C, --chdir DIR   對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（預設 + 全部命名 instance)
+  --prune           stop 完後順手清 orphan networks (--filter until=10m) +
+                    dangling images (--filter until=24h)。完整 prune（含
+                    buildx cache / volumes）請用 ./prune.sh。
   --lang LANG       設定訊息語言（預設: en）
   --dry-run         只印出將執行的 docker 指令，不實際執行
-  -v, --verbose     設定 BUILDKIT_PROGRESS=plain（與其他 wrapper 對齊；stop 本身
-                    不會 build，但保持 flag 一致便於肌肉記憶）。
+  -v, --verbose     先列出該 compose project 下的 container（名稱 + 狀態），
+                    再執行 down。讓 stop 流程的可見訊號跟 build/run/exec 對齊。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 停止并移除容器。默认只停止 default instance。
 
@@ -99,17 +102,20 @@ EOF
   -C, --chdir DIR   对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C
   --instance NAME   只停止指定的命名 instance
   -a, --all         停止所有 instance（默认 + 全部命名 instance)
+  --prune           stop 完后顺手清 orphan networks (--filter until=10m) +
+                    dangling images (--filter until=24h)。完整 prune（含
+                    buildx cache / volumes）请用 ./prune.sh。
   --lang LANG       设置消息语言（默认: en）
   --dry-run         只打印将执行的 docker 命令，不实际执行
-  -v, --verbose     设置 BUILDKIT_PROGRESS=plain（与其他 wrapper 对齐；stop 本身
-                    不会 build，但保持 flag 一致便于肌肉记忆）。
+  -v, --verbose     先列出该 compose project 下的 container（名称 + 状态），
+                    再执行 down。让 stop 流程的可见信号跟 build/run/exec 对齐。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+使用法: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 コンテナを停止・削除します。デフォルトは default instance のみ。
 
@@ -118,17 +124,20 @@ EOF
   -C, --chdir DIR   DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）
   --instance NAME   指定された名前付き instance のみ停止
   -a, --all         すべての instance を停止（デフォルト + 全名前付き instance）
+  --prune           stop 完了後に orphan network (--filter until=10m) と
+                    dangling image (--filter until=24h) も整理。完全 prune
+                    （buildx cache / volume 含む）は ./prune.sh を使用。
   --lang LANG       メッセージ言語を設定（デフォルト: en）
   --dry-run         実行される docker コマンドを表示するのみ（実行はしない）
-  -v, --verbose     BUILDKIT_PROGRESS=plain を設定（他の wrapper と整合；
-                    stop 自体は build しないが、フラグの一貫性のため）。
+  -v, --verbose     compose project 配下のコンテナ（名前と状態）を down の
+                    前に出力。stop の可視シグナルを build/run/exec と揃える。
   -vv, --very-verbose
                     -v に加え wrapper 自体の bash trace（set -x）。
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
+Usage: ./stop.sh [-h] [-C|--chdir DIR] [--instance NAME] [-a|--all] [--prune] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG]
 
 Stop and remove containers. Default: stop only the default instance.
 
@@ -138,12 +147,16 @@ Options:
                     (mirrors git -C / make -C)
   --instance NAME   Stop only the named instance
   -a, --all         Stop ALL instances (default + every named instance)
+  --prune           After stopping, also reclaim orphan networks
+                    (--filter until=10m) and dangling images
+                    (--filter until=24h). For a richer clean (buildx
+                    cache / volumes), use ./prune.sh.
   --lang LANG       Set message language (default: en)
   --dry-run         Print the docker commands that would run, but do not execute
-  -v, --verbose     Export BUILDKIT_PROGRESS=plain for parity with build/run/exec.
-                    `docker compose down` itself does not build, but keeping the
-                    flag available across all four wrappers gives one
-                    muscle-memory knob to reach for.
+  -v, --verbose     List the containers belonging to this compose project (name
+                    + state) before tearing them down. Gives the stop flow a
+                    real visible signal in parity with build/run/exec, instead
+                    of the previous no-op BUILDKIT_PROGRESS=plain export.
   -vv, --very-verbose
                     -v plus bash trace (set -x) on the wrapper itself.
 EOF
@@ -157,12 +170,38 @@ PASSTHROUGH=()
 # _down_one tears down a single instance. _compute_project_name sets and
 # exports INSTANCE_SUFFIX so compose.yaml resolves the matching container_name.
 #
+# COMPOSE_PROFILES='*' (compose v2.32+ wildcard) activates every profile in
+# compose.yaml so `compose down` actually visits profile-gated services
+# (#215 auto-emitted headless / gui / test stages). Without this, profile-
+# gated containers are silently skipped and remain running. --remove-orphans
+# additionally catches containers from prior compose.yaml shapes that the
+# current file no longer declares. Refs #341.
+#
+# -v / --verbose: list the containers belonging to the compose project
+# before tearing them down. This gives the user a real signal instead of
+# the previous no-op (the BUILDKIT_PROGRESS=plain env had zero effect on
+# `compose down`, see #345).
+#
 # Args:
 #   $1: instance name (empty for the default instance)
 _down_one() {
   local instance="${1}"
   _compute_project_name "${instance}"
-  _compose_project down "${PASSTHROUGH[@]}"
+  if [[ "${VERBOSE:-}" == true ]]; then
+    local _project_name
+    _project_name="${PROJECT_NAME:-${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX}}"
+    local _matches
+    _matches="$(docker ps -a \
+      --filter "label=com.docker.compose.project=${_project_name}" \
+      --format '{{.Names}} ({{.State}})' 2>/dev/null || true)"
+    if [[ -n "${_matches}" ]]; then
+      _log_info stop "Tearing down containers in project ${_project_name}:"
+      printf '%s\n' "${_matches}" | sed 's/^/  /' >&2
+    else
+      _log_info stop "No containers found for project ${_project_name}"
+    fi
+  fi
+  COMPOSE_PROFILES='*' _compose_project down --remove-orphans "${PASSTHROUGH[@]}"
 }
 
 main() {
@@ -181,6 +220,7 @@ main() {
 
   local INSTANCE=""
   local ALL_INSTANCES=false
+  local DO_PRUNE=false
   DRY_RUN=false
 
   while [[ $# -gt 0 ]]; do
@@ -203,19 +243,30 @@ main() {
         ALL_INSTANCES=true
         shift
         ;;
+      --prune)
+        # Opt-in lightweight cleanup after compose down. Reclaims orphan
+        # networks (10m grace, the common "address pool exhausted" fix)
+        # and dangling images (24h grace). Volumes + buildx cache are
+        # intentionally NOT covered here — use ./prune.sh for those.
+        # Refs issue #319.
+        DO_PRUNE=true
+        shift
+        ;;
       --dry-run)
         DRY_RUN=true
         shift
         ;;
       -v|--verbose)
-        # BUILDKIT_PROGRESS=plain — symmetry with build/run/exec (#311).
-        # No-op for `docker compose down` itself but harmless; keeps the
-        # flag available across all four wrappers for muscle-memory
-        # consistency.
+        # Print the container list belonging to the compose project
+        # before tearing it down. BUILDKIT_PROGRESS=plain (the old #311
+        # behaviour) had zero effect on `docker compose down`; replaced
+        # with real verbose output. Refs #345.
+        VERBOSE=true
         export BUILDKIT_PROGRESS=plain
         shift
         ;;
       -vv|--very-verbose)
+        VERBOSE=true
         export BUILDKIT_PROGRESS=plain
         set -x
         shift
@@ -249,6 +300,9 @@ main() {
       # shellcheck disable=SC2059
       printf -v _no_inst "$(_msg info no_instances)" "${IMAGE_NAME}"
       _log_info stop "${_no_inst}"
+      # Still honor --prune even when no instance found, so a stale repo
+      # with orphan networks/images from past runs gets cleaned.
+      _maybe_prune
       exit 0
     fi
     local _proj _suffix
@@ -262,6 +316,27 @@ main() {
   else
     _down_one ""
   fi
+
+  _maybe_prune
+}
+
+# _maybe_prune runs the opt-in --prune cleanup after compose down has
+# released the active networks/containers for this project. Lightweight
+# fixed-grace prune (10m for networks, 24h for images); for richer
+# control use ./prune.sh. No-op when --prune was not passed.
+_maybe_prune() {
+  [[ "${DO_PRUNE}" == true ]] || return 0
+  local -a _net_cmd=(docker network prune -f --filter "until=10m")
+  local -a _img_cmd=(docker image   prune -f --filter "until=24h")
+  if [[ "${DRY_RUN}" == true ]]; then
+    printf '[dry-run]'; printf ' %q' "${_net_cmd[@]}"; printf '\n'
+    printf '[dry-run]'; printf ' %q' "${_img_cmd[@]}"; printf '\n'
+    return 0
+  fi
+  _log_info stop "Pruning orphan networks (until=10m)..."
+  "${_net_cmd[@]}" || true
+  _log_info stop "Pruning dangling images (until=24h)..."
+  "${_img_cmd[@]}" || true
 }
 
 main "$@"

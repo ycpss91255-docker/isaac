@@ -125,9 +125,9 @@ teardown() {
   assert_output ".base/script/docker/build.sh"
 }
 
-@test "new repo: run.sh / exec.sh / stop.sh / Makefile symlinks correct" {
+@test "new repo: run.sh / exec.sh / stop.sh / prune.sh / Makefile symlinks correct" {
   bash .base/init.sh
-  for f in run.sh exec.sh stop.sh Makefile; do
+  for f in run.sh exec.sh stop.sh prune.sh Makefile; do
     assert [ -L "${REPO_DIR}/${f}" ]
   done
   run readlink "${REPO_DIR}/run.sh"
@@ -136,6 +136,8 @@ teardown() {
   assert_output ".base/script/docker/exec.sh"
   run readlink "${REPO_DIR}/stop.sh"
   assert_output ".base/script/docker/stop.sh"
+  run readlink "${REPO_DIR}/prune.sh"
+  assert_output ".base/script/docker/prune.sh"
   run readlink "${REPO_DIR}/Makefile"
   assert_output ".base/script/docker/Makefile"
 }
@@ -223,6 +225,22 @@ teardown() {
     echo "expected .base/config COPY (line ${_line1}) BEFORE config-src COPY (line ${_line2})"
     return 1
   }
+}
+
+@test "Dockerfile.example declares ENV HOME before WORKDIR \${HOME}/work (#334)" {
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # WORKDIR is a Docker directive that interpolates build-time ARG /
+  # ENV, not shell-time $HOME. Without an explicit ENV HOME, the
+  # `WORKDIR "${HOME}/work"` collapses to /work and BuildKit emits
+  # `WARN: UndefinedVar`. The ENV must appear BEFORE the WORKDIR.
+  run grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}"
+  assert_success
+  local _env_line _workdir_line
+  _env_line="$(grep -nF 'ENV HOME="/home/${USER_NAME}"' "${_df}" | head -1 | cut -d: -f1)"
+  _workdir_line="$(grep -nF 'WORKDIR "${HOME}/work"' "${_df}" | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)"
+  [[ -n "${_env_line}" && -n "${_workdir_line}" ]]
+  (( _env_line < _workdir_line ))
 }
 
 @test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
