@@ -447,6 +447,84 @@ Main
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
+### 命名スキーム: 3 つの namespace と 2 つの user identity
+
+`setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
+単一ユーザの開発機では見た目が似通っていますが、これらは**3 つの
+独立した namespace**に属し、**2 つの異なる user identity**から
+プレフィックスを取ります。共用ホスト（複数 OS user）のシナリオで
+は区別が顕在化します。個人開発機では 2 つの identity が一致する
+ことが多く、深追いする必要はありません。
+
+| 名前 | 形式 | Namespace | User プレフィックス |
+|---|---|---|---|
+| `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
+| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
+
+- `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
+  に名前空間を付けるために使います。実際に push しない場合でも、
+  image tag は `<DOCKER_HUB_USER>/<repo>:<tag>` という形で
+  この identity を含みます。
+- `USER_NAME` — ホストの OS user（`id -un`）。同じマシン上の
+  異なる OS user が daemon のフラットな container 名前空間で
+  衝突するのを防ぐために使います。
+
+2 つの identity を意図的に分けています。Image は registry 上で
+アドレス可能なオブジェクトなので Docker Hub identity を使う —
+OS user でプレフィックスを付けてしまうと buildx cache や Docker
+Hub の layer 共有が破綻します。Container name に OS identity を
+使うのは、ここで解決したい衝突（同一ホスト上の 2 user が同一 repo
+を同時実行）が daemon 側の問題であり、registry とは無関係だからです。
+
+Project name に `DOCKER_HUB_USER` を使うのは #322 以前からの
+決定で、そのまま据え置きました。個人開発機では 2 つの identity
+が重なるため `container_name` と視覚的に揃います。共用ホストでは
+`DOCKER_HUB_USER` も user ごとに異なるのが普通なので、project
+name も結果としてユーザ間衝突を回避できます。`#322` の CHANGELOG
+が言う「container レベルの命名を project レベルに揃える」とは
+「単一ユーザ機」前提での記述です — どちらも user プレフィックス
+を持つという意味では揃っていますが、複数ユーザ機ではそれぞれ別の
+変数から来るので前綴文字列は同一ではありません。
+
+**`INSTANCE_SUFFIX`** は 4 つ目の次元で、user 分離とは直交します。
+同じ OS user が同一 repo の container を複数並行起動したい場合
+（例: 2 つの branch を同時にテスト）、`INSTANCE_SUFFIX=2` を設定
+すると `alice-<repo>-2` と対応する project name が得られます。
+デフォルトは空文字列で、wrapper が対応する場面では `-n /
+--instance` で指定できます。
+
+具体例。OS user `alice`、Docker Hub user `alice-hub`、repo
+`claude_code`、デフォルト `INSTANCE_SUFFIX` 空:
+
+```
+image:          alice-hub/claude_code:devel
+container_name: alice-claude_code
+project name:   alice-hub-claude_code
+```
+
+同一 OS user で 2 番目の instance（`INSTANCE_SUFFIX=2`）:
+
+```
+image:          alice-hub/claude_code:devel        (変わらず — 同じ image)
+container_name: alice-claude_code-2
+project name:   alice-hub-claude_code-2
+```
+
+同じホスト上の別の OS user `bob`:
+
+```
+image:          bob-hub/claude_code:devel          (registry tag が異なり cache 共有なし)
+container_name: bob-claude_code
+project name:   bob-hub-claude_code
+```
+
+`alice` と `bob` が同じ `DOCKER_HUB_USER` を共有している場合
+（例: 共用 CI サービスアカウント）、`image` は Docker Hub 上で
+衝突しますが `container_name` で区別できます — registry pull は
+キャッシュされた image を共有し、ホスト内の daemon では互いに
+分離されたままです。
+
 ## クイックスタート
 
 ### 新規 repo への追加

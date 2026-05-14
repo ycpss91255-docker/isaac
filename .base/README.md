@@ -475,6 +475,82 @@ configuration. Both files are regenerated on every `make upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
+### Naming scheme: three namespaces, two user identities
+
+`setup.sh` emits three names in `.env` / `compose.yaml`. They look
+similar on a single-user dev machine, but they live in **three
+different namespaces** and pick their user prefix from **two
+different identities**. Sysadmins running shared hosts need to know
+the difference; solo developers can treat the two identities as the
+same and move on.
+
+| Name | Format | Namespace | User prefix |
+|---|---|---|---|
+| `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
+| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
+
+- `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
+  images on the registry side. Image tags are addressable as
+  `<DOCKER_HUB_USER>/<repo>:<tag>` whether or not you actually push.
+- `USER_NAME` — the OS user (from `id -un`), used to keep two OS
+  users on the same host from colliding on the daemon's flat
+  container-name namespace.
+
+The two identities are deliberately separate. Image names use the
+Docker Hub identity because images are addressable on the registry,
+and forcing per-OS-user image tags would shatter buildx cache reuse
+and Docker Hub layer sharing. Container names use the OS identity
+because the conflict it fixes (two users on the same host running
+the same repo) is a host-daemon problem with no registry component.
+
+Project-name choice of `DOCKER_HUB_USER` predates #322 and was kept
+unchanged: on a single-user dev machine the two identities coincide
+so the names line up visually with `container_name`; on a shared
+host the project name still avoids cross-user collision *because*
+`DOCKER_HUB_USER` happens to differ per user too. The `#322`
+CHANGELOG entry's phrasing "aligns container-level naming with
+project-level naming" is true under that single-user-machine
+assumption — both are user-prefixed, just via different vars — not
+literally the same prefix string in the multi-user case.
+
+**`INSTANCE_SUFFIX`** is the fourth dimension, orthogonal to the
+user split. Same OS user wants to run the same repo as multiple
+parallel containers (e.g. two branches side by side): set
+`INSTANCE_SUFFIX=2` and you get `alice-<repo>-2` /
+`alice-<repo>-2`-named project. Empty by default; bumped by the
+`-n / --instance` flag on the wrappers when applicable.
+
+Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
+`claude_code`, default `INSTANCE_SUFFIX` empty:
+
+```
+image:          alice-hub/claude_code:devel
+container_name: alice-claude_code
+project name:   alice-hub-claude_code
+```
+
+Same OS user, second instance (`INSTANCE_SUFFIX=2`):
+
+```
+image:          alice-hub/claude_code:devel        (unchanged — same image)
+container_name: alice-claude_code-2
+project name:   alice-hub-claude_code-2
+```
+
+A second OS user `bob` on the same host:
+
+```
+image:          bob-hub/claude_code:devel          (different registry tag, no cache reuse)
+container_name: bob-claude_code
+project name:   bob-hub-claude_code
+```
+
+If `alice` and `bob` share `DOCKER_HUB_USER` (e.g. a shared CI
+service account), `image` collides on Docker Hub but `container_name`
+still differentiates — registry pulls share the cached image and
+hosts stay deconflicted.
+
 ## Quick Start
 
 ### Adding to a new repo

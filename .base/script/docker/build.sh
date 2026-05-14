@@ -446,7 +446,18 @@ main() {
   # with QUIET=1 if someone pipes this into their own CI log.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary build
 
-  # Build test-tools image if Dockerfile exists
+  # Build test-tools image if Dockerfile exists AND caller hasn't
+  # signalled it has its own test-tools provisioning via TEST_TOOLS_IMAGE.
+  #
+  # The downstream Dockerfile.example consumes TEST_TOOLS_IMAGE as a
+  # build-arg (default `test-tools:local`) and `FROM ${TEST_TOOLS_IMAGE}`
+  # for its lint/test stage. If the caller pre-builds or pulls the image
+  # outside build.sh (CI workflows do this for cache-share / rolling-tag
+  # reasons, see #317 P2), the internal `docker build` here is wasted
+  # work — skip it. The caller is responsible for ensuring the value of
+  # TEST_TOOLS_IMAGE resolves to a runnable image (either a locally tagged
+  # `test-tools:local` or a registry-addressable tag the docker daemon
+  # can pull on demand).
   local _tools_dockerfile="${FILE_PATH}/.base/dockerfile/Dockerfile.test-tools"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
@@ -461,7 +472,7 @@ main() {
   if [[ -n "${BUILD_NETWORK:-}" ]]; then
     _tools_args+=(--network "${BUILD_NETWORK}")
   fi
-  if [[ -f "${_tools_dockerfile}" ]]; then
+  if [[ -z "${TEST_TOOLS_IMAGE:-}" ]] && [[ -f "${_tools_dockerfile}" ]]; then
     if [[ "${DRY_RUN}" == true ]]; then
       printf '[dry-run] docker build'
       printf ' %q' "${_tools_args[@]}" -t test-tools:local \

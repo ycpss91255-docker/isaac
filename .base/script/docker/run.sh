@@ -482,8 +482,10 @@ main() {
     xhost +local: >/dev/null 2>&1 || true
   fi
 
-  # Container name mirrors compose.yaml's `container_name:`.
-  local CONTAINER_NAME="${IMAGE_NAME}${INSTANCE_SUFFIX}"
+  # Container name mirrors compose.yaml's `container_name:`. Includes
+  # ${USER_NAME} prefix to disambiguate per-OS-user on shared hosts
+  # (#322). _load_env above already populated USER_NAME from .env.
+  local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}${INSTANCE_SUFFIX}"
 
   # Refuse to start if the target container is already running and user did
   # not explicitly opt into a parallel instance via --instance.

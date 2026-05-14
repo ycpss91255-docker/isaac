@@ -643,8 +643,9 @@ DOCK
   # image tag is :runtime (not :devel)
   run grep -E '^    image:.*:runtime$' "${COMPOSE_OUT}"
   assert_success
-  # container_name uses -runtime suffix + INSTANCE_SUFFIX support
-  run grep -F 'container_name: myrepo-runtime${INSTANCE_SUFFIX:-}' "${COMPOSE_OUT}"
+  # container_name: ${USER_NAME} prefix (#322 multi-user disambiguation)
+  # + -runtime stage suffix + INSTANCE_SUFFIX support
+  run grep -F 'container_name: ${USER_NAME}-myrepo-runtime${INSTANCE_SUFFIX:-}' "${COMPOSE_OUT}"
   assert_success
   # non-interactive (runtime is headless auto-run, Dockerfile CMD drives)
   run grep -E '^    stdin_open: false$' "${COMPOSE_OUT}"
