@@ -1,0 +1,133 @@
+name: Release test-tools image to GHCR
+
+# Multi-arch (linux/amd64 + linux/arm64) build of
+# .base/dockerfile/Dockerfile.test-tools, pushed to
+# ghcr.io/ycpss91255-docker/test-tools tagged with the release version
+# and :latest. Downstream repo Dockerfiles consume this via
+# `ARG TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<ver>`,
+# avoiding the cross-step image-store isolation that sank the previous
+# `test-tools:local` approach (v0.9.11 pre-D migration).
+#
+# Triggers:
+#   push of a vX.Y.Z tag -> pushes :<tag> and :latest
+#   push to main (Dockerfile.test-tools or this workflow changed)
+#                        -> pushes :main rolling tag (#317 P2)
+#   workflow_dispatch    -> manual bootstrap; pushes only :latest
+#
+# Why the paths filter on main push: every non-doc PR merge triggers
+# a push to main, but most don't touch Dockerfile.test-tools. Without
+# the filter, every merge would burn ~3-5 min of multi-arch buildx
+# republishing the same image content under a new manifest digest.
+# Restrict the main trigger to commits that actually change the
+# test-tools recipe; tag-push trigger stays unfiltered because tag
+# pushes are explicit publish intents.
+#
+# Needs packages: write to push to GHCR under the org namespace.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dockerfile/Dockerfile.test-tools'
+      - '.github/workflows/release-test-tools.yaml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release-test-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve tags
+        id: tags
+        shell: bash
+        # Three publish modes, three tag sets. `smoke` is the single tag
+        # the post-publish smoke step pulls so we always exercise the
+        # image we just pushed (rather than statically pulling :latest
+        # and missing :main bootstrapping bugs).
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF##refs/tags/}"
+            tags="ghcr.io/ycpss91255-docker/test-tools:${ver},ghcr.io/ycpss91255-docker/test-tools:latest"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:${ver}"
+          elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            tags="ghcr.io/ycpss91255-docker/test-tools:main"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:main"
+          else
+            tags="ghcr.io/ycpss91255-docker/test-tools:latest"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:latest"
+          fi
+          printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
+          printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        # Needed for the arm64 leg; amd64 alone could skip it, but the
+        # QEMU setup is a no-op on native arch so we keep the workflow
+        # simple with a single builder.
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch test-tools image
+        # This workflow runs inside the template repo, not a downstream
+        # consumer, so the Dockerfile lives at `dockerfile/...`, not
+        # `.base/dockerfile/...` (the latter is only the subtree path
+        # downstream repos see and is what build-worker.yaml uses since
+        # that workflow executes in the downstream's checkout).
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.tags.outputs.tags }}
+          push: true
+
+      - name: Smoke test pushed image
+        # Regression guard for the v0.12.1 publish (issue #165): the alpine
+        # final stage shipped without bash and without /usr/local/bin/bats,
+        # so the image had bats-* files on disk but `bats` was unrunnable.
+        # Pull the just-pushed amd64 leg and exercise each tool end-to-end
+        # so a similar break never reaches downstream consumers silently.
+        # The smoke target tracks `steps.tags.outputs.smoke` so we always
+        # verify the image the current trigger produced (incl. :main on
+        # main push, not the stale :latest left from the previous tag).
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.tags.outputs.smoke }}"
+          docker pull "${image}"
+          docker run --rm "${image}" bats --version
+          docker run --rm "${image}" shellcheck --version
+          docker run --rm "${image}" hadolint --version
+          docker run --rm "${image}" parallel --version
+          docker run --rm "${image}" git --version
+          docker run --rm "${image}" make --version
+          # `git subtree --help` would invoke `man git-subtree`, but alpine
+          # ships no man viewer in the test-tools image (and we don't want
+          # to install one just for this smoke check). Confirm the binary
+          # exists at git's exec-path instead — same regression-detection
+          # value, no man dependency.
+          docker run --rm "${image}" sh -c 'test -f "$(git --exec-path)/git-subtree"'
+          # docker-cli + docker-cli-buildx (#249): consumed by the
+          # behavioural test suite (test/behavioural/*.bats) when run
+          # via the ci-behavioural compose service. Smoke-check both
+          # by version. buildx is exposed as `docker buildx version`,
+          # not a standalone binary.
+          docker run --rm "${image}" docker --version
+          docker run --rm "${image}" docker buildx version
