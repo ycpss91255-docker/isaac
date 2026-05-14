@@ -32,7 +32,7 @@ Inside the container:
 /isaac-sim/runapp.sh           # local GUI (requires X11; run `xhost +local:docker` on the host first)
 ```
 
-> A `run.sh -t {headless|gui}` shortcut is in flight via [base issue #215](https://github.com/ycpss91255-docker/base/issues/215). Until that lands, use the manual launchers above.
+> Three stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (ENTRYPOINT `runheadless.sh -v` for WebRTC livestream), `gui` (ENTRYPOINT `runapp.sh` for X11), `standalone` (no ENTRYPOINT, idle — pair with `./exec.sh -t standalone /isaac-sim/python.sh <script>` for Python workflows where the script instantiates `SimulationApp({"livestream": 2})` and boots its own kit + WebRTC). Use `./run.sh -t <stage> -d`. The manual launchers above still work for ad-hoc cases.
 
 ## Connecting to the WebRTC livestream
 

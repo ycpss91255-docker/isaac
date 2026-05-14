@@ -32,7 +32,7 @@ NGC image（`nvcr.io/nvidia/isaac-sim:5.1.0`）公開可拉，不需 `docker log
 /isaac-sim/runapp.sh           # 本機 GUI（需要 X11；host 端先跑 `xhost +local:docker`）
 ```
 
-> `run.sh -t {headless|gui}` 快捷功能在 [base issue #215](https://github.com/ycpss91255-docker/base/issues/215) 推進中。落地前先用上述手動 launcher。
+> 三個 stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（ENTRYPOINT `runheadless.sh -v`，WebRTC livestream）、`gui`（ENTRYPOINT `runapp.sh`，X11）、`standalone`（無 ENTRYPOINT，idle — 搭配 `./exec.sh -t standalone /isaac-sim/python.sh <script>` 跑 standalone Python workflow，腳本內 `SimulationApp({"livestream": 2})` 啟自己的 kit + WebRTC server）。使用 `./run.sh -t <stage> -d`。上面的手動 launcher 仍可用於 ad-hoc 情境。
 
 ## 連接 WebRTC livestream
 

@@ -329,6 +329,24 @@ FROM devel AS gui
 ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runapp.sh"]
 CMD []
 
+############################## standalone ##############################
+# [isaac] Standalone Python workflow — 用 `/isaac-sim/python.sh` 直接跑
+# Python 腳本 (內部 `SimulationApp({"livestream": 2})` 自己 boot 一份 kit
+# + WebRTC server)。沒有 ENTRYPOINT/CMD，繼承 base compose 預設的
+# `tail -f /dev/null` 讓容器 idle 等待。使用 pattern:
+#   ./run.sh -t standalone -d
+#   ./exec.sh -t standalone /isaac-sim/python.sh <script>
+# (Ctrl+C 殺 script，容器仍 idle；./stop.sh 收尾。)
+#
+# 為什麼不用 devel: base v1 [stage:devel] 是 reserved 不開放 per-stage
+# override。standalone 是 non-base stage，能透過 `[stage:standalone]
+# gui.mode = off` 把 X11 mount strip 掉避免 cosmetic warnings。
+# 為什麼不用 headless: headless 的 ENTRYPOINT 是 runheadless.sh，
+# 容器一起來已經跑著一個 kit 進程，再 exec python.sh 會啟第二份 kit
+# 撞 PhysX / DDS / port 8211。standalone idle 啟動，python.sh 在
+# exec session 內是唯一 kit 進程。
+FROM devel AS standalone
+
 ############################## builder + runtime split (optional) ##############################
 # Three concrete stages for repos that need a separate runtime image
 # (compiled binaries / generated artifacts to ship without dev deps).
