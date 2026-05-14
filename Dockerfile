@@ -332,11 +332,18 @@ CMD []
 ############################## standalone ##############################
 # [isaac] Standalone Python workflow — 用 `/isaac-sim/python.sh` 直接跑
 # Python 腳本 (內部 `SimulationApp({"livestream": 2})` 自己 boot 一份 kit
-# + WebRTC server)。沒有 ENTRYPOINT/CMD，繼承 base compose 預設的
-# `tail -f /dev/null` 讓容器 idle 等待。使用 pattern:
+# + WebRTC server)。使用 pattern:
 #   ./run.sh -t standalone -d
 #   ./exec.sh -t standalone /isaac-sim/python.sh <script>
 # (Ctrl+C 殺 script，容器仍 idle；./stop.sh 收尾。)
+#
+# CMD ["sleep", "infinity"] 讓容器 idle 等待 ./exec.sh dive-in。為什麼
+# 不繼承 devel 的 `bash` CMD: profile-gated compose service 預設
+# `stdin_open: false, tty: false` (vs devel base service `true/true`),
+# bash 在 non-TTY 環境下 immediately exit 0，容器被視為 Exited 啟動失敗。
+# 換成 long-lived `sleep infinity` 保證 idle 直到 ./stop.sh 收。
+# ENTRYPOINT 仍繼承自 devel (`/entrypoint.sh`) — entrypoint 做完 env
+# init 後 exec "$@" 跑 sleep infinity，乾淨。
 #
 # 為什麼不用 devel: base v1 [stage:devel] 是 reserved 不開放 per-stage
 # override。standalone 是 non-base stage，能透過 `[stage:standalone]
@@ -346,6 +353,8 @@ CMD []
 # 撞 PhysX / DDS / port 8211。standalone idle 啟動，python.sh 在
 # exec session 內是唯一 kit 進程。
 FROM devel AS standalone
+
+CMD ["sleep", "infinity"]
 
 ############################## builder + runtime split (optional) ##############################
 # Three concrete stages for repos that need a separate runtime image
