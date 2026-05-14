@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1184 tests** total (1128 unit + 56 integration).
+Template self-tests: **1278 tests** total (1221 unit + 57 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -77,7 +77,7 @@ Template self-tests: **1184 tests** total (1128 unit + 56 integration).
 | `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
 | `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
 
-### test/unit/setup_spec.bats (272)
+### test/unit/setup_spec.bats (283)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
 (`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
@@ -90,6 +90,7 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Category | Tests |
 |----------|-------|
 | `detect_user_info` / `detect_hardware` / `detect_docker_hub_user` / `detect_gpu` / `detect_gui` | 11 |
+| `_is_ssh_x11` / `_setup_ssh_x11_cookie` (#321: 6 detection cases + cookie rewrite via stubbed xauth + warn on missing xauth + write_env XAUTHORITY override on/off) | 10 |
 | `_parse_ini_section` (section isolation, comments, trim, missing) | 6 |
 | `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
 | `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
@@ -214,27 +215,166 @@ on doc-only PRs).
 | #272 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + scope key into `GITHUB_OUTPUT`, 4 build steps set `cache-from: type=gha,scope=...`, 4 build steps set `cache-to: ...,mode=max`, default preserves zero-diff for single-call callers | 5 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
 
-### test/unit/self_test_yaml_spec.bats (5)
+### test/unit/self_test_yaml_spec.bats (26)
 
-Structural assertions for `.github/workflows/self-test.yaml` (#305).
-Locks the actionlint gate so a future refactor cannot quietly drop
-the validator: the `actionlint` job exists and runs
-`rhysd/actionlint` via Docker pinned to an explicit version
-(`x.y.z`); the three downstream jobs (`test`, `integration-e2e`,
-`behavioural`) declare `needs: actionlint` so they cannot start
-until the workflow-validator class of regression that wedged
-v0.26.0-rc1 (`${{ matrix.X }}` outside step scope, refs #297) is
-caught early — before bats / docker matrix burns CI minutes.
+Structural assertions for `.github/workflows/self-test.yaml`. Locks
+five cumulative invariants:
+
+1. **#305 actionlint gate** — `actionlint` job declared, runs
+   `rhysd/actionlint` via Docker pinned to an explicit version
+   (`x.y.z`); downstream jobs (`test`, `integration-e2e`,
+   `behavioural`) need it so the workflow-validator class of
+   regression that wedged v0.26.0-rc1 (refs #297) is caught early.
+
+2. **#317 P1 classifier + buildx GHA cache** — a `classify` job
+   emits `code_changed` + `behavioural_relevant` outputs from PR
+   diff against the doc-only allow-list (`doc/**` + `README.md` +
+   `LICENSE`) and behavioural block-list (entrypoint.sh + compose
+   + Dockerfile.example/.test-tools + wrappers + init/upgrade +
+   `test/behavioural/**` + `.github/workflows/**`); the `test` job
+   always runs (required check) but short-circuits to SUCCESS on
+   doc-only PRs; `integration-e2e` and `behavioural` gate via
+   job-level `if:`; all three test-tools image builds use
+   `docker/build-push-action` with shared `scope=test-tools` GHA
+   cache.
+
+3. **#317 P1 follow-up classifier hardening** — `classify` job is
+   fail-open: `set -uo pipefail` (no `-e`) so transient diff/fetch
+   errors don't crash the job and wedge every PR via the Q4
+   fail-closed chain. Explicit `git fetch origin` of the base ref
+   with `--depth=200` before diff so fork PRs (where
+   `actions/checkout@v6 fetch-depth: 0` only fetches the head
+   branch) don't trip on missing `origin/<base>`.
+
+4. **#317 P2 Obtain step + rolling tag fallback** — each of the 3
+   downstream jobs (`test`, `integration-e2e`, `behavioural`)
+   precedes its test-tools provisioning with an `Obtain` step
+   implementing the 3-layer fallback: PR touched
+   `dockerfile/Dockerfile.test-tools` -> rebuild local; else
+   `docker pull ghcr.io/ycpss91255-docker/test-tools:main` and
+   re-tag; else fall back to a from-source rebuild. For `test` +
+   `behavioural` (which `docker compose run` test-tools), the
+   buildx Build step gates on `steps.obtain.outputs.build_local
+   == 'true'` so the hot path skips it and the cold path reuses
+   P1's GHA cache. For `integration-e2e` (which `docker compose
+   build`, whose `FROM ${TEST_TOOLS_IMAGE}` resolves against the
+   host docker daemon), the buildx `driver: docker` override is
+   preserved and the rebuild fallback is inlined as plain
+   `docker build` — GHA cache is not available on this driver,
+   accepted because the hot path is `docker pull :main` and cold
+   path matches pre-P2 cost. `integration-e2e` additionally
+   passes `TEST_TOOLS_IMAGE: test-tools:local` to `./build.sh
+   test` so the wrapper script skips its own internal test-tools
+   build, reusing the image populated by the Obtain step.
+
+5. **#317 P3 behavioural conditional + block-list expansion** —
+   `behavioural` job's job-level `if:` tightens from
+   `code_changed == 'true'` (P1) to `behavioural_relevant ==
+   'true'` (the narrower output P1 already emitted but didn't
+   consume). PRs that change pure lint / unit-test paths
+   covered by `test` now skip the docker.sock-mounted compose
+   run, saving ~3-5 min per such PR. The behavioural block-list
+   in `classify` is extended with `script/docker/setup.sh` +
+   `script/docker/i18n.sh` + `script/docker/lib/**` +
+   `script/docker/prune.sh` (gotcha-5): each affects `.env` /
+   `compose.yaml` generation or wrapper behaviour that the
+   compose service exercises end-to-end, so they must invalidate
+   the behavioural-skip optimization.
 
 | Category | Tests |
 |----------|-------|
 | `actionlint` job declared | 1 |
 | `actionlint` step uses `rhysd/actionlint:<pinned-version>` Docker image | 1 |
-| `test` job declares `needs: actionlint` | 1 |
-| `integration-e2e` job declares `needs: actionlint` | 1 |
-| `behavioural` job declares `needs: actionlint` | 1 |
+| `classify` job declared with `code_changed` + `behavioural_relevant` outputs | 3 |
+| `classify` doc-only allow-list + behavioural block-list + non-PR default | 3 |
+| `test`/`integration-e2e`/`behavioural` declare `needs: [actionlint, classify]` | 3 |
+| `test` doc-only short-circuit + real-step `code_changed == 'true'` gate | 2 |
+| `integration-e2e` job-level `if: code_changed == 'true'` + `behavioural` job-level `if: behavioural_relevant == 'true'` (#317 P3 tightens) | 2 |
+| `test` + `behavioural` use `docker/build-push-action@v6` with `scope=test-tools` GHA cache | 2 |
+| `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317 gotcha-1/2) | 2 |
+| `test` Obtain step pulls `:main` with 3-layer fallback + Build step gated on `build_local` (#317 P2) | 2 |
+| `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no `driver: docker` pin (#317 P2) | 2 |
+| `behavioural` Obtain step with 3-layer fallback (#317 P2) | 1 |
+| Obtain steps pre-fetch base ref (4 occurrences: classify + 3 jobs, #317 P2 reuses P1 gotcha-2 fix) | 1 |
+| `classify` behavioural block-list extends to `setup.sh` + `i18n.sh` + `lib/**` + `prune.sh` (#317 P3 gotcha-5) | 1 |
 
-### test/unit/build_sh_spec.bats (50)
+### test/unit/release_test_tools_yaml_spec.bats (10)
+
+Structural assertions for `.github/workflows/release-test-tools.yaml`.
+Locks the publish surface that downstream Dockerfile.example's `FROM
+${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has
+three publish modes:
+
+1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
+   release downstream consumers pin via `inputs.test_tools_version`.
+2. **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
+   self-test.yaml's Obtain step to skip from-source rebuilds. Paths
+   filter (gotcha 3) restricts to commits that touched
+   `dockerfile/Dockerfile.test-tools` or this workflow.
+3. **workflow_dispatch** — manual `:latest` republish, kept unfiltered
+   for bootstrap.
+
+Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag
+the current trigger produced (rather than statically pulling `:latest`,
+which would leave a freshly-pushed `:main` unverified).
+
+| Category | Tests |
+|----------|-------|
+| Triggers on `v*` tag push (existing) | 1 |
+| Triggers on main push (#317 P2) | 1 |
+| Main push trigger has `paths:` filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3) | 1 |
+| Triggers on `workflow_dispatch` (existing) | 1 |
+| Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
+| Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
+| Build step pushes multi-arch (amd64 + arm64) + declares `packages: write` permission | 2 |
+
+### test/unit/multi_distro_build_worker_yaml_spec.bats (14)
+
+Structural assertions for `.github/workflows/multi-distro-build-worker.yaml`
+(#325 B-1 dispatcher). The dispatcher fans a per-event distro
+subset across `build-worker.yaml` matrix shards so multi-distro
+caller `main.yaml`s (`env/ros_distro`, `env/ros2_distro`,
+`app/ros1_bridge`) stop copy-pasting a
+`${{ github.event_name == 'pull_request' && ... || ... }}`
+expression. Three jobs:
+
+1. **`resolve-matrix`** — pure-shell selector emitting a `distros`
+   JSON-array output. `pull_request` -> `pr_distros` (subset);
+   anything else (tag push, main push, `workflow_dispatch`) ->
+   `tag_distros` (release validation matrix).
+
+2. **`call-build`** — strategy.matrix job invoking the local
+   `build-worker.yaml` per distro shard. Derives per-shard
+   `image_name` as `<image_name>_<distro>`, passes
+   `<distro_input_name>=<distro>` as the first `build_args` line,
+   and shards buildx GHA cache by distro via
+   `cache_variant: ${{ matrix.distro }}` (reuses #272's per-variant
+   scope contract). `fail-fast: false` so one shard's failure
+   doesn't cancel siblings.
+
+3. **`ci-passed`** — rollup gate for branch protection. Matches the
+   existing `ci-passed` rollup naming used by env/ros_distro /
+   env/ros2_distro per CLAUDE.md's status-check table, so
+   downstream branch-protection contexts don't change on adoption.
+
+| Category | Tests |
+|----------|-------|
+| Declares `workflow_call` | 1 |
+| Required inputs: `pr_distros`, `tag_distros`, `distro_input_name`, `image_name` | 1 |
+| Passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) | 1 |
+| Defines `extra_build_args` passthrough | 1 |
+| `resolve-matrix` emits `distros` output | 1 |
+| `resolve-matrix` branches on `github.event_name == 'pull_request'` | 1 |
+| `call-build` `uses: ./.github/workflows/build-worker.yaml` | 1 |
+| `call-build` matrix `fromJSON(needs.resolve-matrix.outputs.distros)` | 1 |
+| `call-build` per-shard `image_name: <image_name>_<distro>` | 1 |
+| `call-build` `build_args` line `<distro_input_name>=<distro>` | 1 |
+| `call-build` `cache_variant: ${{ matrix.distro }}` (per-distro cache scope) | 1 |
+| `call-build` `fail-fast: false` | 1 |
+| `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
+| `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
+
+### test/unit/build_sh_spec.bats (51)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a
 sandbox tree mirroring the expected layout (build.sh + `template/` subtree
@@ -285,7 +425,7 @@ value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
 trace pattern as build.sh, parity across wrappers).
 
-### test/unit/exec_sh_spec.bats (32)
+### test/unit/exec_sh_spec.bats (36)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -311,7 +451,7 @@ guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `docker exec` itself does not build, but flag is accepted and `-vv`
 enables wrapper trace).
 
-### test/unit/stop_sh_spec.bats (25)
+### test/unit/stop_sh_spec.bats (34)
 
 Unit tests for `stop.sh` argument parsing, the `--all` multi-instance
 teardown, and i18n. `docker ps -a` output is PATH-shimmed via
@@ -328,9 +468,33 @@ no-instances message, `--all` multi-project teardown loop, fallback
 from the alt repo, short + long form, value-required and directory
 guards, usage help mention), and **`-v` / `--verbose` / `-vv` /
 `--very-verbose` flag** (#311: parity across wrappers; flag is a no-op
-for `docker compose down` but `-vv` still enables wrapper trace).
+for `docker compose down` but `-vv` still enables wrapper trace), and
+**`--prune` flag** (#319: opt-in lightweight cleanup after compose
+down — `docker network prune --filter until=10m` + `docker image prune
+--filter until=24h`; works alongside `--all` even when no instances
+found; usage help mentions `--prune` with the two grace windows; the
+plain `stop.sh --dry-run` path emits no `docker prune` commands).
 
-### test/unit/wrapper_lib_lookup_spec.bats (5)
+### test/unit/prune_sh_spec.bats (23)
+
+Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
+docker garbage cleanup with conservative per-target `--filter until=`
+defaults (network=10m, image=24h, builder=24h, volume=no filter). Sandbox
++ PATH-shimmed `docker` stub mirrors the build/run/exec/stop spec
+strategy; `docker compose` is never invoked here so no `.env` seeding is
+required beyond the sandbox layout.
+
+Covers: `--help` (en/zh-TW/zh-CN/ja), no-target exit-2 hint (English +
+zh-TW), `--until` / `--lang` value-required guards, unknown-flag
+exit-2, individual `--networks` / `--images` / `--builder` /
+`--volumes` dry-run output (each with its own default grace; volume
+output omits `--filter`), **`--all` aggregator** (network + image +
+builder; volumes intentionally excluded), **`--until <dur>` override**
+across all selected targets, **volume confirmation prompt** (`n`
+aborts with exit-1 + i18n "aborted" message; `-y` skips the prompt;
+zh-TW prompt body asserts), `-C` / `--chdir` parity (accepted but
+no-op for daemon-wide prune; value-required + directory guards),
+usage help mentions every flag family.
 
 Regression guard for **issue #282** — the four user-facing wrappers
 (`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) must resolve `_lib.sh`
@@ -771,7 +935,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
 | `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
 
-### test/integration/init_new_repo_spec.bats (38)
+### test/integration/init_new_repo_spec.bats (39)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The

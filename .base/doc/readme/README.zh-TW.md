@@ -423,6 +423,74 @@ Main
 `make upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
+### 命名規則：三個 namespace、兩個 user 身份
+
+`setup.sh` 會在 `.env` / `compose.yaml` 產三個名稱。它們在單人開發
+機上長得像，但實際分布在**三個獨立 namespace**，並取兩個**不同的
+user 身份**做前綴。共用機器（多 OS user）的場景下這個差異會浮現；
+個人開發機上兩個身份通常一致可不必細究。
+
+| 名稱 | 格式 | Namespace | User 前綴 |
+|---|---|---|---|
+| `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
+| `container_name:` | `${USER_NAME}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（同 docker daemon 內 flat 全域） | `USER_NAME`（OS user，refs #322） |
+| compose project name | `${DOCKER_HUB_USER}-<repo>${INSTANCE_SUFFIX}` | **本地 daemon**（影響預設 network / volume label） | `DOCKER_HUB_USER` |
+
+- `DOCKER_HUB_USER` — 你的 Docker Hub 帳號，用來在 registry 端把
+  image 加上命名空間。即使從未實際 push，image tag 仍透過這個
+  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
+- `USER_NAME` — 主機 OS user（`id -un`），用來避免同台機器上不同
+  OS user 在 daemon 的 flat container 命名空間互撞。
+
+刻意把兩個身份分開。Image 用 Docker Hub 身份，因為 image 是會在
+registry 上被定址的物件；若以 OS user 做前綴，buildx cache 與
+Docker Hub layer 共用會直接破功。Container name 用 OS 身份，因為
+這層解決的衝突（同 host 兩 user 同跑同 repo）是 daemon 端問題、
+無 registry 牽涉。
+
+Project name 用 `DOCKER_HUB_USER` 是 #322 之前就決定，未動：在
+單人開發機上兩個身份重合，與 `container_name` 視覺上對齊；多人共
+用機則因為 `DOCKER_HUB_USER` 通常也不同，所以 project name 一樣
+能避開跨 user 衝突。`#322` 的 CHANGELOG 寫的「對齊 container-level
+與 project-level naming」在「單人機」假設下成立 — 兩者都帶 user
+前綴，差別只在「同一個 var 還是兩個 var」；多人機場景下兩個前綴
+是不同字串。
+
+**`INSTANCE_SUFFIX`** 是第四維，跟 user 分隔正交。同一個 OS user
+要同時跑同一 repo 的多個 container（譬如平行測兩個 branch）：設
+`INSTANCE_SUFFIX=2` 就會拿到 `alice-<repo>-2` 跟對應的 project
+name。預設空字串；wrappers 支援的場合可用 `-n / --instance` 帶起來。
+
+範例。OS user `alice`，Docker Hub user `alice-hub`，repo
+`claude_code`，預設 `INSTANCE_SUFFIX` 空：
+
+```
+image:          alice-hub/claude_code:devel
+container_name: alice-claude_code
+project name:   alice-hub-claude_code
+```
+
+同一 OS user 起第二份 instance（`INSTANCE_SUFFIX=2`）：
+
+```
+image:          alice-hub/claude_code:devel        (不變 — 同一份 image)
+container_name: alice-claude_code-2
+project name:   alice-hub-claude_code-2
+```
+
+第二位 OS user `bob` 在同台機器：
+
+```
+image:          bob-hub/claude_code:devel          (不同 registry tag,無 cache 共用)
+container_name: bob-claude_code
+project name:   bob-hub-claude_code
+```
+
+若 `alice` 與 `bob` 共用同一個 `DOCKER_HUB_USER`（例如共用 CI
+service 帳號），`image` 會在 Docker Hub 端撞名，但 `container_name`
+仍能區隔 — registry pull 共用 cached image、host 內 daemon 仍
+彼此隔離。
+
 ## 快速開始
 
 ### 加入新 repo

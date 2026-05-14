@@ -464,6 +464,7 @@ setup() {
   local _tmp
   _tmp="$(mktemp -d)"
   cat > "${_tmp}/.env" <<EOF
+USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
 EOF
@@ -485,6 +486,7 @@ EOF
   local _tmp
   _tmp="$(mktemp -d)"
   cat > "${_tmp}/.env" <<EOF
+USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
 EOF

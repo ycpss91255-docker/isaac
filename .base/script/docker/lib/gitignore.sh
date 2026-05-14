@@ -23,6 +23,7 @@ setup.conf.bak
 setup.conf.local
 coverage/
 .Dockerfile.generated
+.docker.xauth
 EOF
 }
 

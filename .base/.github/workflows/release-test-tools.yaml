@@ -10,12 +10,26 @@ name: Release test-tools image to GHCR
 #
 # Triggers:
 #   push of a vX.Y.Z tag -> pushes :<tag> and :latest
+#   push to main (Dockerfile.test-tools or this workflow changed)
+#                        -> pushes :main rolling tag (#317 P2)
 #   workflow_dispatch    -> manual bootstrap; pushes only :latest
+#
+# Why the paths filter on main push: every non-doc PR merge triggers
+# a push to main, but most don't touch Dockerfile.test-tools. Without
+# the filter, every merge would burn ~3-5 min of multi-arch buildx
+# republishing the same image content under a new manifest digest.
+# Restrict the main trigger to commits that actually change the
+# test-tools recipe; tag-push trigger stays unfiltered because tag
+# pushes are explicit publish intents.
 #
 # Needs packages: write to push to GHCR under the org namespace.
 
 on:
   push:
+    branches: [main]
+    paths:
+      - 'dockerfile/Dockerfile.test-tools'
+      - '.github/workflows/release-test-tools.yaml'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -34,13 +48,25 @@ jobs:
       - name: Resolve tags
         id: tags
         shell: bash
+        # Three publish modes, three tag sets. `smoke` is the single tag
+        # the post-publish smoke step pulls so we always exercise the
+        # image we just pushed (rather than statically pulling :latest
+        # and missing :main bootstrapping bugs).
         run: |
+          set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ver="${GITHUB_REF##refs/tags/}"
-            printf 'tags=ghcr.io/ycpss91255-docker/test-tools:%s,ghcr.io/ycpss91255-docker/test-tools:latest\n' "${ver}" >> "${GITHUB_OUTPUT}"
+            tags="ghcr.io/ycpss91255-docker/test-tools:${ver},ghcr.io/ycpss91255-docker/test-tools:latest"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:${ver}"
+          elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            tags="ghcr.io/ycpss91255-docker/test-tools:main"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:main"
           else
-            printf 'tags=ghcr.io/ycpss91255-docker/test-tools:latest\n' >> "${GITHUB_OUTPUT}"
+            tags="ghcr.io/ycpss91255-docker/test-tools:latest"
+            smoke="ghcr.io/ycpss91255-docker/test-tools:latest"
           fi
+          printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
+          printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
         # Needed for the arm64 leg; amd64 alone could skip it, but the
@@ -78,10 +104,13 @@ jobs:
         # so the image had bats-* files on disk but `bats` was unrunnable.
         # Pull the just-pushed amd64 leg and exercise each tool end-to-end
         # so a similar break never reaches downstream consumers silently.
+        # The smoke target tracks `steps.tags.outputs.smoke` so we always
+        # verify the image the current trigger produced (incl. :main on
+        # main push, not the stale :latest left from the previous tag).
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/ycpss91255-docker/test-tools:latest"
+          image="${{ steps.tags.outputs.smoke }}"
           docker pull "${image}"
           docker run --rm "${image}" bats --version
           docker run --rm "${image}" shellcheck --version

@@ -162,6 +162,13 @@ COPY --chmod=0755 .base/dockerfile/setup "${SETUP_DIR}"
 
 USER "${USER}"
 
+# WORKDIR is a Docker directive: it interpolates build-time ARG / ENV
+# only, not shell-time $HOME. Without this explicit ENV, the
+# `WORKDIR "${HOME}/work"` below silently collapses to /work (BuildKit
+# emits `WARN: UndefinedVar`) and `docker inspect` reports the wrong
+# WorkingDir. Refs #334.
+ENV HOME="/home/${USER_NAME}"
+
 # Setup pip packages (build-time scaffolding from SETUP_DIR, #261).
 RUN "${SETUP_DIR}"/pip/setup.sh
 
@@ -364,6 +371,9 @@ RUN bats /smoke_test/
 #
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
 # USER "${USER}"
+# # WORKDIR interpolates only build-time ARG / ENV (not shell $HOME);
+# # see #334 for why the explicit ENV is required.
+# ENV HOME="/home/${USER_NAME}"
 # WORKDIR "${HOME}/work"
 # ENTRYPOINT ["/entrypoint.sh"]
 # CMD ["bash"]

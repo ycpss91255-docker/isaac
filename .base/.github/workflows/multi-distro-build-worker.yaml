@@ -1,0 +1,169 @@
+name: Multi-distro build dispatcher
+
+# Two-job dispatcher reusable workflow (#325 B-1). Resolves a per-event
+# distro subset and fans it out across `build-worker.yaml` matrix shards,
+# so multi-distro callers (`env/ros_distro`, `env/ros2_distro`,
+# `app/ros1_bridge`) don't have to copy-paste a
+# `${{ github.event_name == 'pull_request' && fromJSON('[...]') || ... }}`
+# expression into every main.yaml.
+#
+# Pull-request events use `pr_distros`; tag pushes, main pushes, and
+# workflow_dispatch use `tag_distros` (the full validation matrix).
+# Callers express the policy once per repo via two JSON-array inputs.
+#
+# A `ci-passed` rollup job aggregates the matrix result for branch
+# protection — matches the existing rollup naming used by env/ros_distro
+# / env/ros2_distro per CLAUDE.md's status-check table, so downstream
+# branch protection contexts don't need to change when adopting this
+# dispatcher.
+
+on:
+  workflow_call:
+    # === Multi-distro specific ===
+    inputs:
+      pr_distros:
+        required: true
+        type: string
+        description: |
+          JSON-array string of distro values to build on `pull_request`
+          events. Typically a subset of `tag_distros` to keep PR CI
+          fast — e.g. `'["humble"]'` while `tag_distros: '["humble",
+          "jazzy"]'` for `app/ros1_bridge`. Tag-time still validates the
+          full matrix.
+      tag_distros:
+        required: true
+        type: string
+        description: |
+          JSON-array string of distro values to build on tag push, main
+          push, and `workflow_dispatch`. This is the "release-validation"
+          matrix — everything that ships needs to pass here.
+      distro_input_name:
+        required: true
+        type: string
+        description: |
+          Name of the Dockerfile `ARG` (and corresponding `build_args`
+          key) that consumes the per-shard distro value. The dispatcher
+          emits `<distro_input_name>=<matrix.distro>` as the first
+          build_args line for each shard. Example values: `ROS_DISTRO`
+          (ROS 1), `ROS2_DISTRO` (ROS 2 / bridge), `ROS_DISTRO` etc.
+    # === Forwarded to build-worker.yaml (mirror keep build-worker
+    # defaults so existing semantics are preserved when caller omits) ===
+      image_name:
+        required: true
+        type: string
+        description: |
+          Base image name. The dispatcher derives each shard's image
+          name as `<image_name>-<matrix.distro>` so multi-distro callers
+          don't have to template that expression themselves. E.g.
+          caller sets `image_name: ros1_bridge`, dispatcher passes
+          `ros1_bridge-humble` / `ros1_bridge-jazzy` to build-worker —
+          matching the existing org convention (`app/ros1_bridge`'s
+          pre-dispatcher main.yaml shipped `ros1_bridge-${distro}`).
+      extra_build_args:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Multi-line KEY=VALUE build_args appended after the
+          dispatcher-emitted `<distro_input_name>=<distro>` line.
+          Forwarded as-is to build-worker.yaml's `build_args` input.
+      build_runtime:
+        required: false
+        type: boolean
+        default: true
+      test_tools_version:
+        required: false
+        type: string
+        default: "latest"
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+      context_path:
+        required: false
+        type: string
+        default: "."
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      distros: ${{ steps.r.outputs.distros }}
+    steps:
+      - id: r
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_DISTROS: ${{ inputs.pr_distros }}
+          TAG_DISTROS: ${{ inputs.tag_distros }}
+        # PR event -> pr_distros subset. Every other event
+        # (push to main, push of a v* tag, workflow_dispatch) ->
+        # tag_distros full matrix. Tag pushes specifically benefit
+        # from full validation since they cut releases; main pushes
+        # benefit because the same code path is what tag-cut will see.
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            echo "distros=${PR_DISTROS}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "distros=${TAG_DISTROS}" >> "${GITHUB_OUTPUT}"
+          fi
+
+  call-build:
+    needs: resolve-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ${{ fromJSON(needs.resolve-matrix.outputs.distros) }}
+    uses: ./.github/workflows/build-worker.yaml
+    with:
+      # Per-shard image_name includes the distro so the GHCR tag
+      # disambiguates multi-distro builds from the same caller repo
+      # (e.g. ros1_bridge-humble vs ros1_bridge-jazzy). Hyphen
+      # matches the existing org convention; env/ros{,2}_distro use
+      # a single-image-multi-variant shape that is out of scope for
+      # this 1D dispatcher (tracked at #344 for 2D extension).
+      image_name: ${{ inputs.image_name }}-${{ matrix.distro }}
+      build_args: |
+        ${{ inputs.distro_input_name }}=${{ matrix.distro }}
+        ${{ inputs.extra_build_args }}
+      build_runtime: ${{ inputs.build_runtime }}
+      test_tools_version: ${{ inputs.test_tools_version }}
+      platforms: ${{ inputs.platforms }}
+      context_path: ${{ inputs.context_path }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_contexts: ${{ inputs.build_contexts }}
+      # Per-distro buildx cache scope so e.g. humble and jazzy shards
+      # don't evict each other's cache. Matches the `cache_variant`
+      # contract added in #272 for env/ros{,2}_distro's variant matrix.
+      cache_variant: ${{ matrix.distro }}
+
+  ci-passed:
+    name: ci-passed
+    needs: call-build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix results
+        env:
+          NEEDS_RESULT: ${{ needs.call-build.result }}
+        # Rollup gate for downstream branch protection. The matrix
+        # `result` is `success` only when every shard finished with
+        # `conclusion: success`; any failure or cancellation surfaces
+        # here. `if: always()` ensures the rollup runs even when one
+        # matrix shard failed, otherwise branch protection would see a
+        # missing required check rather than a failed one.
+        run: |
+          set -euo pipefail
+          if [[ "${NEEDS_RESULT}" != "success" ]]; then
+            echo "call-build matrix did not all succeed: ${NEEDS_RESULT}"
+            exit 1
+          fi
+          echo "All distro shards passed."

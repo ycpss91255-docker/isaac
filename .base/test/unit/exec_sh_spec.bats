@@ -142,8 +142,44 @@ teardown() {
 }
 
 @test "exec.sh runs docker compose exec when container is running" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run
+  assert_success
+  assert_output --partial "exec"
+}
+
+# ── -t <non-devel> precheck container name (issue #335) ──────────────────────
+
+@test "exec.sh -t <non-devel>: precheck name suffixes the target stage (#335)" {
+  # Before #335, the precheck always grepped `tester-mockimg` regardless of
+  # -t, so any non-devel target aborted with "not running". After the fix:
+  # -t devel    -> tester-mockimg
+  # -t headless -> tester-mockimg-headless
+  run bash "${SANDBOX}/exec.sh" -t headless
+  assert_failure
+  assert_output --partial "tester-mockimg-headless"
+  refute_output --partial "'tester-mockimg' is not running"
+}
+
+@test "exec.sh -t devel: precheck name has no stage suffix (parity, #335)" {
+  run bash "${SANDBOX}/exec.sh" -t devel
+  assert_failure
+  assert_output --partial "tester-mockimg"
+  refute_output --partial "tester-mockimg-devel"
+}
+
+@test "exec.sh -t headless --instance foo: precheck name carries both suffixes (#335)" {
+  # Order in compose.yaml: ${USER_NAME}-${IMAGE_NAME}-${TARGET}${INSTANCE_SUFFIX}
+  # INSTANCE_SUFFIX is `-${INSTANCE}` when --instance set.
+  run bash "${SANDBOX}/exec.sh" -t headless --instance foo
+  assert_failure
+  assert_output --partial "tester-mockimg-headless-foo"
+}
+
+@test "exec.sh -t <non-devel>: precheck passes when matching container is running (#335)" {
+  echo "tester-mockimg-headless" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" -t headless --dry-run
   assert_success
   assert_output --partial "exec"
 }
@@ -151,7 +187,8 @@ teardown() {
 # ── -- flag/CMD separator (issue #289) ──────────────────────────────────────
 
 @test "exec.sh -- separator: standalone -- is consumed, CMD flows through (#289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- ls /tmp
   assert_success
   assert_output --partial " ls /tmp"
@@ -163,7 +200,8 @@ teardown() {
 @test "exec.sh -- separator: lets a dash-leading CMD pass through (#289)" {
   # The whole point of -- is to send a CMD starting with a dash to the
   # container without exec.sh's own option parser capturing it.
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -- my-tool --version
   assert_success
   assert_output --partial "my-tool"
@@ -172,7 +210,8 @@ teardown() {
 }
 
 @test "exec.sh -- separator: works after -t TARGET (run.sh parity, #289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run -t devel -- echo hi
   assert_success
   assert_output --partial "echo hi"
@@ -180,7 +219,8 @@ teardown() {
 }
 
 @test "exec.sh: no -- still works for positional CMD (backward compat, #289)" {
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix; setup .env has USER_NAME=tester
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/exec.sh" --dry-run ls -la /tmp
   assert_success
   assert_output --partial "ls"

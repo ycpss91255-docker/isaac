@@ -325,8 +325,10 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  # Simulate a running container matching CONTAINER_NAME=mockimg
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # Simulate a running container matching CONTAINER_NAME=${USER_NAME}-mockimg
+  # (#322: container_name now includes USER_NAME prefix to disambiguate
+  # per-OS-user on shared hosts).
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
 
   # Real mode (no --dry-run) triggers the guard; DRY_RUN=true bypasses it.
   run bash "${SANDBOX}/run.sh"
@@ -445,7 +447,8 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang zh-TW
   assert_failure
   assert_output --partial "已在執行中"
@@ -457,7 +460,8 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env"
-  echo "mockimg" > "${DOCKER_PS_FILE}"
+  # #322: container_name now includes USER_NAME prefix.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang ja
   assert_failure
   assert_output --partial "すでに実行中"
