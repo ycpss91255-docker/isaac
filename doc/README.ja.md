@@ -32,7 +32,7 @@ NGC イメージ（`nvcr.io/nvidia/isaac-sim:5.1.0`）は公開取得可能、`d
 /isaac-sim/runapp.sh           # ローカル GUI（X11 必要；host 側で先に `xhost +local:docker`）
 ```
 
-> `run.sh -t {headless|gui}` ショートカットは [base issue #215](https://github.com/ycpss91255-docker/base/issues/215) で進行中。実装前は上記の手動 launcher を使用。
+> 3 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（ENTRYPOINT `runheadless.sh -v`、WebRTC livestream）、`gui`（ENTRYPOINT `runapp.sh`、X11）、`standalone`（ENTRYPOINT なし、idle — `./exec.sh -t standalone /isaac-sim/python.sh <script>` と組み合わせて standalone Python workflow に使用、スクリプト内で `SimulationApp({"livestream": 2})` が自前の kit + WebRTC server を boot）。使用例：`./run.sh -t <stage> -d`。上記の手動 launcher も ad-hoc 用途では引き続き使用可能。
 
 ## WebRTC livestream への接続
 
