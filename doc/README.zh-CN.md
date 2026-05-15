@@ -108,6 +108,29 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 > 跑 jazzy-aligned Isaac instance 时把两边都换成 `ros:jazzy` + `/opt/ros/jazzy/setup.bash` — 两边 distro 必须一致，IDL hash 才能对齐。
 
+### Standalone Python workflow（Script Editor 替代方案）
+
+`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `./run.sh -t standalone` + `./exec.sh -t standalone /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
+
+| In-kit（Script Editor → File → Open → Run） | Standalone（`./exec.sh -t standalone /isaac-sim/python.sh <path>`） |
+|---|---|
+| `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
+| `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
+| `move_openbase_planar.py` | `move_openbase_planar_standalone.py` |
+| （无 in-kit 版本） | `cmd_vel_planar_standalone.py` — 订阅 `/cmd_vel` (geometry_msgs/Twist) → OpenBase 平面移动 |
+
+使用 pattern：
+
+```bash
+./run.sh -t standalone -d   # idle kit 容器（没 runheadless ENTRYPOINT）
+./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+# Browser: localhost:8211/streaming/webrtc-client 看 stage
+# 在 exec session 按 Ctrl+C 干净杀 script，容器仍 idle
+./stop.sh                   # 收尾
+```
+
+`headless` 与 `standalone` stage **不能同时跑** — 两个都 bind WebRTC port 8211。每次选一个。
+
 ## Cache 路径
 
 所有 Isaac Sim runtime state 都持久化在 host 端的 `${WS_PATH}/isaac-sim/`（即 `isaac_ws/isaac-sim/`）：
