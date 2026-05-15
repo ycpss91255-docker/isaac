@@ -108,6 +108,29 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 > Swap both sides to `ros:jazzy` + `/opt/ros/jazzy/setup.bash` when running a jazzy-aligned Isaac instance — distros must match across both sides for IDL hashes to align.
 
+### Standalone Python workflow (alternative to Script Editor)
+
+`isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. The standalone variant runs through `./run.sh -t standalone` + `./exec.sh -t standalone /isaac-sim/python.sh <script>` — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
+
+| In-kit (Script Editor → File → Open → Run) | Standalone (`./exec.sh -t standalone /isaac-sim/python.sh <path>`) |
+|---|---|
+| `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
+| `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
+| `move_openbase_planar.py` | `move_openbase_planar_standalone.py` |
+| (no in-kit equivalent) | `cmd_vel_planar_standalone.py` — subscribes `/cmd_vel` (geometry_msgs/Twist) → OpenBase planar move |
+
+Pattern:
+
+```bash
+./run.sh -t standalone -d   # idle kit container (no runheadless ENTRYPOINT)
+./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+# Browser: localhost:8211/streaming/webrtc-client to view the stage
+# Ctrl+C in the exec session kills the script cleanly; container stays idle
+./stop.sh                   # cleanup
+```
+
+`headless` and `standalone` stages cannot run simultaneously — both bind WebRTC port 8211. Pick one per session.
+
 ## Cache layout
 
 All Isaac Sim runtime state persists under `${WS_PATH}/isaac-sim/` on the host (i.e. inside `isaac_ws/isaac-sim/`):
