@@ -1,5 +1,10 @@
 # Action Graph 一次性 GUI 設定 — cmd_vel 控制 OpenBase
 
+> **DEPRECATED(2026-05-20 起)**:本 Action Graph 路徑在 Isaac Sim 5.1 standalone + bridge ext 組合下會 segfault(見下方 bisection 表),已不採用。實際採用過的替代路徑是 in-kit Script Editor(見 ADR-0002),那條也已在 2026-05-20 被 standalone-with-livestream(ADR-0005)取代。
+> 本文件保留當歷史 / segfault 偵測紀錄,**不要再依此 SOP 設定**。新 driver 一律走 `standalone_livestream_workflow.md`。
+
+---
+
 > 本文件記錄**一次性** GUI 操作流程，把 `/cmd_vel` ROS 2 訂閱接到 OpenBase 模型的速度控制。
 > 流程完成後 USD 內就包含 Action Graph，**之後日常使用不需要 GUI、不需要 Script Editor**。
 

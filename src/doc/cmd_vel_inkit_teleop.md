@@ -1,5 +1,12 @@
 # cmd_vel teleop in-kit SOP — OpenBase Chassis SE(2) Slide
 
+> **LEGACY(2026-05-20 起)**:本 SOP 走的 in-kit Script Editor 路徑已不是預設,改走 **standalone-with-livestream**(`./exec.sh -t headless /isaac-sim/python.sh <script>`)。
+> 新 driver 一律走新 SOP `standalone_livestream_workflow.md`(對應 `adr/0005-standalone-with-livestream-as-default-dev-entrypoint.md`)。
+> 本文件保留當歷史參考 / 偶爾需要 interactive REPL 偵錯時用。
+> ADR-0002(本 SOP 對應的決策)保留歷史紀錄;entrypoint pattern 的最新決策見 ADR-0005。
+
+---
+
 > ROS 2 `/cmd_vel` → Isaac Sim 5.1 內 OpenBase 平面移動的日常操作流程。
 > 走 in-kit Script Editor + `rclpy` + `dc.set_rigid_body_linear_velocity` 路徑（**Chassis SE(2) Slide**，輪子不參與）。
 

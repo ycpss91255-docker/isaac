@@ -24,3 +24,15 @@
 - 任何 cmd_vel 邏輯改動只需編輯 Python + 重 Ctrl+Enter，**不需重 build USD**
 - 6.0 GA 後可平滑遷移到 OmniGraph OnImpulseEvent 純腳本路徑，本 ADR 由未來 ADR superseded
 - daily GUI 操作流程記在 `cmd_vel_inkit_teleop.md`
+
+## Update (2026-05-20) — Entrypoint Pattern Superseded by ADR-0005
+
+本 ADR 的 `(γ) in-kit Script Editor` 路徑解了 5.1 的 NVIDIA gating 問題,但建立了一個新問題:LLM agent 無法驅動 sim — 每次 re-run 都需要人在瀏覽器點 Ctrl+Enter,也擋住 `docker exec` 風格的自動化測試。
+
+PoC #15 / Issue ycpss91255-docker/isaac#19 驗證 `SimulationApp({"headless": True, "livestream": 2})` 在現有 `headless` Docker stage 上就跑得起來,不需要新 Dockerfile stage。這條 **standalone-with-livestream** 路徑同時保留瀏覽器 view-on-demand 跟 CLI-driven scripts(`./exec.sh -t headless /isaac-sim/python.sh <script>`),把人 / LLM 的 driver 取消綁定瀏覽器 Ctrl+Enter。
+
+**結果**:`(γ)` 不再是 daily driver 預設;改走 standalone-with-livestream,細節 / trade-off 寫在 `adr/0005-standalone-with-livestream-as-default-dev-entrypoint.md`。本 ADR 的決策依然是「5.1 + bridge ext 條件下 (a-blackbox) / (a-fake-α) / (β) 都不可行」這個歷史結論,只是 entrypoint pattern 從 `(γ)` 換成 standalone-with-livestream(對應 SOP 從 `cmd_vel_inkit_teleop.md` 換成 `standalone_livestream_workflow.md`)。
+
+舊 in-kit Script Editor 流程不刪除,留給:
+- 5.1 上偶爾要做 interactive REPL 偵錯(載 stage、手動戳 prim、看 state)
+- 將來 6.0 GA 後遷移到 OnImpulseEvent OmniGraph 純腳本路徑前的過渡期 fallback

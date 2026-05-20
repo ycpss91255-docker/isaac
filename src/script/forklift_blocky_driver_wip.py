@@ -1,4 +1,4 @@
-"""Forklift blocky Model A-hybrid driver.
+"""Forklift blocky Model A-hybrid driver (standalone-with-livestream).
 
 Forklift cubes are kinematic rigid bodies — driver writes pose via
 dc.set_kinematic_target each tick (PhysX honors as kinematic update,
@@ -6,12 +6,29 @@ collision still active so forks interact with dynamic pallet).
 Environment (ground, pallet) is dynamic + collision (real physics).
 Pallet falls under gravity, gets lifted by fork collision push + friction.
 
-Demo cycle (30s): approach pallet -> insert forks -> lift -> carry back ->
-drop pallet -> return home -> repeat.
+Demo cycle (51s): approach pallet -> insert forks -> lift -> carry back ->
+drop pallet -> back away -> fork spread -> mast extension -> return home -> repeat.
+
+Run inside the headless container:
+
+    cd isaac_ws/src/docker
+    ./exec.sh -t headless /isaac-sim/python.sh \
+        /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
+
+The demo loops until Ctrl-C (or SIGTERM). View the scene at
+http://localhost:8011/streaming/webrtc-client. Browser close does not
+stop the sim; only Ctrl-C does.
 """
 
-USD_PATH = "/home/yunchien/work/src/model/usd/forklift_blocky/forklift_blocky.usda"
-LOG_PATH = "/home/yunchien/work/src/script/forklift_status.log"
+import signal
+import sys
+import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+USD_PATH = str(REPO_ROOT / "model" / "usd" / "forklift_blocky" / "forklift_blocky.usda")
+LOG_PATH = str(SCRIPT_DIR / "forklift_status.log")
 
 # Rest poses (matches USD initial translate). Driver overlays state on these.
 # carriage/forks rest LOWERED to 0.075 (fork-insertion height for blocky pallet
@@ -37,15 +54,14 @@ PRIM_PATHS = {
 FORK_NARROW = 0.20
 FORK_WIDE = 0.40
 
-import time
-
-import omni.kit.app
-import omni.timeline
-import omni.usd
+# Pickup thresholds
+PICKUP_LIFT_THRESHOLD = 0.05
+DROP_LIFT_THRESHOLD = 0.05
+FORK_REACH_OVER_PALLET = 0.3
 
 
 def _log(msg):
-    print(msg)
+    print(msg, flush=True)
     try:
         with open(LOG_PATH, "a") as f:
             f.write(msg + "\n")
@@ -59,26 +75,37 @@ except Exception:
     pass
 
 _log("[forklift-Ah] starting (Model A-hybrid: kinematic forklift + dynamic env)")
+_log(f"[forklift-Ah] USD: {USD_PATH}")
+_log(f"[forklift-Ah] LOG: {LOG_PATH}")
 
-_g = globals()
-for name in ("_forklift_tick_sub", "_tick", "_cmd_vel_tick_sub", "_poc59_tick_sub"):
-    sub = _g.get(name)
-    if sub is None:
-        continue
-    try:
-        if hasattr(sub, "unsubscribe"):
-            sub.unsubscribe()
-    except Exception as exc:
-        _log(f"[forklift-Ah] unsubscribe {name} ignored: {exc}")
-    _g[name] = None
-    _log(f"[forklift-Ah] retired {name}")
+from isaacsim import SimulationApp  # noqa: E402
+
+sim_app = SimulationApp({"headless": True, "livestream": 2})
+
+# Kit-side imports must come after SimulationApp boot.
+import omni.kit.app  # noqa: E402
+import omni.timeline  # noqa: E402
+import omni.usd  # noqa: E402
+from omni.isaac.dynamic_control import _dynamic_control as dc  # noqa: E402
+from pxr import Gf  # noqa: E402
+
+stop_requested = False
+
+
+def _handle_signal(_signum, _frame):
+    global stop_requested
+    stop_requested = True
+    _log("[forklift-Ah] signal received — requesting clean exit")
+
+
+signal.signal(signal.SIGINT, _handle_signal)
+signal.signal(signal.SIGTERM, _handle_signal)
 
 ctx = omni.usd.get_context()
 ctx.open_stage(USD_PATH)
 stage = ctx.get_stage()
 _log("[forklift-Ah] stage opened")
 
-from omni.isaac.dynamic_control import _dynamic_control as dc  # noqa: E402
 iface = dc.acquire_dynamic_control_interface()
 
 state = {
@@ -90,16 +117,11 @@ state = {
     "carrying": False,
     "attach_dx": 0.0,
     "attach_dy": 0.0,
-    "paused_t": 0.0,         # accumulated elapsed time while paused (subtracted from wall clock)
+    "paused_t": 0.0,
     "last_pause_check": time.time(),
 }
 
 _tl = omni.timeline.get_timeline_interface()
-
-# Pickup thresholds
-PICKUP_LIFT_THRESHOLD = 0.05   # carriage_lift > this enables pickup
-DROP_LIFT_THRESHOLD = 0.05     # carriage_lift < this drops pallet
-FORK_REACH_OVER_PALLET = 0.3   # fork tip needs to extend at least this far past pallet front
 
 
 def _resolve_handles():
@@ -114,8 +136,6 @@ def _resolve_handles():
         prim = stage.GetPrimAtPath(path)
         if prim.IsValid():
             state["xform_attrs"][key] = prim.GetAttribute("xformOp:translate")
-    # Pallet handle (dynamic body). Init pose is (0,0,0) — collision shapes
-    # are baked at world position (3.5, 0, ...) in their local translate.
     p_h = iface.get_rigid_body("/World/Pallet")
     if p_h != dc.INVALID_HANDLE:
         state["handles"]["pallet"] = p_h
@@ -142,7 +162,6 @@ def _set_pose(key, x, y, z):
     # for viewport rendering — explicit USD write closes the gap.
     attr = state.get("xform_attrs", {}).get(key)
     if attr is not None:
-        from pxr import Gf
         attr.Set(Gf.Vec3d(float(x), float(y), float(z)))
 
 
@@ -191,7 +210,6 @@ def _pickup_targets(t):
     if t < 26.0:
         return -0.5, 0.0, 0.0, 0.4 * (1.0 - (t - 22.0) / 4.0), FORK_NARROW
     if t < 31.0:
-        # Back away further so fork open/close + mast extension don't hit pallet
         x = -0.5 + (-2.5 - -0.5) * (t - 26.0) / 5.0
         return x, 0.0, 0.0, 0.0, FORK_NARROW
     if t < 36.0:
@@ -205,7 +223,6 @@ def _pickup_targets(t):
         u = (t - 36.0) / 6.0
         return -2.5, 0.0, 1.2 * u, 2.0 * u, FORK_NARROW
     if t < 42.5:
-        # HOLD at top for 0.5s
         return -2.5, 0.0, 1.2, 2.0, FORK_NARROW
     if t < 47.5:
         u = (t - 42.5) / 5.0
@@ -225,22 +242,19 @@ def _update_pickup(chassis_x, chassis_y, mast_lift, carriage_lift):
     p_h = state["handles"].get("pallet")
     if p_h is None:
         return
-    fork_x = chassis_x + 1.5  # fork center x (rest fork x = 1.5)
-    fork_z = 0.075 + mast_lift + carriage_lift  # fork center z
+    fork_x = chassis_x + 1.5
+    fork_z = 0.075 + mast_lift + carriage_lift
 
     p_pose = iface.get_rigid_body_pose(p_h)
     p_x, p_y, p_z = p_pose.p
 
     if not state["carrying"]:
-        # Pickup condition: fork tip (fork_x + 0.5) extends past pallet front edge
-        # (p_x - 0.6) by at least FORK_REACH_OVER_PALLET, AND lift threshold met
         fork_tip = fork_x + 0.5
         pallet_front = p_x - 0.6
         if (fork_tip - pallet_front >= FORK_REACH_OVER_PALLET
                 and carriage_lift > PICKUP_LIFT_THRESHOLD
                 and abs(p_y - chassis_y) < 0.3):
             state["carrying"] = True
-            # Capture relative offset at attach moment
             state["attach_dx"] = p_x - fork_x
             state["attach_dy"] = p_y - chassis_y
             _log(
@@ -248,13 +262,10 @@ def _update_pickup(chassis_x, chassis_y, mast_lift, carriage_lift):
                 f"dy={state['attach_dy']:+.2f}"
             )
     else:
-        # Drop condition
         if carriage_lift < DROP_LIFT_THRESHOLD:
             state["carrying"] = False
             _log("[forklift-Ah] DROP — pallet returns to physics")
             return
-        # Lock pallet to fork pose
-        # pallet_z = fork_z - 0.030 (deck bottom rests on fork top — see geometry)
         target = dc.Transform()
         target.p = (
             fork_x + state["attach_dx"],
@@ -267,7 +278,7 @@ def _update_pickup(chassis_x, chassis_y, mast_lift, carriage_lift):
         iface.set_rigid_body_angular_velocity(p_h, (0.0, 0.0, 0.0))
 
 
-def _tick(_e):
+def _tick():
     state["step"] += 1
     if not _resolve_handles():
         return
@@ -286,7 +297,6 @@ def _tick(_e):
     if t - state["last_log_t"] < 0.5:
         return
     state["last_log_t"] = t
-    # Readback: body pose (kinematic) AND pallet pose
     body_h = state["handles"].get("body")
     if body_h is not None:
         b_pose = iface.get_rigid_body_pose(body_h)
@@ -304,17 +314,27 @@ def _tick(_e):
         _log(f"[forklift-Ah] t={t:5.1f}s  cmd_x={cx:+.2f}  body_x={body_x:+.2f}  carr={c:.2f}  pallet=N/A")
 
 
-_sub = (
-    omni.kit.app.get_app()
-    .get_post_update_event_stream()
-    .create_subscription_to_pop(_tick, name="forklift_Ah_tick")
-)
-_g["_forklift_tick_sub"] = _sub
+# PhysX needs the timeline playing for pallet gravity + kinematic-dynamic
+# collision response. set_end_time large so the timeline does not auto-stop.
+_tl.set_end_time(1.0e9)
+_tl.play()
 
-# Need timeline.play for PhysX simulation (pallet gravity, kinematic-dynamic
-# collision response).
-tl = omni.timeline.get_timeline_interface()
-tl.set_end_time(1.0e9)
-tl.play()
+_log("[forklift-Ah] entering spin loop — Ctrl-C to exit (browser close does not stop sim)")
+_log("[forklift-Ah] WebRTC: http://localhost:8011/streaming/webrtc-client")
 
-_log("[forklift-Ah] tick subscription registered; 30s pickup demo cycle")
+exit_code = 0
+try:
+    while sim_app.is_running():
+        if stop_requested:
+            _log("[forklift-Ah] stop requested — breaking loop")
+            break
+        _tick()
+        sim_app.update()
+except Exception as exc:
+    _log(f"[forklift-Ah] FATAL: {exc!r}")
+    exit_code = 1
+finally:
+    _log("[forklift-Ah] shutting down")
+    sim_app.close()
+
+sys.exit(exit_code)
