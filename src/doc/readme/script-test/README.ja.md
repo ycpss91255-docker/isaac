@@ -2,7 +2,7 @@
 
 `isaac_ws/src/script/*_standalone.py` の統合 smoke テスト。各スクリプトは `./exec.sh -t standalone /isaac-sim/python.sh <script>` 経由で実行したとき、タイムアウト内に対応する "ready marker" 文字列を出力しなければいけません。Runner はスクリプトを起動し、stdout を marker でポーリング、見つけ次第ジョブを片付け、各 case の PASS / FAIL を報告します。
 
-他言語: [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+**[English](../../../script/test/README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## 使い方
 

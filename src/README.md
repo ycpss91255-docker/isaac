@@ -4,19 +4,23 @@ NVIDIA Isaac Sim workspace content (scripts, docs, USD/URDF models) for [ycpss91
 
 This repository holds the editable content (driver scripts, documentation, 3D models) that runs inside the Isaac Sim Docker development environment. The Docker environment itself is consumed here as a submodule under `docker/`.
 
-Other language versions: [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
+**[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
 
 ## Structure
 
 ```
 .
-├── doc/        # Documentation, ADRs, SOPs
-├── script/     # Driver scripts (run inside Isaac Sim Kit / standalone Python)
-├── model/      # 3D models
-│   ├── sw/     # SolidWorks raw source
-│   ├── urdf/   # URDF + mesh
-│   └── usd/    # Authored / converted USD
-└── docker/     # Submodule: ycpss91255-docker/isaac (Isaac Sim Docker env)
+├── README.md      # This file (English)
+├── LICENSE
+├── doc/           # Documentation, ADRs, SOPs
+│   ├── readme/    # README translations
+│   └── adr/       # Architecture Decision Records
+├── script/        # Driver scripts (run inside Isaac Sim Kit / standalone Python)
+├── model/         # 3D models
+│   ├── sw/        # SolidWorks raw source
+│   ├── urdf/      # URDF + mesh
+│   └── usd/       # Authored / converted USD
+└── docker/        # Submodule: ycpss91255-docker/isaac (Isaac Sim Docker env)
 ```
 
 ## Getting Started

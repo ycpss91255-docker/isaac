@@ -6,7 +6,7 @@ must reach its "ready marker" within a timeout when run through
 launches the script, polls its stdout for the marker, kills the run
 once seen, and reports PASS / FAIL per case.
 
-Other language versions: [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
+**[English](README.md)** | **[繁體中文](../../doc/readme/script-test/README.zh-TW.md)** | **[简体中文](../../doc/readme/script-test/README.zh-CN.md)** | **[日本語](../../doc/readme/script-test/README.ja.md)**
 
 ## Usage
 

@@ -2,7 +2,7 @@
 
 集成 smoke 测试 `isaac_ws/src/script/*_standalone.py`。每支 script 在透过 `./exec.sh -t standalone /isaac-sim/python.sh <script>` 跑起来后,必须在 timeout 内打印出对应的 "ready marker" 字串。Runner 启动 script、轮询 stdout 找 marker,看到就收掉,回报每个 case 是 PASS / FAIL。
 
-其他语言:[English](README.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
+**[English](../../../script/test/README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## 用法
 
