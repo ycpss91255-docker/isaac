@@ -35,7 +35,7 @@ set -uo pipefail
 
 DOCKER_DIR=/home/yunchien/workspace/coreSAM_ws/isaac_ws/src/docker
 SCRIPT_PATH_IN_CONTAINER=/home/yunchien/work/src/script
-USD_HOST=/home/yunchien/workspace/coreSAM_ws/isaac_ws/src/OpenBase/openbase_free.usda
+USD_HOST=/home/yunchien/workspace/coreSAM_ws/isaac_ws/src/model/usd/openbase/openbase.usda
 CONTAINER=yunchien-isaac-standalone
 
 # Smoke matrix: <basename>|<grep-marker>|<timeout-sec>|<needs-usd>

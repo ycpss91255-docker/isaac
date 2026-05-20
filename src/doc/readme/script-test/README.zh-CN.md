@@ -20,17 +20,17 @@
 前置条件:
 
 - `./run.sh -t standalone -d` 跑得起来(container 没起时 smoke 会自动带起)
-- OpenBase 相关 case:USD 必须存在于 `isaac_ws/src/OpenBase/openbase_free.usda`,透过以下产生:
+- 仓内已 track `isaac_ws/src/model/usd/openbase/openbase.usda`,USD 相关 case 直接吃。如果该档不见了(checkout 不完整 / 意外删掉),从 repo 内 URDF 源档重新产:
 
   ```bash
   cd isaac_ws/src/docker
   ./exec.sh -t standalone /isaac-sim/python.sh \
       /home/yunchien/work/src/script/import_urdf.py \
-      /home/yunchien/work/src/OpenBase/ROS/open_base/urdf/description.urdf \
-      /home/yunchien/work/src/OpenBase/openbase_free.usda
+      /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \
+      /tmp/openbase_generated.usda
   ```
 
-  没 USD 的话 OpenBase case 会 SKIP(`--strict` 下会 FAIL)。
+  真的要覆写 in-repo USD,再把 `openbase_generated.usda` 搬到 `model/usd/openbase/openbase.usda`。in-repo USD 不在的话相关 case 会 SKIP(`--strict` 下会 FAIL)。
 
 ## Cases
 

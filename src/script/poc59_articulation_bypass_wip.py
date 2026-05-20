@@ -18,7 +18,7 @@
 MODE = "D"   # "A" / "B" / "C"
 # ============================================================================
 
-USD_PATH = "/home/yunchien/work/src/OpenBase/openbase_free.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
 TARGET_VX = 0.5
 WHEELS = ("left_rim_joint", "back_rim_joint", "right_rim_joint")
 

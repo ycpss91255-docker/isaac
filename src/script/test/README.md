@@ -24,18 +24,23 @@ once seen, and reports PASS / FAIL per case.
 Pre-requisites:
 
 - `./run.sh -t standalone -d` succeeds (smoke auto-runs it if container is down)
-- For OpenBase-dependent cases: USD must exist at
-  `isaac_ws/src/OpenBase/openbase_free.usda`. Generate via:
+- The curated `isaac_ws/src/model/usd/openbase/openbase.usda` is tracked in
+  the repo; the USD-dependent cases use it directly. If the file is
+  missing (incomplete checkout / accidental delete), regenerate from the
+  in-repo URDF source:
 
   ```bash
   cd isaac_ws/src/docker
   ./exec.sh -t standalone /isaac-sim/python.sh \
       /home/yunchien/work/src/script/import_urdf.py \
-      /home/yunchien/work/src/OpenBase/ROS/open_base/urdf/description.urdf \
-      /home/yunchien/work/src/OpenBase/openbase_free.usda
+      /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \
+      /tmp/openbase_generated.usda
   ```
 
-  Without USD the OpenBase cases SKIP (or FAIL under `--strict`).
+  Then move `openbase_generated.usda` to
+  `model/usd/openbase/openbase.usda` if you really need to overwrite the
+  tracked file. Without the tracked USD the dependent cases SKIP (or
+  FAIL under `--strict`).
 
 ## Cases
 

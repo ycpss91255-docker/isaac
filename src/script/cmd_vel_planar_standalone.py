@@ -107,7 +107,7 @@ def _stage_setup():
             f"USD not found: {USD_PATH}\n"
             f"Generate it from URDF first:\n"
             f"  /isaac-sim/python.sh /home/yunchien/work/src/script/import_urdf.py \\\n"
-            f"      /home/yunchien/work/src/OpenBase/ROS/open_base/urdf/description.urdf \\\n"
+            f"      /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \\\n"
             f"      {USD_PATH}"
         )
     # In standalone mode `ctx.open_stage(path)` is async — returns True

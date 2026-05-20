@@ -20,17 +20,17 @@
 前提:
 
 - `./run.sh -t standalone -d` が成功すること(container が起きていない場合 smoke が自動で起動します)
-- OpenBase 関連 case: USD が `isaac_ws/src/OpenBase/openbase_free.usda` に存在すること。以下で生成:
+- リポジトリには `isaac_ws/src/model/usd/openbase/openbase.usda` が track されており、USD 依存 case はそれを直接使います。もし checkout 不完全や誤削除で当該ファイルが無ければ、repo 内の URDF ソースから再生成してください:
 
   ```bash
   cd isaac_ws/src/docker
   ./exec.sh -t standalone /isaac-sim/python.sh \
       /home/yunchien/work/src/script/import_urdf.py \
-      /home/yunchien/work/src/OpenBase/ROS/open_base/urdf/description.urdf \
-      /home/yunchien/work/src/OpenBase/openbase_free.usda
+      /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \
+      /tmp/openbase_generated.usda
   ```
 
-  USD 無しだと OpenBase case は SKIP(`--strict` 下では FAIL)。
+  追跡対象の USD を上書きしたい場合は、生成された `openbase_generated.usda` を `model/usd/openbase/openbase.usda` に移動してください。追跡 USD が無いと依存 case は SKIP(`--strict` では FAIL)になります。
 
 ## Cases
 
