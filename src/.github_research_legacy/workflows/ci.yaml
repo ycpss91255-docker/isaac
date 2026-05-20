@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: actionlint
+        run: |
+          docker run --rm \
+            -v "${PWD}:/repo:ro" \
+            -w /repo \
+            rhysd/actionlint:1.7.7 \
+            -color
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.sh')
+          if [ -z "$files" ]; then
+            echo "no .sh files tracked — nothing to check"
+            exit 0
+          fi
+          echo "$files" | xargs shellcheck
+
+  py-compile:
+    name: py-compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python syntax check
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.py')
+          if [ -z "$files" ]; then
+            echo "no .py files tracked — nothing to check"
+            exit 0
+          fi
+          echo "$files" | xargs python3 -m py_compile
+
+  readme-sync:
+    name: 4-language README sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: README count match
+        run: |
+          set -euo pipefail
+          # English READMEs live at the doc location they describe; translations
+          # live under doc/readme/ (and its sub-trees). Count tracked files only
+          # so gitignored scratch dirs (OpenBase/, usd_model/) cannot skew the
+          # numbers.
+          en=$(git ls-files 'README.md' '**/README.md' | grep -cv '^doc/readme/')
+          tw=$(git ls-files '*README.zh-TW.md' | wc -l)
+          cn=$(git ls-files '*README.zh-CN.md' | wc -l)
+          ja=$(git ls-files '*README.ja.md' | wc -l)
+          echo "tracked README counts: en=$en zh-TW=$tw zh-CN=$cn ja=$ja"
+          if [ "$en" != "$tw" ] || [ "$en" != "$cn" ] || [ "$en" != "$ja" ]; then
+            echo "FAIL: language counts do not match — every English README must have all three translation peers under doc/readme/."
+            exit 1
+          fi
+          echo "OK: $en README set(s) in sync across all four languages."
