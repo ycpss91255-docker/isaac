@@ -66,9 +66,7 @@ def setup_camera(cfg, stage):
     if sensor_type == "realsense":
         return _setup_realsense(cfg, stage)
     if sensor_type == "custom":
-        raise NotImplementedError(
-            "custom sensor.type lands in PR-2 (umbrella issue #6)"
-        )
+        return _setup_custom(cfg, stage)
     if sensor_type == "zed":
         raise NotImplementedError(
             "zed sensor.type lands in PR-3 (umbrella issue #6)"
@@ -151,6 +149,100 @@ def _setup_realsense(cfg, stage):
     # Without this the graph nodes exist but no ROS topics actually appear.
     og.Controller.evaluate_sync(graph)
     return graph_path
+
+
+def _setup_custom(cfg, stage):
+    """Generic camera path — one UsdGeom.Camera per sensors[] entry.
+
+    Used for hardware with no Isaac Sim asset (e.g. ZED-M / Mini), and for
+    RGB-only or depth-only setups by listing only the role you want.
+
+    Layout:
+        <parent_prim>/<frame_id_prefix>_mount      Xform with mount.pose
+                     ├── <sensors[0].name>          Camera with intrinsics
+                     ├── <sensors[1].name>          Camera with intrinsics
+                     └── ...
+    """
+    parent_path = cfg["mount"]["parent_prim"]
+    if not stage.GetPrimAtPath(parent_path).IsValid():
+        raise ValueError(f"parent_prim does not exist: {parent_path}")
+
+    sensors = cfg.get("sensors")
+    if not isinstance(sensors, list) or not sensors:
+        raise ValueError("custom: cfg.sensors must be a non-empty list")
+
+    frame_id_prefix = cfg["ros"]["frame_id_prefix"]
+    topic_prefix = cfg["ros"]["topic_prefix"].rstrip("/")
+
+    mount_path = f"{parent_path}/{frame_id_prefix}_mount"
+    mount_prim = stage.DefinePrim(mount_path, "Xform")
+    _set_xform_pose(mount_prim, cfg["mount"]["pose"])
+
+    stream_map = {}
+    overrides = {}
+    seen_names = set()
+    for entry in sensors:
+        for key in ("role", "name", "pose", "resolution", "hfov", "vfov"):
+            if key not in entry:
+                raise ValueError(f"custom: sensors[] entry missing '{key}'")
+        name = entry["name"]
+        if name in seen_names:
+            raise ValueError(f"custom: duplicate sensors[] name '{name}'")
+        seen_names.add(name)
+        helper_type = _role_to_helper_type(entry["role"])
+        camera_path = f"{mount_path}/{name}"
+        cam_prim = stage.DefinePrim(camera_path, "Camera")
+        _set_xform_pose(cam_prim, entry["pose"])
+        _set_camera_intrinsics(
+            cam_prim,
+            hfov_deg=float(entry["hfov"]),
+            vfov_deg=float(entry["vfov"]),
+            range_m=entry.get("range_m"),
+        )
+        stream_map[name] = (camera_path, helper_type, f"{name}_optical_frame")
+        overrides[name] = {
+            "width": int(entry["resolution"][0]),
+            "height": int(entry["resolution"][1]),
+        }
+
+    enabled = list(stream_map.keys())
+    graph_path = f"/World/CameraGraphs/{frame_id_prefix}_custom"
+    nodes, set_values, connects = _build_graph_topology(
+        stream_map, enabled, overrides, topic_prefix, frame_id_prefix,
+    )
+
+    (graph, _, _, _) = og.Controller.edit(
+        {"graph_path": graph_path, "evaluator_name": "execution"},
+        {
+            og.Controller.Keys.CREATE_NODES: nodes,
+            og.Controller.Keys.SET_VALUES: set_values,
+            og.Controller.Keys.CONNECT: connects,
+        },
+    )
+    og.Controller.evaluate_sync(graph)
+    return graph_path
+
+
+def _role_to_helper_type(role):
+    """Map a sensors[].role string to the Camera Helper 'type' input."""
+    if role in ("rgb", "color", "ir"):
+        return "rgb"
+    if role == "depth":
+        return "depth"
+    raise ValueError(f"custom: unsupported sensors[].role '{role}'")
+
+
+def _set_camera_intrinsics(prim, hfov_deg, vfov_deg, range_m=None, focal_mm=18.0):
+    """Set focalLength + apertures from FOV; optional clipping range from range_m."""
+    cam = UsdGeom.Camera(prim)
+    cam.CreateFocalLengthAttr(float(focal_mm))
+    h_ap = 2.0 * focal_mm * math.tan(math.radians(hfov_deg) / 2.0)
+    v_ap = 2.0 * focal_mm * math.tan(math.radians(vfov_deg) / 2.0)
+    cam.CreateHorizontalApertureAttr(float(h_ap))
+    cam.CreateVerticalApertureAttr(float(v_ap))
+    if range_m and len(range_m) == 2:
+        near, far = float(range_m[0]), float(range_m[1])
+        cam.CreateClippingRangeAttr(Gf.Vec2f(near, far))
 
 
 def _build_graph_topology(stream_map, enabled, overrides, topic_prefix, frame_id_prefix):

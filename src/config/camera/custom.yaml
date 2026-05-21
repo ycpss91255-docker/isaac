@@ -1,0 +1,58 @@
+# Generic / custom RGB-D sim camera. Initial baseline mirrors ZED-M
+# (ZED Mini) specs. RGB and depth are INDEPENDENT sensors — each has its
+# own pose + optics. Drop a section to skip that stream (e.g. delete
+# `sensors[depth]` for an RGB-only setup). Add entries to model
+# multi-camera rigs.
+#
+# Schema rules: doc/adr/0006-per-sensor-yaml-camera-config.md
+# Edit + re-run forklift_blocky_driver_wip.py with --config to apply.
+
+# mount = camera_link analog (device body center, attached to parent_prim).
+# Pose is RELATIVE to parent_prim.
+mount:
+  parent_prim: "/World/Forklift/carriage"
+  pose:
+    xyz: [0.55, 0.0, 0.0]      # meters (RHS XYZ)
+    rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
+
+sensor:
+  type: custom
+
+# List of independent optical sensors. Each entry produces one
+# UsdGeom.Camera prim under <mount>/<name> with its own intrinsics.
+# Pose is RELATIVE to mount.
+sensors:
+  - role: rgb
+    name: color
+    pose:
+      # Offset from mount center. Approximate ZED-M RGB sensor position;
+      # refine against datasheet for sim2real fidelity.
+      xyz: [0.0, 0.015, 0.0]   # meters
+      rpy: [0.0, 0.0, 0.0]     # degrees
+    resolution: [1280, 720]    # ZED-M HD720
+    fps: 30
+    hfov: 90.0                 # degrees, ZED-M HFOV
+    vfov: 60.0                 # degrees, ZED-M VFOV
+
+  - role: depth
+    name: depth
+    pose:
+      # Offset from mount center to ZED-M left IR sensor (depth anchor).
+      # Half of 63mm stereo baseline, opposite side from RGB.
+      xyz: [0.0, -0.0315, 0.0] # meters
+      rpy: [0.0, 0.0, 0.0]     # degrees
+    resolution: [1280, 720]
+    fps: 30
+    hfov: 90.0                 # degrees
+    vfov: 60.0                 # degrees
+    range_m: [0.1, 15.0]       # meters, ZED-M depth range
+
+# ROS 2 output:
+#   <topic_prefix>/color/image_raw, .../color/camera_info
+#   <topic_prefix>/depth/image_raw, .../depth/camera_info
+# Frame ids:
+#   <frame_id_prefix>_color_optical_frame
+#   <frame_id_prefix>_depth_optical_frame
+ros:
+  topic_prefix: "/forklift/camera"
+  frame_id_prefix: "forklift_camera"
