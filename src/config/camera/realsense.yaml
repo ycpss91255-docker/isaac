@@ -1,0 +1,44 @@
+# RealSense D455 sim camera for forklift between-fork mount.
+# Uses NVIDIA's bundled rsd455.usd asset (intrinsics, baseline, IMU all pre-set).
+# Edit + re-run forklift_blocky_driver_wip.py with --config to apply.
+
+# mount = camera_link analog (device body center, attached to parent_prim).
+# Pose is RELATIVE to parent_prim.
+mount:
+  parent_prim: "/World/Forklift/carriage"
+  pose:
+    xyz: [0.55, 0.0, 0.0]      # meters (RHS XYZ)
+    rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
+
+sensor:
+  type: realsense
+  # Appended to Isaac Sim assets root (resolved via get_assets_root_path()).
+  # Default Isaac Sim 5.1 root: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1
+  asset_suffix: "Isaac/Sensors/Intel/RealSense/rsd455.usd"
+
+# Which stream OUTPUTS to publish. One Action Graph helper chain per
+# enabled stream. Minimal CoreSAM + app-layer need = color + depth.
+streams:
+  color: true
+  depth: true
+  ir_left: false
+  ir_right: false
+  imu: false
+
+# Optional resolution override per stream. Omit a block to keep the asset
+# default render resolution (1280x800 for color, 1280x720 for depth).
+overrides:
+  color: {width: 1280, height: 800}
+  depth: {width: 1280, height: 720}
+
+# ROS 2 output:
+#   <topic_prefix>/color/image_raw
+#   <topic_prefix>/color/camera_info
+#   <topic_prefix>/depth/image_raw
+#   <topic_prefix>/depth/camera_info
+# Frame ids:
+#   <frame_id_prefix>_color_optical_frame
+#   <frame_id_prefix>_depth_optical_frame
+ros:
+  topic_prefix: "/forklift/camera"
+  frame_id_prefix: "forklift_camera"

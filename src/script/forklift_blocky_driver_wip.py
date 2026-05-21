@@ -15,15 +15,41 @@ Run inside the headless container:
     ./exec.sh -t headless /isaac-sim/python.sh \
         /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 
+Optional --config (repeatable) attaches one or more sim cameras and
+publishes their topics. See doc/adr/0006-per-sensor-yaml-camera-config.md.
+
+    ./exec.sh -t headless /isaac-sim/python.sh \
+        /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
+        --config /home/yunchien/work/src/config/camera/realsense.yaml
+
 The demo loops until Ctrl-C (or SIGTERM). View the scene at
 http://localhost:8011/streaming/webrtc-client. Browser close does not
 stop the sim; only Ctrl-C does.
 """
 
+import argparse
+import os
 import signal
 import sys
 import time
 from pathlib import Path
+
+# Container's /home/yunchien/.cache/ is root-owned (host bind only covers
+# specific sub-dirs); warp's default cache dir at .cache/warp is not
+# writable, which breaks omni.replicator.core startup and downstream
+# SDG / ROS publish. Redirect to /tmp before any Isaac Sim import.
+os.environ.setdefault("WARP_CACHE_PATH", "/tmp/warp")
+os.environ.setdefault("WARP_CACHE_DIR", "/tmp/warp")
+
+_parser = argparse.ArgumentParser(add_help=False)
+_parser.add_argument(
+    "--config",
+    action="append",
+    default=[],
+    help="Path to a sim camera YAML config (repeatable for multi-camera setups).",
+)
+_args, _ = _parser.parse_known_args()
+camera_config_paths = [Path(c).expanduser().resolve() for c in _args.config]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
@@ -105,6 +131,31 @@ ctx = omni.usd.get_context()
 ctx.open_stage(USD_PATH)
 stage = ctx.get_stage()
 _log("[forklift-Ah] stage opened")
+
+# Camera setup runs AFTER stage open so parent_prim resolution works.
+if camera_config_paths:
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    from camera_setup import load_config, setup_camera  # noqa: E402
+
+    _loaded_camera_configs = [load_config(p) for p in camera_config_paths]
+    _seen_topics, _seen_frames = set(), set()
+    for _cfg in _loaded_camera_configs:
+        _tp = _cfg["ros"]["topic_prefix"]
+        _fp = _cfg["ros"]["frame_id_prefix"]
+        if _tp in _seen_topics:
+            raise ValueError(f"duplicate ros.topic_prefix across configs: {_tp}")
+        if _fp in _seen_frames:
+            raise ValueError(f"duplicate ros.frame_id_prefix across configs: {_fp}")
+        _seen_topics.add(_tp)
+        _seen_frames.add(_fp)
+    for _cfg in _loaded_camera_configs:
+        _log(
+            f"[forklift-Ah] camera setup: {_cfg['_source']} "
+            f"(sensor.type={_cfg['sensor']['type']})"
+        )
+        _graph = setup_camera(_cfg, stage)
+        _log(f"[forklift-Ah] camera graph created at {_graph}")
 
 iface = dc.acquire_dynamic_control_interface()
 
