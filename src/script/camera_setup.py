@@ -68,9 +68,7 @@ def setup_camera(cfg, stage):
     if sensor_type == "custom":
         return _setup_custom(cfg, stage)
     if sensor_type == "zed":
-        raise NotImplementedError(
-            "zed sensor.type lands in PR-3 (umbrella issue #6)"
-        )
+        return _setup_zed(cfg, stage)
     raise ValueError(f"unsupported sensor.type: {sensor_type}")
 
 
@@ -221,6 +219,49 @@ def _setup_custom(cfg, stage):
     )
     og.Controller.evaluate_sync(graph)
     return graph_path
+
+
+_STEREOLABS_EXTENSION_NAME = "sl.sensor.camera"
+_STEREOLABS_EXTRA_PATH = "/isaac-sim/extra_exts/zed"
+
+
+def _setup_zed(cfg, stage):
+    """Stereolabs ZED X via the official Isaac Sim extension.
+
+    The extension is third-party and not bundled with the
+    ycpss91255-docker/isaac container, so it must be built + mounted
+    in once before this dispatch can boot — see doc/zed_install.md.
+
+    This dispatch validates that the Stereolabs extension is loadable
+    and raises a tracked NotImplementedError for the OmniGraph build
+    step. The graph topology depends on the Stereolabs SDK API surface,
+    which is not stable across extension versions; baking it in here
+    without an end-to-end test against a real install would just rot.
+    The realsense (D455) and custom (ZED-M baseline) paths cover the
+    practical needs of the project until ZED X is on the bench.
+    """
+    parent_path = cfg["mount"]["parent_prim"]
+    if not stage.GetPrimAtPath(parent_path).IsValid():
+        raise ValueError(f"parent_prim does not exist: {parent_path}")
+
+    import omni.kit.app
+    ext_mgr = omni.kit.app.get_app().get_extension_manager()
+    if Path(_STEREOLABS_EXTRA_PATH).exists():
+        ext_mgr.add_path(_STEREOLABS_EXTRA_PATH)
+
+    if not ext_mgr.set_extension_enabled_immediate(_STEREOLABS_EXTENSION_NAME, True):
+        raise RuntimeError(
+            f"zed dispatch needs the Stereolabs ZED Isaac Sim extension "
+            f"('{_STEREOLABS_EXTENSION_NAME}') but it was not found or could "
+            f"not be enabled. Install per doc/zed_install.md and retry."
+        )
+
+    raise NotImplementedError(
+        "zed dispatch: Stereolabs extension loaded successfully but the "
+        "OmniGraph build step is deferred until end-to-end verification can "
+        "happen against a real install. In the meantime use realsense (D455) "
+        "or custom (ZED-M baseline)."
+    )
 
 
 def _role_to_helper_type(role):
