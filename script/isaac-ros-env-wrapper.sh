@@ -24,4 +24,9 @@ ROS_DISTRO="$(< /etc/isaac/ros-distro)"
 export ROS_DISTRO
 export LD_LIBRARY_PATH="/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
 
-exec "$@"
+EXTRA_ARGS=()
+if [[ -n "${PUBLIC_IP:-}" ]]; then
+  EXTRA_ARGS+=("--/app/livestream/publicEndpointAddress=${PUBLIC_IP}")
+fi
+
+exec "$@" "${EXTRA_ARGS[@]}"
