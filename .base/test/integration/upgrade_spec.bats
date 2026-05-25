@@ -179,6 +179,71 @@ EOF
   assert_output --partial "no Dockerfile at repo root"
 }
 
+# ── #399: auto-patch COPY *.sh /lint/ → COPY script/*.sh /lint/ ────────
+# Sibling of the #348 tests above. v0.31.0+ moves wrappers from root to
+# script/; init.sh migrates symlinks but the Dockerfile's COPY is
+# user-owned. upgrade.sh now self-heals it.
+
+@test "upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY *.sh /lint/
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (pre-#330 COPY *.sh)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+
+  grep -Fq "COPY script/*.sh /lint/" Dockerfile
+  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
+}
+
+@test "upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY script/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (already post-#330)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "skip (#399 idempotent)"
+  refute_output --partial "Dockerfile patched"
+
+  [ "$(grep -c 'COPY script/\*\.sh /lint/' Dockerfile)" = "1" ]
+}
+
+@test "upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile (no wrapper COPY)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "has no COPY *.sh /lint/ line"
+  refute_output --partial "Dockerfile patched: COPY *.sh"
+}
+
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 

@@ -274,10 +274,10 @@ COPY --from=test-tools-stage /usr/local/bin/hadolint /usr/local/bin/hadolint
 # Lint: ShellCheck (.sh) + Hadolint (Dockerfile)
 COPY .hadolint.yaml /lint/.hadolint.yaml
 COPY Dockerfile /lint/Dockerfile
-COPY *.sh /lint/
-# [isaac] Repo-side helpers (init_isaac_dirs.sh, isaac-ros-env-wrapper.sh).
-# Lint together with root-level wrappers so any new shim added to
-# script/ is enforced from day one.
+# [isaac] Post-v0.31.0 wrappers live under script/. Two COPYs:
+# - /lint/       flat: upstream smoke tests expect /lint/build.sh
+# - /lint/script/: isaac tests expect /lint/script/init_isaac_dirs.sh
+COPY script/*.sh /lint/
 COPY script/*.sh /lint/script/
 # Helpers sourced by the root-level scripts. Must sit next to them so
 # build.sh / run.sh / exec.sh / stop.sh / setup.sh can source _lib.sh
@@ -299,7 +299,7 @@ COPY .base/script/docker/lib /lint/lib
 # the COPY brings them into /lint/ so ShellCheck catches issues at
 # build time.
 #COPY script/docker/*.sh /lint/
-RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Dockerfile test stage: replace stale `COPY *.sh /lint/` + `COPY script/*.sh /lint/script/` with single `COPY script/*.sh /lint/` (flat). Root wrappers moved to `script/` in base v0.31.0; the old COPY grabbed zero files, and the `/lint/script/` destination broke upstream smoke tests (`script_help.bats`, `display_env.bats`) that expect `/lint/build.sh`. base v0.34.1 `upgrade.sh` auto-patch was skipped due to false-positive idempotency match (upstream base#399 regex too broad — `COPY script/*.sh /lint/script/` matched the already-patched check).
+
 ### Changed
 - `.base/` subtree upgraded **v0.29.2 → v0.34.0**. Key upstream changes:
   - **BREAKING** (base v0.31.0 #330): 7 user-facing wrappers (`build.sh`, `run.sh`, `exec.sh`, `stop.sh`, `prune.sh`, `setup.sh`, `setup_tui.sh`) moved from repo root to `script/`. `Makefile` stays at root as primary entry (`make build`, `make run`, etc.). `init.sh` auto-migrated symlinks.

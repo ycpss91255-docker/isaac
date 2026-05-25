@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.34.1] - 2026-05-25
+
+Patch release: single feature from #399 / PR #400.
+
+### Added
+
+- **`upgrade.sh` auto-patches downstream Dockerfile `COPY *.sh /lint/`
+  → `COPY script/*.sh /lint/`** (closes #399). v0.31.0 (#330) moved
+  user-facing wrappers from the repo root into a `script/` subfolder;
+  `init.sh` migrates the symlinks but the Dockerfile's COPY directive
+  is user-owned and stayed anchored at root, pulling zero files after
+  the migration. Every post-#330 fanout hit the same smoke-test
+  failure (`build.sh -h exits 0` → `assert_success` failed because
+  `/lint/build.sh` did not exist). `upgrade.sh` now detects the stale
+  `COPY *.sh /lint/` pattern and rewrites it to `COPY script/*.sh
+  /lint/` in the same chore commit, so the next fanout is clean.
+  Idempotent: already-patched Dockerfiles are skipped. Modelled on
+  the #348 `COPY .base/script/docker/lib` sibling patch.
+
 ## [v0.34.0] - 2026-05-21
 
 Stable v0.34.0 minor feature release, promoting v0.34.0-rc1 (#396) with no follow-up fixes — RC tag CI (`Self Test` + `release-test-tools`) was green.
