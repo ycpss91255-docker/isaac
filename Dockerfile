@@ -178,6 +178,20 @@ COPY --chmod=0755 .base/dockerfile/setup "${SETUP_DIR}"
 # is what the env var references — no override mechanism needed.
 COPY --chmod=0644 config/ros2/fastdds.xml /isaac-sim/fastdds.xml
 
+# [isaac] Custom kit experience files. Layered into /isaac-sim/apps/
+# next to NVIDIA's bundled experiences (isaacsim.exp.base.python.kit,
+# isaacsim.exp.full.streaming.kit, ...). SimulationApp drivers can opt
+# in via experience="/isaac-sim/apps/<name>.kit".
+#
+# Current entries:
+#   isaacsim.exp.base.python.streaming.kit
+#       Closes #21 fix-B: the lightweight Python experience layered with
+#       omni.kit.livestream.{core,webrtc} so SimulationApp + livestream:2
+#       actually serves a WebRTC stream. Avoids the full.streaming.kit
+#       segfault that hits when that experience is loaded via
+#       SimulationApp instead of the kit binary directly.
+COPY --chmod=0644 apps/*.kit /isaac-sim/apps/
+
 # [isaac] ROS distro is a build-time choice — set via
 # setup.conf [build] arg_N=ROS_DISTRO=<value> (default humble). Bake
 # the value into a const file consumed by the headless / gui ENTRYPOINT

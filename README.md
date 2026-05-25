@@ -137,14 +137,18 @@ All Isaac Sim runtime state persists under `${WS_PATH}/isaac-sim/` on the host (
 
 | Host | Container | Purpose |
 |------|-----------|---------|
-| `isaac-sim/cache/kit` | `/isaac-sim/kit/cache` | Kit framework cache |
-| `isaac-sim/cache/ov` | `/home/${USER_NAME}/.cache/ov` | Omniverse cache (shader build, mostly) |
-| `isaac-sim/cache/pip` | `/home/${USER_NAME}/.cache/pip` | pip cache |
-| `isaac-sim/cache/glcache` | `/home/${USER_NAME}/.cache/nvidia/GLCache` | GL shader cache |
-| `isaac-sim/cache/computecache` | `/home/${USER_NAME}/.nv/ComputeCache` | CUDA compute cache |
-| `isaac-sim/logs` | `/home/${USER_NAME}/.nvidia-omniverse/logs` | Omniverse logs |
-| `isaac-sim/data` | `/home/${USER_NAME}/.local/share/ov/data` | Omniverse data |
+| `isaac-sim/kit/cache` | `/isaac-sim/kit/cache` | Kit framework cache |
+| `isaac-sim/kit/data` | `/isaac-sim/kit/data` | Kit app data (`user.config.json`, pipapi envs) |
+| `isaac-sim/kit/logs` | `/isaac-sim/kit/logs` | Kit app logs |
+| `isaac-sim/ov/cache` | `/home/${USER_NAME}/.cache/ov` | Omniverse cache (shader build, mostly) |
+| `isaac-sim/ov/data` | `/home/${USER_NAME}/.local/share/ov/data` | Omniverse data |
+| `isaac-sim/ov/logs` | `/home/${USER_NAME}/.nvidia-omniverse/logs` | Omniverse logs |
+| `isaac-sim/pip` | `/home/${USER_NAME}/.cache/pip` | pip cache |
+| `isaac-sim/nvidia/glcache` | `/home/${USER_NAME}/.cache/nvidia/GLCache` | GL shader cache |
+| `isaac-sim/nvidia/computecache` | `/home/${USER_NAME}/.nv/ComputeCache` | CUDA compute cache |
 | `isaac-sim/documents` | `/home/${USER_NAME}/Documents` | User Documents (USD scenes etc.) |
+
+Pre-2026-05-21 layout (`cache/{kit,ov,pip,glcache,computecache}`, flat `logs/`, flat `data/`) is auto-migrated to the new namespaced paths by `./script/init_isaac_dirs.sh` on first run after upgrade (issue #21 fix-A). Pre-existing shader / pip / compute caches are preserved through the move.
 
 First headless launch spends 1–3 min compiling shaders; subsequent launches start in `< 30s` thanks to the persisted caches.
 

@@ -137,14 +137,18 @@ Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 | Host | Container | 用途 |
 |------|-----------|------|
-| `isaac-sim/cache/kit` | `/isaac-sim/kit/cache` | Kit framework cache |
-| `isaac-sim/cache/ov` | `/home/${USER_NAME}/.cache/ov` | Omniverse cache（主要是 shader 編譯產物）|
-| `isaac-sim/cache/pip` | `/home/${USER_NAME}/.cache/pip` | pip cache |
-| `isaac-sim/cache/glcache` | `/home/${USER_NAME}/.cache/nvidia/GLCache` | GL shader cache |
-| `isaac-sim/cache/computecache` | `/home/${USER_NAME}/.nv/ComputeCache` | CUDA compute cache |
-| `isaac-sim/logs` | `/home/${USER_NAME}/.nvidia-omniverse/logs` | Omniverse logs |
-| `isaac-sim/data` | `/home/${USER_NAME}/.local/share/ov/data` | Omniverse data |
+| `isaac-sim/kit/cache` | `/isaac-sim/kit/cache` | Kit framework cache |
+| `isaac-sim/kit/data` | `/isaac-sim/kit/data` | Kit app data（`user.config.json`、pipapi envs）|
+| `isaac-sim/kit/logs` | `/isaac-sim/kit/logs` | Kit app logs |
+| `isaac-sim/ov/cache` | `/home/${USER_NAME}/.cache/ov` | Omniverse cache（主要是 shader 編譯產物）|
+| `isaac-sim/ov/data` | `/home/${USER_NAME}/.local/share/ov/data` | Omniverse data |
+| `isaac-sim/ov/logs` | `/home/${USER_NAME}/.nvidia-omniverse/logs` | Omniverse logs |
+| `isaac-sim/pip` | `/home/${USER_NAME}/.cache/pip` | pip cache |
+| `isaac-sim/nvidia/glcache` | `/home/${USER_NAME}/.cache/nvidia/GLCache` | GL shader cache |
+| `isaac-sim/nvidia/computecache` | `/home/${USER_NAME}/.nv/ComputeCache` | CUDA compute cache |
 | `isaac-sim/documents` | `/home/${USER_NAME}/Documents` | User Documents（USD scenes 等）|
+
+2026-05-21 以前的 layout（`cache/{kit,ov,pip,glcache,computecache}`、flat `logs/`、flat `data/`)會在升版後第一次跑 `./script/init_isaac_dirs.sh` 自動 migrate 到新的 namespaced path(issue #21 fix-A）。已累積的 shader / pip / compute cache 透過 mv 保留。
 
 首次 headless 啟動需 1–3 分鐘編譯 shader；之後啟動 cache hit `< 30 秒`。
 
