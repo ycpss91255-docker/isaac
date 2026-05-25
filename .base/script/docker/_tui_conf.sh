@@ -207,6 +207,72 @@ _validate_runtime() {
   esac
 }
 
+# _validate_log_driver <value>
+#
+# Docker logging drivers (registered names). The daemon also accepts
+# external plugins not in this list, so the validator is lenient on
+# the name shape; we reject only obviously malformed values (empty,
+# whitespace, or names with characters outside the registered set).
+_validate_log_driver() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ "${_v}" =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]] && return 0
+  return 1
+}
+
+# _validate_log_max_size <value>
+#
+# Compose `logging.options.max-size`: `<num><unit>` where unit is one
+# of k/m/g (case-insensitive, single-letter). Docker's docs also list
+# `b` (bytes), so accept it too.
+_validate_log_max_size() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  shopt -s nocasematch
+  if [[ "${_v}" =~ ^[0-9]+[bkmg]$ ]]; then
+    shopt -u nocasematch
+    return 0
+  fi
+  shopt -u nocasematch
+  return 1
+}
+
+# _validate_log_max_file <value>
+#
+# Compose `logging.options.max-file`: positive integer >= 1.
+_validate_log_max_file() {
+  local _v="${1-}"
+  [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
+  return 1
+}
+
+# _validate_log_compress <value>
+#
+# Compose `logging.options.compress`: boolean `true` or `false`.
+_validate_log_compress() {
+  local _v="${1-}"
+  case "${_v}" in
+    true|false) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _validate_log_local_path <value>
+#
+# Host-side log directory for the [logging] local_path feature
+# (#328). Lenient: accepts any non-empty string; the resolver does
+# `~`-expansion and relative-to-repo-root normalisation at apply
+# time, and the dir is created with `mkdir -p` if missing then.
+# Reject whitespace-only and embedded-newline values up front --
+# both would produce broken compose YAML.
+_validate_log_local_path() {
+  local _v="${1-}"
+  [[ -z "${_v}" ]] && return 1
+  [[ -z "${_v// /}" ]] && return 1
+  [[ "${_v}" == *$'\n'* ]] && return 1
+  return 0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Mount-string parsers
 # ════════════════════════════════════════════════════════════════════

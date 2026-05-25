@@ -327,6 +327,99 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_log_* — [logging] section validators (#328)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_validate_log_driver accepts registered + plugin-shaped names (#328)" {
+  _validate_log_driver "json-file"
+  _validate_log_driver "journald"
+  _validate_log_driver "syslog"
+  _validate_log_driver "fluentd"
+  _validate_log_driver "awslogs"
+  _validate_log_driver "splunk"
+  _validate_log_driver "none"
+  _validate_log_driver "vendor.plugin_1"
+}
+
+@test "_validate_log_driver rejects empty / whitespace / leading-digit (#328)" {
+  run _validate_log_driver ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "bad name"
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "1starts-with-digit"
+  [ "${status}" -ne 0 ]
+  run _validate_log_driver "-leading-dash"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_max_size accepts <num><unit> in b/k/m/g (#328)" {
+  _validate_log_max_size "10m"
+  _validate_log_max_size "1g"
+  _validate_log_max_size "512k"
+  _validate_log_max_size "100B"   # case-insensitive
+  _validate_log_max_size "2G"
+}
+
+@test "_validate_log_max_size rejects malformed values (#328)" {
+  run _validate_log_max_size ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10X"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "abc"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10mb"     # multi-letter unit unsupported
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_size "10.5m"    # no decimals
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_max_file accepts positive integers (#328)" {
+  _validate_log_max_file "1"
+  _validate_log_max_file "3"
+  _validate_log_max_file "100"
+}
+
+@test "_validate_log_max_file rejects zero/negative/non-numeric (#328)" {
+  run _validate_log_max_file "0"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file "-1"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file "abc"
+  [ "${status}" -ne 0 ]
+  run _validate_log_max_file ""
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_compress accepts true/false; rejects others (#328)" {
+  _validate_log_compress "true"
+  _validate_log_compress "false"
+  run _validate_log_compress "True"
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress "1"
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_compress "yes"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_log_local_path accepts relative / absolute / tilde paths (#328)" {
+  _validate_log_local_path "./logs/"
+  _validate_log_local_path "/var/log/app/"
+  _validate_log_local_path "~/logs/"
+  _validate_log_local_path "logs"
+}
+
+@test "_validate_log_local_path rejects empty / whitespace / newline (#328)" {
+  run _validate_log_local_path ""
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path "   "
+  [ "${status}" -ne 0 ]
+  run _validate_log_local_path $'logs\nbad'
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _warn_if_lang_rejected — TUI msgbox when --lang fell back to "en"
 # ════════════════════════════════════════════════════════════════════
 #

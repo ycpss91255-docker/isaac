@@ -207,22 +207,47 @@ REMOTE
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: produces all seven docker-script symlinks" {
+@test "_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
   _source_init
   _create_symlinks
-  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
-    assert [ -L "${TMP_REPO}/${_f}" ]
-    run readlink "${TMP_REPO}/${_f}"
-    assert_output ".base/script/docker/${_f}"
+  # Seven wrappers under script/ with ../.base/script/docker/<name>.sh targets.
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ -L "${TMP_REPO}/script/${_f}" ]
+    run readlink "${TMP_REPO}/script/${_f}"
+    assert_output "../.base/script/docker/${_f}"
+    # And must NOT exist at root.
+    assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
+  # Makefile keeps the root location with the direct .base/ target.
+  assert [ -L "${TMP_REPO}/Makefile" ]
+  run readlink "${TMP_REPO}/Makefile"
+  assert_output ".base/script/docker/Makefile"
 }
 
-@test "_create_symlinks: replaces a stale file at the symlink path" {
-  # Pretend an earlier run left a regular file where the symlink should go
-  echo "stale" > "${TMP_REPO}/build.sh"
+@test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
+  # Pretend an earlier run left a regular file where the symlink should go.
+  # Post-#330 the symlinks live under script/, so the stale-replacement
+  # logic in _symlink runs against script/build.sh, not root build.sh.
+  mkdir -p "${TMP_REPO}/script"
+  echo "stale" > "${TMP_REPO}/script/build.sh"
   _source_init
   _create_symlinks
-  assert [ -L "${TMP_REPO}/build.sh" ]
+  assert [ -L "${TMP_REPO}/script/build.sh" ]
+}
+
+@test "_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)" {
+  # Plant the seven root-level symlinks an older init.sh would have made;
+  # the post-#330 loop must drop them all so the user-facing entry is the
+  # `script/` subfolder + root `Makefile`.
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    ln -sf ".base/script/docker/${_f}" "${TMP_REPO}/${_f}"
+  done
+  _source_init
+  _create_symlinks
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ ! -e "${TMP_REPO}/${_f}" ]
+    assert [ -L "${TMP_REPO}/script/${_f}" ]
+  done
 }
 
 @test "_create_symlinks: keeps custom .hadolint.yaml when it differs" {
@@ -317,14 +342,15 @@ REMOTE
   assert_equal "${TEMPLATE_REL}" ".base"
 }
 
-@test "_create_symlinks: targets follow TEMPLATE_REL through .base/" {
+@test "_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)" {
   # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
-  # `_create_symlinks` must wire build.sh / run.sh / etc. through
-  # `.base/script/docker/...`.
+  # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/build.sh
+  # (sub-folder link target is relative to the link's directory), and
+  # Makefile / .hadolint.yaml at root keep the direct .base/ target.
   source "${TMP_REPO}/.base/init.sh"
   _create_symlinks
-  run readlink "${TMP_REPO}/build.sh"
-  assert_output ".base/script/docker/build.sh"
+  run readlink "${TMP_REPO}/script/build.sh"
+  assert_output "../.base/script/docker/build.sh"
   run readlink "${TMP_REPO}/Makefile"
   assert_output ".base/script/docker/Makefile"
   run readlink "${TMP_REPO}/.hadolint.yaml"

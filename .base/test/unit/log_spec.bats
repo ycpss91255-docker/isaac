@@ -71,10 +71,13 @@ setup() {
   assert_equal "${stderr}" $'\033[33m[run] WARNING:\033[0m msg'
 }
 
-@test "_log_info with FORCE_COLOR=1 emits dim ANSI on non-TTY stdout" {
+@test "_log_info with FORCE_COLOR=1 still emits plain (INFO uses default colour, #338-followup)" {
+  # INFO is intentionally unstyled — ERROR / WARNING use bright ANSI to
+  # draw the eye, INFO matches the visual weight of the unstyled summary
+  # lines that setup.sh prints alongside it (e.g. `[setup] USER=...`).
   run --separate-stderr bash -c "FORCE_COLOR=1 source ${LIB}; FORCE_COLOR=1 _log_info setup msg"
   assert_success
-  assert_equal "${output}" $'\033[2m[setup] INFO:\033[0m msg'
+  assert_equal "${output}" "[setup] INFO: msg"
 }
 
 # ── NO_COLOR wins over FORCE_COLOR + TTY ────────────────────────────────────

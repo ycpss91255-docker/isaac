@@ -6,7 +6,17 @@ set -euo pipefail
 # `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
 # rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
 # is sourced so all path-dependent operations honor the target repo.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
+# (post-#330), and direct invocation — see build.sh for the heuristic.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 _chdir_i=1
 while (( _chdir_i <= $# )); do
   case "${!_chdir_i}" in
@@ -85,7 +95,7 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 選項:
   -h, --help        顯示此說明
@@ -99,6 +109,14 @@ usage() {
                     本身不會 build，但保持 flag 一致便於肌肉記憶）。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
+  -T, --no-tty      強制不分配 TTY（傳 -T 給 docker compose exec）。用於 one-shot
+                    指令，避免終端 escape sequence 洩漏到 output。對於
+                    `bash|sh|dash|zsh|ash|ksh -c '...'` 已自動偵測；此 flag
+                    用來涵蓋 heuristic 漏網的 case，如 `whoami`、`ls /foo`、
+                    `env BAR=1 bash -c '...'`。
+  -i, --tty         強制分配 TTY（覆蓋 auto-detect）。用於少數需要 TTY 但走
+                    `bash -c '...'` 的 case（例：`-i bash -c 'tput cols'`）。
+                    與 -T 為 last-wins。
   --                明確分隔 exec.sh 選項與 CMD（與 run.sh 對齊），讓 CMD 可以
                     用 dash 開頭（例：./exec.sh -- my-tool --version）
 
@@ -110,12 +128,14 @@ usage() {
   ./exec.sh htop               # 在 devel 容器中執行 htop
   ./exec.sh ls -la /home       # 在 devel 容器中執行 ls
   ./exec.sh -t runtime bash    # 進入 runtime 容器
+  ./exec.sh bash -c 'ls'       # 自動偵測 → -T，無 escape 洩漏
+  ./exec.sh -T whoami          # 強制 -T 涵蓋 heuristic 漏網 case
   ./exec.sh -- my-tool --version  # 用 -- 把 dash-開頭 CMD 傳進容器
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
+用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 选项:
   -h, --help        显示此说明
@@ -129,6 +149,14 @@ EOF
                     本身不会 build，但保持 flag 一致便于肌肉记忆）。
   -vv, --very-verbose
                     -v 再加 wrapper 本身的 bash trace（set -x）。
+  -T, --no-tty      强制不分配 TTY（传 -T 给 docker compose exec）。用于 one-shot
+                    命令，避免终端 escape sequence 泄漏到 output。对于
+                    `bash|sh|dash|zsh|ash|ksh -c '...'` 已自动检测；此 flag
+                    用来覆盖 heuristic 漏网的 case，如 `whoami`、`ls /foo`、
+                    `env BAR=1 bash -c '...'`。
+  -i, --tty         强制分配 TTY（覆盖 auto-detect）。用于少数需要 TTY 但走
+                    `bash -c '...'` 的 case（例：`-i bash -c 'tput cols'`）。
+                    与 -T 为 last-wins。
   --                明确分隔 exec.sh 选项与 CMD（与 run.sh 对齐），让 CMD 可以
                     以 dash 开头（例：./exec.sh -- my-tool --version）
 
@@ -140,12 +168,14 @@ EOF
   ./exec.sh htop               # 在 devel 容器中运行 htop
   ./exec.sh ls -la /home       # 在 devel 容器中运行 ls
   ./exec.sh -t runtime bash    # 进入 runtime 容器
+  ./exec.sh bash -c 'ls'       # 自动检测 → -T，无 escape 泄漏
+  ./exec.sh -T whoami          # 强制 -T 覆盖 heuristic 漏网 case
   ./exec.sh -- my-tool --version  # 用 -- 把 dash-开头 CMD 传入容器
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
+使用法: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 オプション:
   -h, --help        このヘルプを表示
@@ -159,6 +189,15 @@ EOF
                     docker exec 自体は build しないが、フラグの一貫性のため）。
   -vv, --very-verbose
                     -v に加え wrapper 自体の bash trace（set -x）。
+  -T, --no-tty      TTY 割り当てを抑止（docker compose exec に -T を渡す）。
+                    one-shot コマンドで端末の escape sequence が output に
+                    漏れるのを防ぐ。`bash|sh|dash|zsh|ash|ksh -c '...'` は
+                    自動検出される；本フラグは `whoami`、`ls /foo`、
+                    `env BAR=1 bash -c '...'` など heuristic から外れた
+                    case 用。
+  -i, --tty         TTY 割り当てを強制（auto-detect を上書き）。`bash -c '...'`
+                    だが TTY が必要な稀な case 用（例：`-i bash -c 'tput cols'`）。
+                    -T とは last-wins。
   --                exec.sh のオプションと CMD を明示的に区切る（run.sh と整合）。
                     dash で始まる CMD を渡す場合に使う（例: ./exec.sh -- my-tool --version）
 
@@ -170,12 +209,14 @@ EOF
   ./exec.sh htop               # devel コンテナで htop を実行
   ./exec.sh ls -la /home       # devel コンテナで ls を実行
   ./exec.sh -t runtime bash    # runtime コンテナに接続
+  ./exec.sh bash -c 'ls'       # 自動検出 → -T、escape 漏れなし
+  ./exec.sh -T whoami          # 強制 -T で heuristic 漏れの case をカバー
   ./exec.sh -- my-tool --version  # -- で dash 始まりの CMD を渡す
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang LANG] [--] [CMD...]
+Usage: ./exec.sh [-h] [-C|--chdir DIR] [-t TARGET] [--instance NAME] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [-T|--no-tty] [-i|--tty] [--lang LANG] [--] [CMD...]
 
 Options:
   -h, --help        Show this help
@@ -191,6 +232,15 @@ Options:
                     knob to reach for.
   -vv, --very-verbose
                     -v plus bash trace (set -x) on the wrapper itself.
+  -T, --no-tty      Force no-TTY (pass -T to docker compose exec). Use for
+                    one-shot commands so terminal escape sequences (focus-in,
+                    bracketed-paste, …) do not leak into output. The forms
+                    `bash|sh|dash|zsh|ash|ksh -c '...'` are auto-detected;
+                    this flag covers the heuristic-misses case (`whoami`,
+                    `ls /foo`, `env BAR=1 bash -c '...'`).
+  -i, --tty         Force TTY (override auto-detect). Use for the rare case
+                    where a `bash -c '...'` invocation genuinely wants a TTY
+                    (e.g. `-i bash -c 'tput cols'`). Last-wins with -T.
   --                Explicit flag/CMD separator, mirroring run.sh. Lets the CMD
                     start with a dash (e.g. ./exec.sh -- my-tool --version).
 
@@ -202,6 +252,8 @@ Examples:
   ./exec.sh htop               # Run htop in devel container
   ./exec.sh ls -la /home       # Run ls in devel container
   ./exec.sh -t runtime bash    # Enter runtime container
+  ./exec.sh bash -c 'ls'       # Auto-detect → -T, no escape leak
+  ./exec.sh -T whoami          # Force -T to cover heuristic-misses case
   ./exec.sh -- my-tool --version  # Use -- to pass a dash-leading CMD
 EOF
       ;;
@@ -226,6 +278,10 @@ main() {
   local TARGET="devel"
   local INSTANCE=""
   DRY_RUN=false
+  # TTY mode resolution (#382): tracks the user's explicit choice with
+  # last-wins precedence between -T (force no-tty) and -i (force tty).
+  # Empty means no explicit choice; auto-detect runs below.
+  local _tty_mode=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -263,6 +319,21 @@ main() {
         set -x
         shift
         ;;
+      -T|--no-tty)
+        # Force no-TTY (#382). Use for one-shot CMDs the auto-detect
+        # heuristic doesn't recognise (`whoami`, `ls /foo`,
+        # `env BAR=1 bash -c '...'`) so terminal escape sequences
+        # (focus-in, bracketed-paste, …) don't echo into output.
+        _tty_mode="no-tty"
+        shift
+        ;;
+      -i|--tty)
+        # Force TTY (#382). Use to override the auto-detect heuristic
+        # when a `bash -c '...'` invocation actually wants a TTY (rare;
+        # e.g. `bash -c 'tput cols'`).
+        _tty_mode="tty"
+        shift
+        ;;
       --lang)
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
         _sanitize_lang _LANG "exec"
@@ -286,6 +357,27 @@ main() {
   # arguments containing whitespace, unlike the previous `${CMD}` splitting.
   if [[ $# -eq 0 ]]; then
     set -- bash
+  fi
+
+  # TTY mode resolution (#382, Option 1+2):
+  # - explicit -T/-i (last-wins via _tty_mode set above) takes priority
+  # - else auto-detect: positional CMD `bash|sh|dash|zsh|ash|ksh -c …`
+  #   implies one-shot → no-TTY. Covers the 90% case where users wrap
+  #   their command in `bash -c '…'`. Edge cases (`whoami`, prefixed
+  #   `env BAR=1 bash -c …`) need explicit -T.
+  # - else default: keep TTY (preserves `./exec.sh` / `./exec.sh htop`
+  #   muscle memory).
+  local _exec_extra_args=()
+  if [[ "${_tty_mode}" == "no-tty" ]]; then
+    _exec_extra_args+=(-T)
+  elif [[ "${_tty_mode}" != "tty" ]]; then
+    case "${1:-}" in
+      bash|sh|dash|zsh|ash|ksh)
+        if [[ "${2:-}" == "-c" ]]; then
+          _exec_extra_args+=(-T)
+        fi
+        ;;
+    esac
   fi
 
   # Load .env, derive PROJECT_NAME (sets/exports INSTANCE_SUFFIX too).
@@ -325,7 +417,7 @@ ${_hint}"
     exit 1
   fi
 
-  _compose_project exec "${TARGET}" "$@"
+  _compose_project exec "${_exec_extra_args[@]}" "${TARGET}" "$@"
 }
 
 main "$@"
