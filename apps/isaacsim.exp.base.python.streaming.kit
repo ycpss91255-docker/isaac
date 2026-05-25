@@ -1,0 +1,199 @@
+[package]
+description = "Headless Isaac Sim Python (full UI shell) + WebRTC livestream."
+title = "Isaac Sim Python (Streaming)"
+version = "5.1.0"
+
+# Browsable in the experience UI alongside isaacsim.exp.base.python and
+# isaacsim.exp.full.streaming.
+keywords = ["experience", "app", "usd", "isaacsim"]
+
+
+[dependencies]
+# Inherit the lightweight base bundle (same one isaacsim.exp.base.python.kit
+# uses). NOT isaacsim.exp.full — that bundle pulls in OmniGraph image
+# extensions (omni.graph.image.core.plugin.so) that segfault when loaded
+# via the SimulationApp Python launcher (verified 2026-05-21; crash stack
+# in libomni.graph.image.core inside TBB threaded init). See
+# ycpss91255-docker/isaac#21 root cause + ADR-0007 (ycpss91255/isaac).
+"isaacsim.exp.base" = {}
+
+# Streaming extensions — pulled out of the full bundle so we can layer
+# them onto base without dragging in the OmniGraph image bundle.
+"omni.kit.livestream.core" = {}
+"omni.kit.livestream.webrtc" = {}
+
+# === UI shell ============================================================
+# Copied verbatim from isaacsim.exp.full.kit's [dependencies] block,
+# MINUS the segfault-source entries (omni.graph.* family; see the
+# `Removed entries` block at the bottom of this file for the deletion
+# rationale). Gives the runheadless-style menus + side panels + viewport
+# tools when connected via Streaming Client.
+
+# Isaac Sim app shell
+"isaacsim.app.setup" = { order = 1000 }
+"isaacsim.gui.components" = {}
+
+# Kit UI shell (top menu bar, app frame, hotkeys, preferences, panels)
+"omni.kit.uiapp" = {}
+"omni.kit.actions.window" = {}
+"omni.kit.hotkeys.window" = {}
+"omni.kit.context_menu" = {}
+"omni.kit.preferences.animation" = {}
+
+# Viewport (3D scene view with orbit/pan/zoom + menubar + RTX renderer panel)
+"omni.kit.viewport.actions" = {}
+"omni.kit.viewport.bundle" = {}
+"omni.kit.viewport.rtx" = {}
+"omni.kit.viewport_widgets_manager" = {}
+"omni.kit.manipulator.transform" = {}
+
+# Widgets the panels use
+"omni.kit.widget.cache_indicator" = {}
+"omni.kit.widget.collection" = {}
+"omni.kit.widget.extended_searchfield" = {}
+"omni.kit.widget.filebrowser" = {}
+"omni.kit.widget.layers" = {}
+"omni.kit.widget.live" = {}
+"omni.kit.widget.timeline" = {}
+"omni.kit.widget.versioning" = {}
+"omni.kit.widget.schema_api" = {}
+"omni.kit.widgets.custom" = {}
+
+# Side panels
+"omni.kit.window.collection" = {}
+"omni.kit.window.commands" = {}
+"omni.kit.window.cursor" = {}
+"omni.kit.window.extensions" = {}
+"omni.kit.window.file" = {}
+"omni.kit.window.filepicker" = {}
+"omni.kit.window.material" = {}
+"omni.kit.window.material_graph" = {}
+"omni.kit.window.preferences" = {}
+"omni.kit.window.quicksearch" = {}
+"omni.kit.window.script_editor" = {}
+"omni.kit.window.stats" = { order = 1000 }
+"omni.kit.window.title" = {}
+"omni.kit.window.usd_paths" = {}
+
+# Stage / asset / selection plumbing
+"omni.kit.selection" = {}
+"omni.kit.stage.copypaste" = {}
+"omni.kit.stage.mdl_converter" = {}
+"omni.kit.stage_column.payload" = {}
+"omni.kit.stage_column.variant" = {}
+"omni.kit.stage_templates" = {}
+"omni.kit.stagerecorder.bundle" = {}
+"omni.kit.property.collection" = {}
+"omni.kit.property.layer" = {}
+"omni.kit.quicklayout" = {}
+"omni.kit.mesh.raycast" = {}
+"omni.kit.search.files" = {}
+"omni.kit.usda_edit" = {}
+"omni.kit.variant.editor" = {}
+"omni.kit.variant.presenter" = {}
+
+# Asset / browser
+"omni.kit.asset_converter" = {}
+"omni.kit.browser.asset" = {}
+"omni.kit.browser.material" = {}
+"omni.kit.collaboration.channel_manager" = {}
+
+# Renderer
+"omni.kit.renderer.capture" = {}
+"omni.kit.renderer.core" = {}
+
+# Scripting
+"omni.kit.scripting" = {}
+
+# Physics
+"omni.physx.bundle" = {}
+
+# Stats / monitoring
+"omni.resourcemonitor" = {}
+"omni.stats" = {}
+
+# USD schemas
+"omni.usd.metrics.assembler.physics" = {}
+"omni.usd.schema.scene.visualization" = {}
+
+
+# === Removed from full.kit (rationale) ====================================
+# Segfault source (verified 2026-05-21 — kit native crash in
+# libomni.graph.image.core inside TBB-threaded init when these are
+# included via SimulationApp launcher):
+#   "omni.graph.bundle.action"
+#   "omni.graph.visualization.nodes"
+#   "omni.graph.window.action"
+#   "omni.graph.window.generic"
+#
+# Replicator pipeline (transitively pulls OmniGraph image; same crash
+# root cause):
+#   "isaacsim.replicator.behavior.ui"
+#   "isaacsim.replicator.grasping.ui"
+#   "isaacsim.replicator.scene_blox"
+#   "isaacsim.replicator.synthetic_recorder"
+#   "omni.isaac.synthetic_recorder"
+#   "omni.isaac.scene_blox"
+#
+# Not needed for SimulationApp-driver-with-streaming use case (and not
+# tested compatible — removed to keep the boot path minimal):
+#   isaacsim.{examples,robot,robot_setup,sensors,util,asset.gen,asset.importer,asset.validation}.* (interactive tools / wizards)
+#   omni.isaac.{block_world,extension_templates,gain_tuner,grasp_editor,
+#               occupancy_map,occupancy_map.ui,physics_inspector,
+#               range_sensor.examples,range_sensor.ui,robot_assembler,
+#               robot_description_editor,throttling} (legacy v4 packages)
+#   omni.{anim.curve.bundle,anim.shared.core,asset_validator.ui,
+#         physx.asset_validator,importer.onshape,simready.explorer,
+#         kit.profiler.window,kit.tool.asset_exporter,kit.tool.remove_unused.*,
+#         kit.preferences.animation} (anim / asset validators / onshape /
+#         scene assets / profiling — not needed for headless driver)
+# If a future driver needs any of these, add back individually and
+# re-test for crash compatibility.
+
+
+[settings.app]
+# Use the same app name as isaacsim.exp.full.streaming.kit so
+# isaacsim.app.setup applies the same default window layout preset.
+name = "Isaac-Sim Streaming"
+version = "5.1.0"
+vulkan = true
+enableDeveloperWarnings = false
+# Rate limit + manual mode + fixed timestep — same as full.kit so PhysX
+# sim matches what runheadless.sh gives.
+runLoops.main.rateLimitEnabled = true
+runLoops.main.manualModeEnabled = true
+player.useFixedTimeStepping = true
+
+[settings.app.window]
+# Explicit hideUi = false so the streaming client sees the full editor
+# UI (menus, panels, viewport controls). SimulationApp headless=True
+# auto-injects --/app/window/hideUi=1; drivers must also pass
+# extra_args=["--/app/window/hideUi=0"] to override the injected flag.
+hideUi = false
+title = "Isaac Sim Python Streaming"
+drawMouse = false
+
+
+[settings.app.exts.folders]
+'++' = [
+    "${app}",
+    "${app}/../exts",
+    "${app}/../extscache",
+    "${app}/../extsUser",
+    "${app}/../extsDeprecated",
+]
+
+
+[settings.app.livestream]
+# Lifted from isaacsim.exp.full.streaming.kit — settings the WebRTC
+# extension reads when initializing the streaming server.
+allowResize = true
+outDirectory = "${data}"
+
+
+[settings.exts."omni.kit.registry.nucleus"]
+registries = [
+	{ name = "kit/default", url = "https://ovextensionsprod.blob.core.windows.net/exts/kit/prod/107/shared" },
+	{ name = "kit/sdk", url = "https://ovextensionsprod.blob.core.windows.net/exts/kit/prod/sdk/${kit_version_short}/${kit_git_hash}" },
+	{ name = "kit/community", url = "https://dw290v42wisod.cloudfront.net/exts/kit/community" },
+]
