@@ -8,3 +8,6 @@ coverage/
 .Dockerfile.generated
 
 .docker.xauth
+
+# Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
+isaac_ws/
