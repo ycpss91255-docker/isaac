@@ -320,6 +320,27 @@ _upgrade() {
     _log "  Dockerfile patched: COPY .base/script/docker/lib /lint/lib + shellcheck extended"
   fi
 
+  # Patch downstream Dockerfile for the #330 wrapper consolidation
+  # (closes #399). v0.31.0+ moves user-facing wrappers from the repo
+  # root into a script/ subfolder. init.sh (Step 3 above) migrates the
+  # symlinks, but the Dockerfile's `COPY *.sh /lint/` directive is
+  # still anchored at root — which is now empty, so the COPY grabs zero
+  # files and the smoke tests that depend on `/lint/build.sh` etc. all
+  # fail. This step auto-heals by rewriting the COPY to
+  # `COPY script/*.sh /lint/`. Idempotent: already-patched → skip.
+  # Modelled on the Step 5 / #348 precedent above.
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _log "  no Dockerfile at repo root — skip (#399 wrapper-copy patch)"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+script/\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
+    _log "  Dockerfile already uses COPY script/*.sh /lint/ — skip (#399 idempotent)"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
+    sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY script/*.sh /lint/|' "${_dockerfile}"
+    git add "${_dockerfile}"
+    _log "  Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+  else
+    _log "  Dockerfile has no COPY *.sh /lint/ line — skip (#399)"
+  fi
+
   # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
   # and `git rm --cached`-ed any tracked-but-now-derived artifacts
   # (#172). The .gitignore mutation is unstaged; the rm is index-staged.
