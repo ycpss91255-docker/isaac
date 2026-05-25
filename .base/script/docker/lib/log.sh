@@ -58,11 +58,14 @@ _log_warn() {
 _log_info() {
   local tag="${1:?_log_info requires tag}"
   shift
-  if _log_color_enabled 1; then
-    printf '\033[2m[%s] INFO:\033[0m %s\n' "${tag}" "$*"
-  else
-    printf '[%s] INFO: %s\n' "${tag}" "$*"
-  fi
+  # INFO uses the terminal's default colour — no ANSI wrapping. ERROR
+  # and WARNING keep their bright (red bold / yellow) styles because
+  # those levels need to draw the user's eye; INFO is the same visual
+  # weight as the unstyled summary lines printed by `printf '[%s] ...'`
+  # callers (e.g. setup.sh's USER=... GPU=... GUI=... summary), so
+  # dimming INFO was an inconsistency that surfaced when users compared
+  # the WARNING / INFO / summary lines side-by-side in real terminals.
+  printf '[%s] INFO: %s\n' "${tag}" "$*"
 }
 
 # _log_plain <tag> <style> <msg...>

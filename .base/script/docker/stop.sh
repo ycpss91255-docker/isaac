@@ -6,7 +6,17 @@ set -euo pipefail
 # `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
 # rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
 # is sourced so all path-dependent operations honor the target repo.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
+# (post-#330), and direct invocation — see build.sh for the heuristic.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 _chdir_i=1
 while (( _chdir_i <= $# )); do
   case "${!_chdir_i}" in

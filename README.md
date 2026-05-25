@@ -17,12 +17,12 @@ NGC image (`nvcr.io/nvidia/isaac-sim:5.1.0`) is publicly pullable — no `docker
 
 ## Quick Start
 
-> **First-time only:** run `./script/init_isaac_dirs.sh` **before** `./build.sh`. Skipping it lets the docker daemon `mkdir` the cache mount points as **root**, and the container's non-root user will then fail to write — Isaac Sim will not start.
+> **First-time only:** run `./script/init_isaac_dirs.sh` **before** `make build`. Skipping it lets the docker daemon `mkdir` the cache mount points as **root**, and the container's non-root user will then fail to write — Isaac Sim will not start.
 
 ```bash
 ./script/init_isaac_dirs.sh   # first time only — creates 8 host-owned cache dirs
-./build.sh                    # builds devel stage (~16 GB image)
-./run.sh                      # interactive shell in devel container
+make build                    # builds devel stage (~16 GB image)
+make run                      # interactive shell in devel container
 ```
 
 Inside the container:
@@ -32,7 +32,7 @@ Inside the container:
 /isaac-sim/runapp.sh           # local GUI (requires X11; run `xhost +local:docker` on the host first)
 ```
 
-> Three stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (ENTRYPOINT `runheadless.sh -v` for WebRTC livestream), `gui` (ENTRYPOINT `runapp.sh` for X11), `standalone` (no ENTRYPOINT, idle — pair with `./exec.sh -t standalone /isaac-sim/python.sh <script>` for Python workflows where the script instantiates `SimulationApp({"livestream": 2})` and boots its own kit + WebRTC). Use `./run.sh -t <stage> -d`. The manual launchers above still work for ad-hoc cases.
+> Three stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (ENTRYPOINT `runheadless.sh -v` for WebRTC livestream), `gui` (ENTRYPOINT `runapp.sh` for X11), `standalone` (no ENTRYPOINT, idle — pair with `make exec -- -t standalone /isaac-sim/python.sh <script>` for Python workflows where the script instantiates `SimulationApp({"livestream": 2})` and boots its own kit + WebRTC). Use `make run -- -t <stage> -d`. The manual launchers above still work for ad-hoc cases.
 
 ## Connecting to the WebRTC livestream
 
@@ -73,17 +73,17 @@ The `devel` stage soft-bakes the same values via `Dockerfile ENV` (interactive s
 Switch to jazzy:
 
 ```bash
-./setup.sh remove build.arg "ROS_DISTRO=humble"
-./setup.sh add build.arg "ROS_DISTRO=jazzy"
-./build.sh           # rebuild with new ARG (only the affected layers, ~10s)
-./run.sh -t headless -d
+make setup -- remove build.arg "ROS_DISTRO=humble"
+make setup -- add build.arg "ROS_DISTRO=jazzy"
+make build           # rebuild with new ARG (only the affected layers, ~10s)
+make run -- -t headless -d
 ```
 
 The jazzy path aligns with Isaac's auto-default on 24.04 (LTS until 2029) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
 
 ### Verify cross-container DDS
 
-After `./run.sh -t headless -d` (with the humble override env) and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+After `make run -- -t headless -d` (with the humble override env) and connecting via the WebRTC client, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
 
 From a separate terminal on the same host:
 
@@ -110,9 +110,9 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 ### Standalone Python workflow (alternative to Script Editor)
 
-`isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. The standalone variant runs through `./run.sh -t standalone` + `./exec.sh -t standalone /isaac-sim/python.sh <script>` — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
+`isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. The standalone variant runs through `make run -- -t standalone` + `make exec -- -t standalone /isaac-sim/python.sh <script>` — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
 
-| In-kit (Script Editor → File → Open → Run) | Standalone (`./exec.sh -t standalone /isaac-sim/python.sh <path>`) |
+| In-kit (Script Editor → File → Open → Run) | Standalone (`make exec -- -t standalone /isaac-sim/python.sh <path>`) |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -122,11 +122,11 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 Pattern:
 
 ```bash
-./run.sh -t standalone -d   # idle kit container (no runheadless ENTRYPOINT)
-./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+make run -- -t standalone -d   # idle kit container (no runheadless ENTRYPOINT)
+make exec -- -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Browser: localhost:8211/streaming/webrtc-client to view the stage
 # Ctrl+C in the exec session kills the script cleanly; container stays idle
-./stop.sh                   # cleanup
+make stop                      # cleanup
 ```
 
 `headless` and `standalone` stages cannot run simultaneously — both bind WebRTC port 8211. Pick one per session.

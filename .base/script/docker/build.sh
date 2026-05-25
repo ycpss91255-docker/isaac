@@ -3,17 +3,36 @@
 
 set -euo pipefail
 
-# Default FILE_PATH = the directory the wrapper symlink lives in (i.e.
-# the repo root in normal usage). `-C <dir>` / `--chdir <dir>` overrides
-# it so the wrapper operates on a different repo without changing the
-# caller's cwd. Critical for Claude Code's sandbox `excludedCommands`
-# matching: top-level command stays `./build.sh ...` rather than
-# `(cd <dir> && ...)` or `bash -c "cd <dir> && ..."`, neither of which
-# the bash AST parser unwraps into the `./build.sh *` prefix
-# (refs docker_harness#53). The pre-pass runs before _lib.sh is sourced
-# so all path-dependent operations (including the _lib.sh lookup) honor
-# the override.
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# Default FILE_PATH = the user's repo root. Invocation paths we need to
+# cover, all of which must resolve FILE_PATH to the repo root so that
+# ${FILE_PATH}/.base/, ${FILE_PATH}/config/, ${FILE_PATH}/.env, etc.
+# work:
+#   - <repo>/build.sh                       # pre-#330 root-symlink layout
+#   - <repo>/script/build.sh                # post-#330 script/-subfolder layout
+#   - <repo>/.base/script/docker/build.sh   # direct invocation
+#   - /lint/build.sh                        # Dockerfile test stage
+# Heuristic: if our invocation directory has a .base/ sibling, we are at
+# the repo root already; if the parent has .base/ we are one level deeper
+# (the post-#330 script/ subfolder) and step up; otherwise (direct or
+# test-stage call) fall back to the invocation directory and rely on the
+# sibling _lib.sh lookup below.
+# `-C <dir>` / `--chdir <dir>` overrides this so the wrapper operates on
+# a different repo without changing the caller's cwd. Critical for
+# Claude Code's sandbox `excludedCommands` matching: top-level command
+# stays `./build.sh ...` rather than `(cd <dir> && ...)` or
+# `bash -c "cd <dir> && ..."`, neither of which the bash AST parser
+# unwraps into the `./build.sh *` prefix (refs docker_harness#53). The
+# pre-pass runs before _lib.sh is sourced so all path-dependent
+# operations (including the _lib.sh lookup) honor the override.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 _chdir_i=1
 while (( _chdir_i <= $# )); do
   case "${!_chdir_i}" in
@@ -102,19 +121,25 @@ usage() {
   case "${_LANG}" in
     zh-TW)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--no-prune] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 選項:
   -h, --help     顯示此說明
   -C, --chdir DIR
                  對 DIR 下的 repo 執行（不改變呼叫者 cwd），類似 git -C / make -C。
                  須在其他選項與 TARGET 之前指定。
-  -s, --setup    強制重跑 setup.sh 重新生成 .env + compose.yaml
-                 （預設：.env 不存在時自動 bootstrap；存在時僅印 drift warning）
+  -s, --setup    強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
+                 預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
+                 GUI / USER_UID 漂移時，.env + compose.yaml 自動重新生成 (#88)。
   --reset-conf   用 template 預設值覆蓋 setup.conf（先備份到 setup.conf.bak
                  + .env.bak；需確認，可用 -y 跳過）。之後會自動重跑 setup。
   -y, --yes      略過 --reset-conf 的互動確認
   --no-cache     強制不使用 cache 重建
+  --no-prune     關閉成功 build 後自動清掉被取代的舊 image (#387)。預設行為:
+                 若新 build 更新了同名 tag 且舊 ID 沒被其他 tag 引用,會 docker
+                 rmi 它，避免 dangling <none>:<none> 累積。--no-prune 保留舊
+                 image 供 rollback / debug。Buildx cache 不受影響（要清用
+                 prune.sh --builder）。
   --clean-tools  build 結束後移除 test-tools:local image（預設保留以加速下次 build）
   --dry-run      只印出將執行的 docker 指令，不實際執行
   -v, --verbose  詳細 docker 輸出（BUILDKIT_PROGRESS=plain）。build 卡住時用 —
@@ -135,19 +160,25 @@ EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
-用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--no-prune] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 选项:
   -h, --help     显示此说明
   -C, --chdir DIR
                  对 DIR 下的 repo 执行（不改变调用者 cwd），类似 git -C / make -C。
                  须在其他选项与 TARGET 之前指定。
-  -s, --setup    强制重跑 setup.sh 重新生成 .env + compose.yaml
-                 （默认：.env 不存在时自动 bootstrap；存在时仅打印 drift warning）
+  -s, --setup    强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
+                 默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
+                 GUI / USER_UID 漂移时，.env + compose.yaml 自动重新生成 (#88)。
   --reset-conf   用 template 默认值覆盖 setup.conf（先备份到 setup.conf.bak
                  + .env.bak；需确认，可用 -y 跳过）。之后会自动重跑 setup。
   -y, --yes      跳过 --reset-conf 的交互确认
   --no-cache     强制不使用 cache 重建
+  --no-prune     关闭成功 build 后自动清掉被取代的旧 image (#387)。默认行为:
+                 若新 build 更新了同名 tag 且旧 ID 没被其他 tag 引用,会 docker
+                 rmi 它，避免 dangling <none>:<none> 累积。--no-prune 保留旧
+                 image 供 rollback / debug。Buildx cache 不受影响（要清用
+                 prune.sh --builder）。
   --clean-tools  build 结束后移除 test-tools:local image（默认保留以加速下次 build）
   --dry-run      只打印将执行的 docker 命令，不实际执行
   -v, --verbose  详细 docker 输出（BUILDKIT_PROGRESS=plain）。build 卡住时用 —
@@ -168,20 +199,28 @@ EOF
       ;;
     ja)
       cat >&2 <<'EOF'
-使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+使用法: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--no-prune] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 オプション:
   -h, --help     このヘルプを表示
   -C, --chdir DIR
                  DIR 配下の repo に対して実行（呼び出し側の cwd は変えない）。
                  git -C / make -C と同様。他のオプションや TARGET より前に指定。
-  -s, --setup    setup.sh を強制実行して .env + compose.yaml を再生成
-                 （デフォルト：.env が無ければ自動 bootstrap、あれば drift warning のみ）
+  -s, --setup    setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外は
+                 非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
+                 / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
+                 .env + compose.yaml が自動再生成されます (#88)。
   --reset-conf   setup.conf をテンプレのデフォルトで上書き（setup.conf.bak
                  + .env.bak にバックアップ；確認プロンプト、-y でスキップ）。
                  その後 setup を再実行。
   -y, --yes      --reset-conf の確認プロンプトをスキップ
   --no-cache     キャッシュを使わず強制リビルド
+  --no-prune     ビルド成功後の自動 prune-predecessor を無効化 (#387)。デフォル
+                 ト動作: 新しいビルドが同一タグの ID を更新し、旧 ID を他のタグ
+                 が参照していない場合に `docker rmi` で削除 — dangling
+                 `<none>:<none>` の累積を防ぎます。--no-prune は旧 image を残
+                 し、ロールバック / 比較デバッグに使えます。Buildx cache は触れ
+                 ません（`prune.sh --builder` を使用）。
   --clean-tools  build 終了後に test-tools:local image を削除（デフォルトは保持）
   --dry-run      実行される docker コマンドを表示するのみ（実行はしない）
   -v, --verbose  docker の詳細出力（BUILDKIT_PROGRESS=plain）。build がハング
@@ -203,7 +242,7 @@ EOF
       ;;
     *)
       cat >&2 <<'EOF'
-Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
+Usage: ./build.sh [-h] [-C|--chdir DIR] [-s|--setup] [--reset-conf] [-y|--yes] [--no-cache] [--no-prune] [--clean-tools] [--dry-run] [-v|--verbose] [-vv|--very-verbose] [--lang <en|zh-TW|zh-CN|ja>] [-t|--target TARGET] [TARGET]
 
 Options:
   -h, --help     Show this help
@@ -211,8 +250,10 @@ Options:
                  Operate on the repo at DIR without changing the caller's cwd.
                  Mirrors git -C / make -C. Must come before other options and
                  the TARGET.
-  -s, --setup    Force rerun setup.sh to regenerate .env + compose.yaml
-                 (default: auto-bootstrap if .env missing; warn on drift if present)
+  -s, --setup    Force rerun setup.sh (opens the TUI on an interactive TTY,
+                 otherwise non-interactive apply). Default (no flag):
+                 auto-regenerate .env + compose.yaml when setup.conf /
+                 Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --reset-conf   Overwrite setup.conf with template defaults (backs up the
                  existing setup.conf → setup.conf.bak and .env → .env.bak
                  first). Prompts for confirmation; pass -y to skip. Triggers
@@ -220,6 +261,14 @@ Options:
                  the fresh conf.
   -y, --yes      Skip the --reset-conf confirmation prompt
   --no-cache     Force rebuild without cache
+  --no-prune     Disable post-build auto-prune of the displaced predecessor
+                 image (#387). By default, if a successful build moves the
+                 tag's image ID and the old ID is no longer referenced by
+                 any other tag, build.sh runs `docker rmi <old-id>` so
+                 dangling <none>:<none> images do not accumulate. Pass
+                 --no-prune to keep the previous image for rollback /
+                 diff-debug. Buildx cache is never touched (use
+                 `prune.sh --builder` for that).
   --clean-tools  Remove test-tools:local image after build (default: keep for faster next build)
   --dry-run      Print the docker commands that would run, but do not execute
   -v, --verbose  Verbose docker output (BUILDKIT_PROGRESS=plain). Use when a
@@ -267,6 +316,8 @@ main() {
   local RESET_CONF=false
   local ASSUME_YES=false
   local NO_CACHE=false
+  local NO_PRUNE=false
+  local -a SETUP_FORWARD_ARGS=()
   local CLEAN_TOOLS=false
   local TARGET="devel"
   DRY_RUN=false
@@ -291,12 +342,40 @@ main() {
         RESET_CONF=true
         shift
         ;;
+      --gui)
+        # #338: per-invocation [gui] mode override. Forwarded into
+        # setup.sh apply so the resolution short-circuits before
+        # _resolve_gui consumes setup.conf.
+        SETUP_FORWARD_ARGS+=(--gui "${2:?--gui requires a value (auto|force|off)}")
+        RUN_SETUP=true
+        shift 2
+        ;;
+      --gui=*)
+        SETUP_FORWARD_ARGS+=(--gui "${1#--gui=}")
+        RUN_SETUP=true
+        shift
+        ;;
+      --no-x11-cookie)
+        # #338: debug knob — skip SSH X11 cookie rewrite. Forces a
+        # setup rerun so the resolved .env reflects the override.
+        SETUP_FORWARD_ARGS+=(--no-x11-cookie)
+        RUN_SETUP=true
+        shift
+        ;;
       -y|--yes)
         ASSUME_YES=true
         shift
         ;;
       --no-cache)
         NO_CACHE=true
+        shift
+        ;;
+      --no-prune)
+        # #387: opt out of post-build auto-prune of the displaced
+        # predecessor image. Default ON; this flag keeps the previous
+        # image around for rollback / debug diffing. Never touches the
+        # buildx cache (see prune.sh --builder for that).
+        NO_PRUNE=true
         shift
         ;;
       --clean-tools)
@@ -382,8 +461,17 @@ main() {
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
   # present and the symlink is executable; otherwise fall back to
   # non-interactive setup.sh. Keeps CI / non-TTY paths unchanged.
+  #
+  # #338: when the user passes --gui / --no-x11-cookie on build.sh,
+  # those flags are accumulated in SETUP_FORWARD_ARGS and threaded
+  # into the setup.sh apply invocation here. The TTY/TUI branch is
+  # skipped under SETUP_FORWARD_ARGS (per-invocation overrides
+  # short-circuit through CLI, not through TUI Save).
   _run_interactive() {
-    if [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+    if (( ${#SETUP_FORWARD_ARGS[@]} > 0 )); then
+      "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}" \
+        "${SETUP_FORWARD_ARGS[@]}"
+    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
       "${_tui}" --lang "${_LANG}"
     else
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
@@ -494,7 +582,72 @@ main() {
   local _compose_args=()
   [[ "${NO_CACHE}" == true ]] && _compose_args+=(--no-cache)
 
+  # #387: snapshot the existing tag's image ID before the build, so a
+  # successful rebuild that displaces the tag (`old_id != new_id`) can
+  # surgically `docker rmi` the displaced layer set. The check is
+  # guarded by:
+  #   - first build (tag absent) → `old_id` is empty → skip
+  #   - cache-hit no-op (`old_id == new_id`) → skip
+  #   - `old_id` still tagged by another reference → `docker rmi` would
+  #     refuse without `-f`; we detect this and skip
+  #   - build failure → `set -e` aborts main before the prune block runs
+  #   - `--dry-run` / `--no-prune` → print or skip
+  # The buildx cache is intentionally untouched (use `prune.sh --builder`
+  # for that). Tag shape mirrors run.sh's `_full_tag` (#322).
+  local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${TARGET}"
+  local _pre_build_id=""
+  if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true ]]; then
+    _pre_build_id="$(docker image inspect --format '{{.Id}}' \
+      "${_full_tag}" 2>/dev/null || true)"
+  fi
+
   _compose_project build "${_compose_args[@]}" "${TARGET}"
+
+  if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true \
+      && -n "${_pre_build_id}" ]]; then
+    _prune_predecessor "${_full_tag}" "${_pre_build_id}"
+  elif [[ "${NO_PRUNE}" != true && "${DRY_RUN}" == true ]]; then
+    # Surface the planned action under --dry-run so the user can see
+    # the prune step would have fired. Tag-only message (no real IDs
+    # available without a daemon round-trip).
+    printf '[dry-run] docker rmi <old-id-of %s if displaced>\n' "${_full_tag}"
+  fi
+}
+
+# _prune_predecessor removes the displaced predecessor image after a
+# successful build, IFF (a) the tag's ID actually moved AND (b) no other
+# tag still references the old ID. Wrapped in `|| true` so a transient
+# daemon error never bubbles up after a successful build.
+#
+# Args:
+#   $1 _full_tag      the rebuilt tag (e.g. user/image:devel)
+#   $2 _pre_build_id  the image ID this tag pointed at before the build
+_prune_predecessor() {
+  local _full_tag="${1:?_prune_predecessor requires _full_tag}"
+  local _pre_build_id="${2:?_prune_predecessor requires _pre_build_id}"
+  local _post_build_id
+  _post_build_id="$(docker image inspect --format '{{.Id}}' \
+    "${_full_tag}" 2>/dev/null || true)"
+  # Build produced no image (compose `build` is a no-op when the
+  # service has no Dockerfile, etc.) → nothing to compare against.
+  [[ -z "${_post_build_id}" ]] && return 0
+  # Cache-hit / no-op rebuild → same ID, nothing to prune.
+  [[ "${_pre_build_id}" == "${_post_build_id}" ]] && return 0
+  # If the pre-build ID still has any other tag pointing to it, leave
+  # it alone — `docker rmi <id>` would refuse without -f, and a force
+  # delete would unexpectedly untag the alias. Filter excludes the
+  # `<none>:<none>` self-entry produced by docker images when the ID
+  # has no tags besides ours.
+  local _other_tags
+  _other_tags="$(docker images --format '{{.Repository}}:{{.Tag}}' \
+    --filter "reference=${_pre_build_id}" 2>/dev/null \
+    | grep -v '^<none>:<none>$' || true)"
+  if [[ -n "${_other_tags}" ]]; then
+    _log_info build "skip prune: predecessor still tagged (${_other_tags})"
+    return 0
+  fi
+  _log_info build "pruning displaced predecessor ${_pre_build_id:7:12}"
+  docker rmi "${_pre_build_id}" >/dev/null 2>&1 || true
 }
 
 main "$@"

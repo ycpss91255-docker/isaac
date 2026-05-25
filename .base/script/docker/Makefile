@@ -1,28 +1,43 @@
-.PHONY: build run run-detach test runtime exec stop help
+.PHONY: build run exec stop prune setup setup-tui upgrade upgrade-check help
 
-build: ## Build devel image
-	./build.sh
+# Default goal: bare `make` prints help instead of building. Discoverability
+# beats implicit build for a user-facing entry. RFC #330.
+.DEFAULT_GOAL := help
 
-run: ## Run container (interactive)
-	./run.sh
+# Each wrapper recipe forwards the remaining positional args from
+# MAKECMDGOALS to the underlying script. The `%:` catch-all at the bottom
+# turns those positional tokens into no-ops so Make does not error on
+# `make build test` ("test" has no rule of its own). Flags such as
+# --no-cache must come after a `--` separator because Make's argument
+# parser consumes `-` / `--` tokens as its own options before MAKECMDGOALS
+# is built:
+#
+#   make build test                # -> ./script/build.sh test
+#   make build -- --no-cache test  # -> ./script/build.sh --no-cache test
 
-run-detach: ## Run container in background
-	./run.sh -d
+build: ## Build devel image (e.g. make build test  |  make build -- --no-cache)
+	./script/build.sh $(filter-out $@,$(MAKECMDGOALS))
 
-test: ## Build and run smoke tests
-	./build.sh test
+run: ## Run container interactively (e.g. make run  |  make run -- -d)
+	./script/run.sh $(filter-out $@,$(MAKECMDGOALS))
 
-runtime: ## Build runtime image
-	./build.sh runtime
-
-exec: ## Exec into running container (default: bash)
-	./exec.sh
+exec: ## Exec into running container (e.g. make exec -- -t bats-src bash)
+	./script/exec.sh $(filter-out $@,$(MAKECMDGOALS))
 
 stop: ## Stop and remove containers
-	./stop.sh
+	./script/stop.sh $(filter-out $@,$(MAKECMDGOALS))
 
-upgrade: ## Upgrade base subtree
-	./.base/upgrade.sh
+prune: ## Prune build cache / dangling images
+	./script/prune.sh $(filter-out $@,$(MAKECMDGOALS))
+
+setup: ## Regenerate .env + compose.yaml from setup.conf
+	./script/setup.sh $(filter-out $@,$(MAKECMDGOALS))
+
+setup-tui: ## Interactive TUI to edit setup.conf
+	./script/setup_tui.sh $(filter-out $@,$(MAKECMDGOALS))
+
+upgrade: ## Upgrade base subtree (e.g. make upgrade v0.30.0)
+	./.base/upgrade.sh $(filter-out $@,$(MAKECMDGOALS))
 
 upgrade-check: ## Check for base updates
 	@./.base/upgrade.sh --check || [ $$? -eq 1 ]
@@ -30,3 +45,9 @@ upgrade-check: ## Check for base updates
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# Catch-all: positional args forwarded by the named recipes above land here
+# as goal names with no recipe of their own. Silent no-op keeps Make from
+# erroring on `make build test`, `make upgrade v0.30.0`, etc.
+%:
+	@:

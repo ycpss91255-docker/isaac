@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed
+- `.base/` subtree upgraded **v0.29.2 → v0.34.0**. Key upstream changes:
+  - **BREAKING** (base v0.31.0 #330): 7 user-facing wrappers (`build.sh`, `run.sh`, `exec.sh`, `stop.sh`, `prune.sh`, `setup.sh`, `setup_tui.sh`) moved from repo root to `script/`. `Makefile` stays at root as primary entry (`make build`, `make run`, etc.). `init.sh` auto-migrated symlinks.
+  - **BREAKING** (base v0.33.0 #386): `run.sh` foreground exit now auto compose-down (`--no-rm` opts out).
+  - **BREAKING** (base v0.33.0 #387): `build.sh` auto-prunes predecessor image after successful build (`--no-prune` opts out).
+  - (base v0.30.0 #328) `[logging] local_path` host-side log tee + `setup.sh apply` CLI flags `--gui` / `--no-x11-cookie` / `--print-resolved`.
+  - (base v0.30.0 #348) `upgrade.sh` auto-patches downstream Dockerfile lib drift.
+  - (base v0.32.0 #364/#367/#368) Logging helper shipped in-image at stable path; per-service `LOG_FILE_PATH` on extends-based stages; `init.sh` default-sources helper.
+  - (base v0.33.0 #382) `exec.sh` TTY auto-detect + `-T`/`-i` flags (stops escape leak).
+  - (base v0.33.0 #388) `prune.sh --worktree-orphans` opt-in mode.
+  - (base v0.34.0 #390) `setup.sh apply` prunes stale `[logging]` gitignore entries.
+  - CI: split shellcheck/hadolint into parallel jobs; split bats unit/integration; kcov coverage job; N-D matrix dispatcher.
+- README (4-language) wrapper paths updated: `./build.sh` → `make build` (or `./script/build.sh`), `./run.sh` → `make run`, etc.
+
 ### Added
 - **`apps/isaacsim.exp.base.python.streaming.kit`** — new custom Kit experience that layers `omni.kit.livestream.{core,webrtc}` on top of the lightweight `isaacsim.exp.base` bundle (same bundle the SimulationApp default `isaacsim.exp.base.python.kit` uses). Closes issue #21 fix-B: SimulationApp drivers can now pass `experience="/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit"` and get a working WebRTC livestream that the Isaac Sim WebRTC Streaming Client can connect to — without inheriting the full editor bundle that segfaults when `isaacsim.exp.full.streaming.kit` is loaded via SimulationApp instead of the kit binary directly. Copied into `/isaac-sim/apps/` in the devel stage via `COPY apps/*.kit`; future custom experiences land in the same dir.
 

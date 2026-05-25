@@ -112,6 +112,73 @@ YAML
   [ "$(cat README.md)" = "DOWNSTREAM" ]
 }
 
+@test "upgrade.sh patches Dockerfile lint stage when missing COPY .base/script/docker/lib /lint/lib (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN shellcheck -S warning /lint/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched"
+
+  grep -Fq "COPY .base/script/docker/lib /lint/lib" Dockerfile
+  grep -Fq "RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh" Dockerfile
+}
+
+@test "upgrade.sh is idempotent on Dockerfile already containing the lib COPY line (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile
+  git commit -q -m "add Dockerfile (already patched)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "already copies .base/script/docker/lib"
+  refute_output --partial "Dockerfile patched"
+
+  # Single COPY line, no duplicate insertion.
+  [ "$(grep -c 'COPY .base/script/docker/lib /lint/lib' Dockerfile)" = "1" ]
+}
+
+@test "upgrade.sh warns + skips Dockerfile patch when stock shellcheck anchor is missing (#348)" {
+  cd "${DOWN_DIR}"
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/*.sh /lint/
+RUN echo "custom Dockerfile lint setup"
+EOF
+  git add Dockerfile
+  git commit -q -m "add custom Dockerfile"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor"
+  refute_output --partial "Dockerfile patched"
+
+  ! grep -q "COPY .base/script/docker/lib /lint/lib" Dockerfile
+}
+
+@test "upgrade.sh continues cleanly when no Dockerfile at repo root (#348)" {
+  cd "${DOWN_DIR}"
+  # Default _seed_downstream_repo fixture leaves no Dockerfile at root —
+  # exercise the early-return branch.
+  [ ! -f Dockerfile ]
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "no Dockerfile at repo root"
+}
+
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 

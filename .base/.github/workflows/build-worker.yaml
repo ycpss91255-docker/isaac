@@ -298,19 +298,35 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Compute cache scope
-        # #272 — derive a per-(repo, variant, arch) cache scope key.
-        # ${image_name}[-${cache_variant}]-${matrix.hardware}-cache.
+        # #272 — derive a per-(repo, variant, arch) cache scope base.
+        # ${image_name}[-${cache_variant}]-${matrix.hardware}.
         # See `cache_variant` input description for naming rationale.
         # `matrix.hardware` (x86_64 / aarch64) is preferred over
         # `matrix.platform` (linux/amd64) because some buildx cache
         # backends balk on `/` in scope keys.
+        #
+        # #378 b1 — per-target suffix (`-devel-test-cache`, `-devel-cache`,
+        # `-runtime-test-cache`, `-runtime-cache`) is appended at the use
+        # site (each docker/build-push-action call). Pre-#378 all 4 build
+        # steps shared one `<base>-cache` scope under `mode=max`, so a
+        # late-stage COPY change in devel cascaded the manifest pointer
+        # in the shared scope and invalidated runtime / runtime-test
+        # caches on the next PR (refs the audit in
+        # https://github.com/ycpss91255-docker/base/issues/378). Splitting
+        # by target isolates each chain's manifest history.
+        #
+        # Shape migration cost: every existing scope key is orphaned by
+        # this change — first PR per active downstream pays a 4-way
+        # cold-restart (sequentially, the 4 build steps within one job
+        # share layers in the buildx local store so it's not 4x time).
+        # After that, every PR enjoys isolated per-target caches.
         id: cache
         run: |
           base="${{ inputs.image_name }}"
           if [ -n "${{ inputs.cache_variant }}" ]; then
             base="${base}-${{ inputs.cache_variant }}"
           fi
-          echo "key=${base}-${{ matrix.hardware }}-cache" >> "${GITHUB_OUTPUT}"
+          echo "key=${base}-${{ matrix.hardware }}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate .env
         run: |
@@ -357,8 +373,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -377,8 +393,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -411,8 +427,8 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -430,8 +446,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }},mode=max
+          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci

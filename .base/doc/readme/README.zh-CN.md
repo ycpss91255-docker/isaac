@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph consumer["Docker Repo（例如 my_app）"]
-        symlinks["build.sh → .base/script/docker/build.sh<br/>run.sh → .base/script/docker/run.sh<br/>exec.sh / stop.sh / .hadolint.yaml"]
+        symlinks["Makefile → .base/script/docker/Makefile<br/>script/build.sh → ../.base/script/docker/build.sh<br/>script/run.sh / exec.sh / stop.sh / prune.sh / setup.sh / setup_tui.sh<br/>.hadolint.yaml"]
         dockerfile["Dockerfile<br/>compose.yaml<br/>.env.example<br/>script/entrypoint.sh"]
         repo_test["test/smoke/<br/>app_env.bats（repo 专属）"]
         main_yaml["main.yaml<br/>→ 调用可重用 workflows"]
@@ -81,8 +81,8 @@ graph TB
 ```mermaid
 flowchart LR
     subgraph local["本地"]
-        build_test["./build.sh test"]
-        make_test["make test"]
+        build_test["./script/build.sh test"]
+        make_test["make build test"]
     end
 
     subgraph ci_container["CI 容器（kcov/kcov）"]
@@ -126,8 +126,8 @@ flowchart LR
 | `test/unit/` | Template 自身测试（bats + kcov） |
 | `test/integration/` | Level-1 `init.sh` 集成测试 |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
-| `Makefile` | Repo 命令入口（`make build`、`make run`、`make stop` 等） |
-| `Makefile.ci` | Template CI 命令入口（`make test`、`make lint` 等） |
+| `Makefile` | Repo 命令入口（`make build`、`make run`、`make stop` 等）。Sub-cmd 直接位置传递（`make build test`）；flag 需要 `--` 分隔符（`make build -- --no-cache test`）。`make` 无参打印 help（`.DEFAULT_GOAL := help`）。 |
+| `Makefile.ci` | Template CI 命令入口（`make -f Makefile.ci test`、`make -f Makefile.ci lint` 等）。user-facing 跟 CI-facing 是有意切割。 |
 | `init.sh` | 首次初始化 symlinks + 新 repo 骨架生成 |
 | `upgrade.sh` | Subtree 版本升级 |
 | `script/ci/ci.sh` | CI pipeline（本地 + 远端） |
@@ -181,10 +181,15 @@ ENTRYPOINT ["/isaac-sim/runapp.sh"]
 ```
 
 ```bash
-./build.sh                    # 重新生成 compose.yaml，build 所有 stages
-./run.sh -t headless          # 跑 headless 变体
-./run.sh -t gui               # 跑 gui 变体
-./exec.sh -t headless bash    # 进入 running 的 headless container
+make build                            # 重新生成 compose.yaml，build 所有 stages
+make run -- -t headless               # 跑 headless 变体
+make run -- -t gui                    # 跑 gui 变体
+make exec -- -t headless bash         # 进入 running 的 headless container
+
+# 等效直接 .sh 写法：
+./script/build.sh
+./script/run.sh -t headless
+./script/exec.sh -t headless bash
 ```
 
 约束：
@@ -301,6 +306,7 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 [volumes]  mount_1（workspace，首次 setup.sh 执行时自动填入）
            mount_2..mount_N（用户自定义额外 host mount；/dev 设备走 path）
 [logging]  driver（默认 json-file）、max_size、max_file、compress
+           local_path（host 端 log 目录；bind-mount 到 /var/log/<repo>）
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
@@ -319,6 +325,38 @@ template；没写的 section 则吃 template 默认。
 ./.base/init.sh --gen-conf # 单纯复制 .base/setup.conf 到 repo 根目录
 ```
 
+### 输出 log 到 host
+
+设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
+文件，docker daemon 原本的 json-file log 同时保留：
+
+```ini
+[logging]
+local_path = ./log/   # 相对 repo 根；或 /abs/、~/dir/ 也可
+```
+
+跑任何 wrapper 重新生成 `compose.yaml`。host 文件会落在
+`<local_path>/<svc>.log`（每个 service 一份）。`docker logs <ct>`
+行为不变（json-file 维持 rolling 历史；host 文件对应当前这次运行）。
+
+**新 repo**：用本版本之后的 `init.sh` 生成时，`script/entrypoint.sh`
+已内建 helper source，设 `[logging] local_path` 是唯一一步。
+**已有 repo**：在 `script/entrypoint.sh` 的最终 `exec` 之前加一行做
+一次性迁移：
+
+```bash
+. /usr/local/lib/base/_entrypoint_logging.sh
+```
+
+Helper 由 `Dockerfile.example` 的 devel stage COPY 到 image 内稳定路径
+`/usr/local/lib/base/_entrypoint_logging.sh`（refs #368），所以这条
+source line 在 build-time 与 runtime、各种 workspace 结构下都能 work
+— 不需要 `$USER`，也不依赖 workspace bind mount。
+
+疑难排查：`local_path` 设了但 host 文件没东西 → 确认
+`script/entrypoint.sh` 真的有那行 source
+（`grep _entrypoint_logging script/entrypoint.sh`）。
+
 ### 交互式 TUI
 
 `./setup_tui.sh` 打开主菜单。底层是 `dialog` 或 `whiptail`（两者
@@ -332,7 +370,7 @@ Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env` +
 Main
 ├─ image            IMAGE_NAME 检测规则
 ├─ build            APT mirrors + Dockerfile build args
-├─ Runtime  ──→     network / deploy（GPU）/ gui / environment
+├─ Runtime  ──→     network / deploy（GPU）/ gui / environment / logging
 ├─ Mounts   ──→     volumes / devices / tmpfs
 ├─ Advanced ──→     security / additional_contexts
 │                   / per_stage（条件式）/ Reset
@@ -364,9 +402,9 @@ Main
 > 想要一次取得跟 CI 同样的完整验证，加 `--build` flag：
 >
 > ```bash
-> ./build.sh test           # 显式跑 lint + smoke
-> ./run.sh --build          # 跑完 lint + smoke 再 compose up
-> ./run.sh                  # 默认 — 快速路径，跳过 lint/smoke
+> make build test                   # 显式跑 lint + smoke
+> make run -- --build               # 跑完 lint + smoke 再 compose up
+> make run                          # 默认 — 快速路径，跳过 lint/smoke
 > ```
 
 `setup.sh apply` 每次都会从头重新生成 `compose.yaml`，但会保留既有 `.env`

@@ -258,21 +258,24 @@ _upgrade() {
   _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/config/docker/setup.conf" 2>/dev/null || true)"
 
   # Step 1: subtree pull
-  _log "Step 1/4: git subtree pull"
+  _log "Step 1/5: git subtree pull"
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
     -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}"
 
   # Step 2: post-pull integrity check (rolls back on corruption)
-  _log "Step 2/4: verify ${TEMPLATE_REL}/ subtree integrity"
+  _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
   _verify_subtree_intact "${_pre_head}"
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
-  _log "Step 3/4: re-run init.sh to sync symlinks"
+  _log "Step 3/5: re-run init.sh to sync symlinks"
+  # #330: when upgrading from <v0.30.0, init.sh's stale-removal loop
+  # migrates the seven root *.sh symlinks into the script/ subfolder.
+  _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
   "./${TEMPLATE_REL}/init.sh"
 
   # Step 4: update main.yaml @tag references
-  _log "Step 4/4: update workflow @tag references"
+  _log "Step 4/5: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   if [[ -f "${main_yaml}" ]]; then
     # Replace @vX.Y.Z(-prerelease)? with new version in reusable workflow
@@ -284,6 +287,37 @@ _upgrade() {
     sed -i -E "s|build-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|build-worker.yaml@${target_ver}|g" "${main_yaml}"
     sed -i -E "s|release-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"
+  fi
+
+  # Step 5: patch downstream Dockerfile lint stage for the #284 lib/ split
+  # (closes #348). The split lives inside the subtree
+  # (`.base/script/docker/lib/{log,env,conf,compose,config_summary,gitignore}.sh`)
+  # and propagates via subtree pull, but the downstream Dockerfile's
+  # `COPY .base/script/docker/*.sh /lint/` only copies the umbrella loaders —
+  # not the lib/ subdirectory the umbrella source-chains into. Every
+  # post-#284 fanout has tripped the same `/lint/lib/log.sh: No such file
+  # or directory` failure on 12 of 13 downstream repos until manually
+  # patched. This step auto-heals each downstream Dockerfile on first
+  # upgrade so the next fanout is clean.
+  _log "Step 5/5: patch Dockerfile lint stage for lib/ split (#284 / #348)"
+  local _dockerfile="${REPO_ROOT}/Dockerfile"
+  if [[ ! -f "${_dockerfile}" ]]; then
+    _log "  no Dockerfile at repo root — skip"
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+\.base/script/docker/lib[[:space:]/]' "${_dockerfile}"; then
+    _log "  Dockerfile already copies .base/script/docker/lib — skip (idempotent)"
+  elif ! grep -qE '^RUN shellcheck -S warning /lint/\*\.sh$' "${_dockerfile}"; then
+    # Custom Dockerfile shape (no stock /lint/*.sh shellcheck anchor) —
+    # do not force-patch. The user can adopt the COPY + extended shellcheck
+    # invocation manually, or upgrade.sh will re-detect on the next run
+    # once they normalize.
+    _log "  Dockerfile lacks stock 'RUN shellcheck -S warning /lint/*.sh' anchor — skip (custom shape)"
+  else
+    # Insert COPY before the shellcheck anchor and extend the shellcheck
+    # invocation to also cover /lint/lib/*.sh.
+    sed -i '/^RUN shellcheck -S warning \/lint\/\*\.sh$/i COPY .base/script/docker/lib /lint/lib' "${_dockerfile}"
+    sed -i 's|^RUN shellcheck -S warning /lint/\*\.sh$|RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh|' "${_dockerfile}"
+    git add "${_dockerfile}"
+    _log "  Dockerfile patched: COPY .base/script/docker/lib /lint/lib + shellcheck extended"
   fi
 
   # Step 3 ran init.sh which (re-)synced .gitignore via lib/gitignore.sh
