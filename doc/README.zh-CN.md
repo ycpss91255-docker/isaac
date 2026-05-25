@@ -17,12 +17,12 @@ NGC image（`nvcr.io/nvidia/isaac-sim:5.1.0`）公开可拉，无需 `docker log
 
 ## Quick Start
 
-> **首次必跑：** `./build.sh` **之前**先跑 `./script/init_isaac_dirs.sh`。没跑的话 docker daemon 会以 **root** 身份 mkdir cache mount 点，导致容器内非 root user 无法写入，Isaac Sim 启动失败。
+> **首次必跑：** `make build` **之前**先跑 `./script/init_isaac_dirs.sh`。没跑的话 docker daemon 会以 **root** 身份 mkdir cache mount 点，导致容器内非 root user 无法写入，Isaac Sim 启动失败。
 
 ```bash
 ./script/init_isaac_dirs.sh   # 首次必跑，创建 8 个 host-owned cache 目录
-./build.sh                    # build devel stage（约 16 GB image）
-./run.sh                      # 进 devel 容器互动 shell
+make build                    # build devel stage（约 16 GB image）
+make run                      # 进 devel 容器互动 shell
 ```
 
 容器内：
@@ -32,7 +32,7 @@ NGC image（`nvcr.io/nvidia/isaac-sim:5.1.0`）公开可拉，无需 `docker log
 /isaac-sim/runapp.sh           # 本机 GUI（需要 X11；host 端先跑 `xhost +local:docker`）
 ```
 
-> 三个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（ENTRYPOINT `runheadless.sh -v`，WebRTC livestream）、`gui`（ENTRYPOINT `runapp.sh`，X11）、`standalone`（无 ENTRYPOINT，idle — 搭配 `./exec.sh -t standalone /isaac-sim/python.sh <script>` 跑 standalone Python workflow，脚本内 `SimulationApp({"livestream": 2})` 启自己的 kit + WebRTC server）。使用 `./run.sh -t <stage> -d`。上面的手动 launcher 仍可用于 ad-hoc 场景。
+> 三个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（ENTRYPOINT `runheadless.sh -v`，WebRTC livestream）、`gui`（ENTRYPOINT `runapp.sh`，X11）、`standalone`（无 ENTRYPOINT，idle — 搭配 `make exec -- -t standalone /isaac-sim/python.sh <script>` 跑 standalone Python workflow，脚本内 `SimulationApp({"livestream": 2})` 启自己的 kit + WebRTC server）。使用 `make run -- -t <stage> -d`。上面的手动 launcher 仍可用于 ad-hoc 场景。
 
 ## 连接 WebRTC livestream
 
@@ -73,17 +73,17 @@ Dockerfile 内 `ARG ROS_DISTRO=humble`，由 `setup.conf [build]` 串进来。Bu
 切到 jazzy：
 
 ```bash
-./setup.sh remove build.arg "ROS_DISTRO=humble"
-./setup.sh add build.arg "ROS_DISTRO=jazzy"
-./build.sh           # 用新 ARG 重 build（只重 build 受影响 layer，~10s）
-./run.sh -t headless -d
+make setup -- remove build.arg "ROS_DISTRO=humble"
+make setup -- add build.arg "ROS_DISTRO=jazzy"
+make build           # 用新 ARG 重 build（只重 build 受影响 layer，~10s）
+make run -- -t headless -d
 ```
 
 jazzy path 与 Isaac 在 24.04 上的 auto-default 对齐（LTS until 2029）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
 
 ### 验证 cross-container DDS
 
-跑 `./run.sh -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
+跑 `make run -- -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
 
 在同一 host 另一个 terminal：
 
@@ -110,9 +110,9 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `./run.sh -t standalone` + `./exec.sh -t standalone /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
+`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `make run -- -t standalone` + `make exec -- -t standalone /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
 
-| In-kit（Script Editor → File → Open → Run） | Standalone（`./exec.sh -t standalone /isaac-sim/python.sh <path>`） |
+| In-kit（Script Editor → File → Open → Run） | Standalone（`make exec -- -t standalone /isaac-sim/python.sh <path>`） |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -122,11 +122,11 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 使用 pattern：
 
 ```bash
-./run.sh -t standalone -d   # idle kit 容器（没 runheadless ENTRYPOINT）
-./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+make run -- -t standalone -d   # idle kit 容器（没 runheadless ENTRYPOINT）
+make exec -- -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Browser: localhost:8211/streaming/webrtc-client 看 stage
 # 在 exec session 按 Ctrl+C 干净杀 script，容器仍 idle
-./stop.sh                   # 收尾
+make stop                      # 收尾
 ```
 
 `headless` 与 `standalone` stage **不能同时跑** — 两个都 bind WebRTC port 8211。每次选一个。
