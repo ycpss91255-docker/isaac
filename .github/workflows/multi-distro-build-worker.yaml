@@ -1,0 +1,159 @@
+name: Multi-distro build dispatcher
+
+# Two-job dispatcher reusable workflow (#325 B-1, extended to N-D via
+# #344). Resolves a per-event matrix (full JSON `include`-shape array)
+# and fans it out across `build-worker.yaml` matrix shards, so
+# multi-distro / multi-variant callers (`env/ros_distro`,
+# `env/ros2_distro`, `app/ros1_bridge`) don't have to copy-paste a
+# `${{ github.event_name == 'pull_request' && fromJSON('[...]') || ... }}`
+# expression into every main.yaml.
+#
+# Pull-request events use `pr_matrix`; tag pushes, main pushes, and
+# workflow_dispatch use `tag_matrix` (the full validation matrix).
+# Each matrix entry is an `include`-shape object with REQUIRED `name`
+# (used for image_name suffix + cache scope) and `build_args` (forwarded
+# verbatim to build-worker.yaml). Callers may include arbitrary other
+# fields per entry — the dispatcher ignores them.
+#
+# A `ci-passed` rollup job aggregates the matrix result for branch
+# protection — matches the existing rollup naming used by env/ros_distro
+# / env/ros2_distro per CLAUDE.md's status-check table, so downstream
+# branch protection contexts don't need to change when adopting this
+# dispatcher.
+#
+# BREAKING vs v0.31.x (#344): the 1D inputs `pr_distros` / `tag_distros`
+# / `distro_input_name` / `extra_build_args` are removed; callers must
+# migrate to `pr_matrix` / `tag_matrix` with explicit `name` +
+# `build_args` per entry. Migration guide: include one entry per cell
+# with `{"name": "<distro>", "build_args": "<distro_input_name>=<distro>"}`.
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+        description: |
+          Base image name. The dispatcher derives each shard's image
+          name as `<image_name>-<matrix.name>` so multi-cell callers
+          don't have to template that expression themselves. Hyphen
+          matches the existing org convention (#339 / v0.29.1 fix).
+      pr_matrix:
+        required: true
+        type: string
+        description: |
+          JSON array of `include`-shape entries used on `pull_request`
+          events. Each entry MUST include `name` (used for image_name
+          suffix + cache scope) and `build_args` (forwarded verbatim
+          to build-worker.yaml as the per-shard build_args). Arbitrary
+          other fields are allowed but ignored by the dispatcher.
+          Example: `'[{"name":"humble","build_args":"ROS2_DISTRO=humble"}]'`
+      tag_matrix:
+        required: true
+        type: string
+        description: |
+          JSON array of `include`-shape entries used on tag push, main
+          push, and `workflow_dispatch` events. Same per-entry contract
+          as `pr_matrix`: each entry MUST include `name` + `build_args`
+          (arbitrary other fields ignored). This is the "release-
+          validation" matrix — everything that ships needs to pass here.
+      # === Forwarded to build-worker.yaml (defaults mirror build-worker
+      # so existing semantics are preserved when caller omits) ===
+      build_runtime:
+        required: false
+        type: boolean
+        default: true
+      test_tools_version:
+        required: false
+        type: string
+        default: "latest"
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+      context_path:
+        required: false
+        type: string
+        default: "."
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.r.outputs.matrix }}
+    steps:
+      - id: r
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_MATRIX: ${{ inputs.pr_matrix }}
+          TAG_MATRIX: ${{ inputs.tag_matrix }}
+        # PR event -> pr_matrix subset. Every other event
+        # (push to main, push of a v* tag, workflow_dispatch) ->
+        # tag_matrix full matrix. Tag pushes specifically benefit
+        # from full validation since they cut releases; main pushes
+        # benefit because the same code path is what tag-cut will see.
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            echo "matrix=${PR_MATRIX}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "matrix=${TAG_MATRIX}" >> "${GITHUB_OUTPUT}"
+          fi
+
+  call-build:
+    needs: resolve-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/build-worker.yaml
+    with:
+      # Per-shard image_name includes the matrix cell name so the GHCR
+      # tag disambiguates multi-cell builds from the same caller repo
+      # (e.g. ros1_bridge-humble, ros_distro-noetic-ros-base). Hyphen
+      # matches the existing org convention (#339 v0.29.1 fix).
+      image_name: ${{ inputs.image_name }}-${{ matrix.name }}
+      # Caller fully owns per-cell build_args. Multi-line KEY1=v1\nKEY2=v2
+      # works because build_args is a string passed straight to
+      # docker/build-push-action.
+      build_args: ${{ matrix.build_args }}
+      build_runtime: ${{ inputs.build_runtime }}
+      test_tools_version: ${{ inputs.test_tools_version }}
+      platforms: ${{ inputs.platforms }}
+      context_path: ${{ inputs.context_path }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      build_contexts: ${{ inputs.build_contexts }}
+      # Per-cell buildx cache scope so cells don't evict each other's
+      # cache. Matches the `cache_variant` contract added in #272.
+      cache_variant: ${{ matrix.name }}
+
+  ci-passed:
+    name: ci-passed
+    needs: call-build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix results
+        env:
+          NEEDS_RESULT: ${{ needs.call-build.result }}
+        # Rollup gate for downstream branch protection. The matrix
+        # `result` is `success` only when every shard finished with
+        # `conclusion: success`; any failure or cancellation surfaces
+        # here. `if: always()` ensures the rollup runs even when one
+        # matrix shard failed, otherwise branch protection would see a
+        # missing required check rather than a failed one.
+        run: |
+          set -euo pipefail
+          if [[ "${NEEDS_RESULT}" != "success" ]]; then
+            echo "call-build matrix did not all succeed: ${NEEDS_RESULT}"
+            exit 1
+          fi
+          echo "All matrix cells passed."
