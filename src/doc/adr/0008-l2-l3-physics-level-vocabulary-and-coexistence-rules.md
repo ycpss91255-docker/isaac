@@ -57,8 +57,8 @@ PhysX 5.4.1 RigidBodyDynamics 原文把 L2 列為 canonical use cases 的核心:
 ## Consequences
 
 - **CONTEXT.md 新增 L2 / L3 兩詞條**(已更新):未來討論 forklift / openbase / 其他 sim asset 時統一用此詞彙,避免「kinematic vs scripted vs ideal」等模糊用語
-- **openbase 現況不符 L2 規範**:`script/move_openbase_planar.py` 用 `set_rigid_body_linear_velocity` 對 dynamic body 強制 override,跟 forklift_blocky 的 L2 pattern 不同。建議後續開 worktree migrate `openbase.usda` 改 `physics:kinematicEnabled = true` 並改用 `set_kinematic_target`,讓兩個 demo 同 pattern,順帶解決 isaac#16 的「在豐富場景下穩定性」測試前置條件(測試的得是正規 L2,不是現有 workaround)
-- **isaac#16 範圍可縮**:L2 + L3 共存的**正確性** PhysX doc 已蓋章不用實測;isaac#16 留下的真實工作只剩 sustained motion 數值穩定性(無 drift / NaN / tunneling),且測試必須跑在 L2 修正後的 openbase
+- **openbase L2 migration 完成**(ycpss91255-docker/isaac#23):新增 `openbase_l2.usda` sublayer override(`kinematicEnabled=True` + `disableGravity=True`),`cmd_vel_planar_standalone_l2.py` L2 driver(Euler 積分 + `set_rigid_body_pose`),smoke + 4 項 stability test 全 PASS(pose tracking 0.0000 err, z-drift 0.0000, no NaN, multi-waypoint clean)。原 `move_openbase_planar*.py` 保留作歷史參考(dynamic+velocity-override pattern)
+- **isaac#16 解除 block**:stability test 已在正規 L2 上跑過 sustained motion;#16 可直接引用此結果或擴展更豐富場景測試
 - **forklift_blocky 不需立刻動**:現況本就是 L2,符合新詞彙、符合 PhysX 官方契約。是否升 L3 是另一個獨立決策,屬未來 ADR(若做)
 - **未來 USD 變體有清晰命名規則**:加新檔不再要新發明字母,直接 `forklift_blocky_<新 suffix>.usda`
 - **明確排除「在 articulation tree 內混 L2」這條路**:任何想把 forklift 整體包成 articulation 的提案,必須先處理 chassis 無法 kinematic 的限制(走 separate kinematic anchor + standalone joint to dynamic articulation 的 hybrid 模式)

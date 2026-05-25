@@ -36,14 +36,15 @@ _Avoid_: 真物理（太籠統）、articulation（articulation 是 L3 的特殊
 USD-embedded OmniGraph，跑在 kit C++ pipeline。
 _Avoid_: visual scripting (Isaac UI 用詞但對外溝通不清)、graph
 
-**cmd_vel sink**:
-Action Graph 內接 `ROS2SubscribeTwist` → `WritePrimAttribute(/open_base/base_link, physics:velocity)` 的節點鏈。
+**cmd_vel sink** _(deprecated)_:
+~~Action Graph 內接 `ROS2SubscribeTwist` → `WritePrimAttribute(/open_base/base_link, physics:velocity)` 的節點鏈。~~
+grep 在所有 `*.usda` / `*.usd` layer 找不到此 Action Graph chain；`pxr.Usd` traverse 確認 binary USDC 內也無此 node。實際 cmd_vel 訂閱在 Python driver 端（`cmd_vel_planar_standalone.py` 系列）。保留此 entry 作為歷史記錄。
 
 ## Relationships
 
 - **Upper-Layer Algorithm** 與 **Motion-Control Simulation** 是兩個獨立 scope；當前 isaac_ws 只做前者
 - **Chassis SE(2) Slide** 是 **Upper-Layer Algorithm** 開發時用的代理模式
-- **cmd_vel sink** 是 **Chassis SE(2) Slide** 的具體實現位置
+- ~~**cmd_vel sink** 是 **Chassis SE(2) Slide** 的具體實現位置~~ _(deprecated — actual cmd_vel subscription is in Python driver, not Action Graph)_
 - **Model A** 是 **Chassis SE(2) Slide** 的 SIM 模型實作，**Model B** 是 **Motion-Control Simulation** 的 SIM 模型實作；兩軌並行不取代（C-Phase 為切換點，A/B-Phase 用 Model A，C-Phase 切 Model B 量化 sim-real gap）— 詳見 ADR-0003
 - **L2 / L3** 是 per-body 物理階段。Model A 家族的 USD 預設 chassis 與 mast 系統都 L2；升任何 body 到 L3 即跨入 **Motion-Control Simulation** 範疇,屬 Model B 軌
 
