@@ -1193,7 +1193,7 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
-### test/integration/upgrade_spec.bats (12)
+### test/integration/upgrade_spec.bats (15)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
