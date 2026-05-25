@@ -70,14 +70,14 @@ Then restart the headless container:
 
 ```bash
 cd isaac_ws/src/docker
-./stop.sh -t headless
-./run.sh -t headless -d
+./stop.sh -t standalone
+./run.sh -t standalone -d
 ```
 
 Verify the bind landed:
 
 ```bash
-./exec.sh -t headless ls /isaac-sim/extra_exts/zed
+./exec.sh -t standalone ls /isaac-sim/extra_exts/zed
 # Expected: sl.sensor.camera (or similar Stereolabs extension dir)
 ```
 
@@ -114,7 +114,7 @@ After the four steps above, the dispatch in `script/camera_setup.py` should boot
 
 ```bash
 cd isaac_ws/src/docker
-./exec.sh -t headless /isaac-sim/python.sh \
+./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
     --config /home/yunchien/work/src/config/camera/zed.yaml
 ```

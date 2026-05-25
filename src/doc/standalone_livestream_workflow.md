@@ -21,7 +21,7 @@ cd isaac_ws/src/docker
 ### 2. 把 `headless` container 起來(porting:host 8011 → container WebRTC)
 
 ```bash
-./run.sh -t headless -d
+./run.sh -t standalone -d
 docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}'
 ```
 
@@ -30,12 +30,12 @@ docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}
 ### 3.(可選)用 smoke driver 驗 livestream 通了
 
 ```bash
-./exec.sh -t headless /isaac-sim/python.sh \
+./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/standalone_livestream_smoke.py
 ```
 
 預期:30 秒內印 `[smoke] tick ...`、最後 `[smoke] DONE`、`Simulation App Shutting Down`,exit 0。
-這段期間瀏覽器開 `http://localhost:8011/streaming/webrtc-client` 應看得到一個 cube + ground plane + light。
+這段期間用 **Isaac Sim WebRTC Streaming Client**(NVIDIA 官方桌面 app,從 Isaac Sim release page 下載)連 `127.0.0.1` 應看得到一個 cube + ground plane + light。瀏覽器無法直連 — Streaming Client 才有 WebRTC signaling。
 
 ---
 
@@ -45,19 +45,19 @@ docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}
 
 ```bash
 cd isaac_ws/src/docker
-./exec.sh -t headless /isaac-sim/python.sh \
+./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 ```
 
 - Kit 起動約 5–10 秒(看到 `[forklift-Ah] stage opened` 表示 USD 載完)。
 - 之後 driver 進入 spin loop,每 tick 寫一次 `sim_app.update()`,印 demo cycle 進度。
-- 要看畫面:瀏覽器開 `http://localhost:8011/streaming/webrtc-client`。連線 / 關閉 / 重連 都不影響 driver。
+- 要看畫面:**Isaac Sim WebRTC Streaming Client**(桌面 app)連 `127.0.0.1`。連線 / 關閉 / 重連都不影響 driver。瀏覽器無法直接看,必須用官方 client。
 - 要結束:該 terminal `Ctrl-C` 一下。Driver 攔 SIGINT,印 `signal received — requesting clean exit`,接 `Simulation App Shutting Down`,exit 0。
 
 ### 背景跑(放著掛機看 demo cycle)
 
 ```bash
-nohup ./exec.sh -t headless /isaac-sim/python.sh \
+nohup ./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
     > /tmp/forklift.out 2>&1 &
 echo $! > /tmp/forklift.pid
@@ -68,7 +68,7 @@ echo $! > /tmp/forklift.pid
 ### 限時跑(自動驗證 / CI 用)
 
 ```bash
-timeout 75 ./exec.sh -t headless /isaac-sim/python.sh \
+timeout 75 ./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 ```
 
@@ -198,10 +198,10 @@ else:
 
 | 步驟 | 舊 in-kit | 新 standalone-livestream |
 |---|---|---|
-| 起 Kit | `./run.sh -t headless -d` + 瀏覽器開 `localhost:8011` 看 Kit GUI | `./run.sh -t headless -d` |
-| 載 driver | 瀏覽器 GUI 開 Script Editor 拖 `.py` 進去 | `./exec.sh -t headless /isaac-sim/python.sh <script>` |
+| 起 Kit | `./run.sh -t standalone -d`(舊 SOP 寫 headless,實測會撞 runheadless.sh 兩 Kit port 衝突,改 standalone)| `./run.sh -t standalone -d` |
+| 載 driver | 瀏覽器 GUI 開 Script Editor 拖 `.py` 進去 | `./exec.sh -t standalone /isaac-sim/python.sh <script>` |
 | 跑 | Ctrl+Enter on Script Editor | enter 在 terminal |
-| 看畫面 | 同一個 Kit GUI 瀏覽器 tab | 瀏覽器開 `localhost:8011/streaming/webrtc-client`(可關可開) |
+| 看畫面 | 同一個 Kit GUI 瀏覽器 tab | Isaac Sim WebRTC Streaming Client(桌面 app)連 `127.0.0.1`(可關可開) |
 | 改完重跑 | 編輯 → Script Editor 重 Ctrl+Enter | 編輯 → terminal 重跑 command |
 | LLM agent 可驅動 | 否(要人手點 Ctrl+Enter) | 是(`./exec.sh` 是 docker exec,LLM 可呼叫) |
 

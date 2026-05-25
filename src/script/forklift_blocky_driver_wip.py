@@ -9,22 +9,25 @@ Pallet falls under gravity, gets lifted by fork collision push + friction.
 Demo cycle (51s): approach pallet -> insert forks -> lift -> carry back ->
 drop pallet -> back away -> fork spread -> mast extension -> return home -> repeat.
 
-Run inside the headless container:
+Run inside the standalone container (NOT headless — the headless target
+auto-starts runheadless.sh which would race this driver's SimulationApp
+for the WebRTC streaming port; see ADR-0005 Update 2026-05-21):
 
     cd isaac_ws/src/docker
-    ./exec.sh -t headless /isaac-sim/python.sh \
+    ./run.sh -t standalone -d
+    ./exec.sh -t standalone /isaac-sim/python.sh \
         /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 
 Optional --config (repeatable) attaches one or more sim cameras and
 publishes their topics. See doc/adr/0006-per-sensor-yaml-camera-config.md.
 
-    ./exec.sh -t headless /isaac-sim/python.sh \
+    ./exec.sh -t standalone /isaac-sim/python.sh \
         /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
         --config /home/yunchien/work/src/config/camera/realsense.yaml
 
-The demo loops until Ctrl-C (or SIGTERM). View the scene at
-http://localhost:8011/streaming/webrtc-client. Browser close does not
-stop the sim; only Ctrl-C does.
+The demo loops until Ctrl-C (or SIGTERM). Connect the Isaac Sim WebRTC
+Streaming Client app to 127.0.0.1 to view the scene. Streaming Client
+disconnect does not stop the sim; only Ctrl-C does.
 """
 
 import argparse
@@ -106,7 +109,31 @@ _log(f"[forklift-Ah] LOG: {LOG_PATH}")
 
 from isaacsim import SimulationApp  # noqa: E402
 
-sim_app = SimulationApp({"headless": True, "livestream": 2})
+# Pin the kit experience to the custom isaacsim.exp.base.python.streaming.kit
+# shipped by ycpss91255-docker/isaac. SimulationApp's default experience
+# (isaacsim.exp.base.python.kit) lacks WebRTC livestream extensions, so
+# `livestream: 2` alone is a no-op — the streaming server never starts.
+# See ADR-0007 for the rationale.
+sim_app = SimulationApp(
+    {"headless": True, "livestream": 2},
+    experience="/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit",
+)
+
+# SimulationApp headless=True auto-injects --/app/window/hideUi=1 which
+# hides the editor UI in the Streaming Client. Override post-boot + load
+# the Isaac Sim default window layout (Stage right, Console bottom, etc.)
+# from isaacsim.app.setup/layouts/default.json via QuickLayout.
+import carb.settings  # noqa: E402
+carb.settings.get_settings().set("/app/window/hideUi", False)
+sim_app.update()
+
+from omni.kit.quicklayout import QuickLayout  # noqa: E402
+QuickLayout.load_file(
+    "/isaac-sim/exts/isaacsim.app.setup/layouts/default.json",
+    keep_windows_open=False,
+)
+for _ in range(5):
+    sim_app.update()
 
 # Kit-side imports must come after SimulationApp boot.
 import omni.kit.app  # noqa: E402

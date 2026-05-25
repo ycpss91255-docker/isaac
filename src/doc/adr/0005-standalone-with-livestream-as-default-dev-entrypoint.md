@@ -55,5 +55,31 @@ Verified during PR-A + PR-B of #19:
 - Issue: `ycpss91255-docker/isaac#19` "Adopt standalone-with-livestream entrypoint (replace Script Editor Ctrl+Enter loop)"
 - Isaac Sim manual livestream client: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html>
 - Isaac Sim standalone application docs: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/python_scripting/standalone_application.html>
-- Related ADRs: 0001 (Chassis SE(2) Slide), 0002 (cmd_vel teleop via in-kit Script Editor — superseded as entrypoint pattern by this ADR), 0003 (two-track simulation strategy), 0004 (Model A-hybrid forklift block model)
+- Related ADRs: 0001 (Chassis SE(2) Slide), 0002 (cmd_vel teleop via in-kit Script Editor — superseded as entrypoint pattern by this ADR), 0003 (two-track simulation strategy), 0004 (Model A-hybrid forklift block model), **0007 (custom streaming experience for SimulationApp)**
 - SOP: `doc/standalone_livestream_workflow.md`
+
+## Update (2026-05-21) — `-t headless` does not work for this pattern; switch to `-t standalone` + custom experience
+
+Live verification of the original PR-A / PR-B Acceptance Snapshot above exposed two gaps that the issue body assumed away:
+
+1. **`-t headless` container can't host a `SimulationApp` driver.** Its `ENTRYPOINT` is `runheadless.sh` which immediately starts a full Kit instance (`isaacsim.exp.full.streaming.kit`). When `./exec.sh -t headless /isaac-sim/python.sh <driver.py>` is then run, the driver's `SimulationApp({"livestream": 2})` boots a **second** Kit inside the same container; both Kits race for the WebRTC streaming port (8211) and the driver's Kit silently loses. The Streaming Client connects to the first Kit (empty default stage) — the driver's actual scene is never streamed. The PR-A / PR-B test only verified that the driver runs and emits ROS 2 topics (it does); it did not visually verify the Streaming Client view, which never worked end-to-end. Switch to **`-t standalone`** — that target's container is idle (`sleep infinity`) until `./exec.sh` lands a script, so the driver's Kit is the only Kit instance. `ycpss91255-docker/isaac` Dockerfile §standalone explicitly notes this trade-off in its inline comment, predating this finding.
+
+2. **`SimulationApp({"livestream": 2})` does not start a streaming server by default.** `SimulationApp`'s default Kit experience is `isaacsim.exp.base.python.kit`, which has no WebRTC livestream extensions in its `[dependencies]` block. The `livestream: 2` flag is honored only by experiences that bundle `omni.kit.livestream.{core, webrtc}` — `isaacsim.exp.full.streaming.kit` does, but loading it via `SimulationApp` segfaults shortly after `Streaming server started` (incompatibility between the full experience and Python-driver launcher; native crash, no Python traceback). To get streaming under `SimulationApp` requires a **custom experience** that layers the two streaming extensions on top of `isaacsim.exp.base` without inheriting the rest of the full bundle. This custom experience is `isaacsim.exp.base.python.streaming.kit`, shipped by `ycpss91255-docker/isaac` (issue #21 fix-B) and bound to the driver via `experience=...` in this PR. Design rationale and trade-offs (vs the heavier full bundle, vs env-var wrapper) are pinned in **ADR-0007**.
+
+**Updated canonical invocation**:
+
+```bash
+./run.sh -t standalone -d
+./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/forklift_blocky_driver_wip.py [--config ...]
+```
+
+with the driver passing:
+
+```python
+sim_app = SimulationApp(
+    {"headless": True, "livestream": 2},
+    experience="/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit",
+)
+```
+
+The Decision / Why / Considered Options in the body of this ADR all stand — the entrypoint *pattern* (Python-driven, livestream-on-demand) is correct. The two corrections above are about *which container target* and *which Kit experience* the pattern lands on inside `ycpss91255-docker/isaac`. The legacy `cmd_vel_inkit_teleop.md` / `action_graph_setup.md` Script Editor fallback paths in the body remain valid as a Plan B if the standalone path ever regresses.
