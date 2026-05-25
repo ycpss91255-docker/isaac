@@ -2,13 +2,18 @@
 
 L2 (ADR-0008) canonical pattern: kinematicEnabled=True on base_link,
 driver integrates cmd_vel into pose each tick and writes via
-dc.set_rigid_body_pose. No velocity override, no gravity workaround.
+SingleRigidPrim.set_world_pose(). No velocity override, no gravity
+workaround.
+
+Uses World + SingleRigidPrim API path (not dc) to avoid the known
+dc + rclpy + isaacsim.ros2.bridge crash combo in Isaac Sim 5.1.
+See cmd_vel_planar_standalone.py for the bisection history.
 
 Loads openbase_l2.usda (sublayer override on CAD-tracked openbase.usda).
 
 Usage (container):
-    cd docker && ./run.sh -t standalone -d
-    make exec -- -t standalone /isaac-sim/python.sh \
+    cd docker && ./run.sh -t headless -d
+    make exec -- -t headless /isaac-sim/python.sh \
         /home/yunchien/work/src/script/cmd_vel_planar_standalone_l2.py
 
 Push cmd_vel from outside:
@@ -46,10 +51,12 @@ def _signal_handler(_signum, _frame):
 signal.signal(signal.SIGINT, _signal_handler)
 signal.signal(signal.SIGTERM, _signal_handler)
 
-import omni.timeline  # noqa: E402
+import numpy as np  # noqa: E402
+
 import omni.usd  # noqa: E402
-from omni.isaac.dynamic_control import _dynamic_control as dc  # noqa: E402
-from pxr import Gf, UsdLux, UsdPhysics  # noqa: E402
+from isaacsim.core.api import World  # noqa: E402
+from isaacsim.core.prims import SingleRigidPrim  # noqa: E402
+from pxr import UsdLux  # noqa: E402
 
 from isaacsim.core.utils.extensions import enable_extension  # noqa: E402
 enable_extension("isaacsim.ros2.bridge")
@@ -110,35 +117,23 @@ def _make_ros_node(state):
     return node
 
 
-def _yaw_to_quat(yaw):
-    """Yaw (rad) to quaternion (x, y, z, w) for Z-up."""
+def _yaw_to_quat_xyzw(yaw):
+    """Yaw (rad) to quaternion [x, y, z, w] for Z-up."""
     half = yaw * 0.5
-    return (0.0, 0.0, math.sin(half), math.cos(half))
+    return np.array([0.0, 0.0, math.sin(half), math.cos(half)])
 
 
 def main():
-    stage = _stage_setup()
-    base_xform = stage.GetPrimAtPath(BASE_PRIM)
-    translate_attr = base_xform.GetAttribute("xformOp:translate")
-    orient_attr = base_xform.GetAttribute("xformOp:orient")
+    _stage_setup()
 
-    iface = dc.acquire_dynamic_control_interface()
+    world = World(stage_units_in_meters=1.0)
+    world.reset()
+    base = SingleRigidPrim(BASE_PRIM)
 
-    tl = omni.timeline.get_timeline_interface()
-    tl.set_end_time(1.0e9)
-    tl.play()
-
-    for _ in range(10):
-        APP.update()
-
-    handle = iface.get_rigid_body(BASE_PRIM)
-    if handle == dc.INVALID_HANDLE:
-        raise RuntimeError(f"dc.get_rigid_body({BASE_PRIM}) returned INVALID_HANDLE")
-
-    init_pose = iface.get_rigid_body_pose(handle)
-    pose_x = float(init_pose.p[0])
-    pose_y = float(init_pose.p[1])
-    pose_z = float(init_pose.p[2])
+    init_pos, init_orn = base.get_world_pose()
+    pose_x = float(init_pos[0])
+    pose_y = float(init_pos[1])
+    pose_z = float(init_pos[2])
     pose_yaw = 0.0
 
     cmd = {"vx": 0.0, "vy": 0.0, "wz": 0.0}
@@ -161,26 +156,19 @@ def main():
             pose_y += (cmd["vx"] * sin_y + cmd["vy"] * cos_y) * DT
             pose_yaw += cmd["wz"] * DT
 
-            target = dc.Transform()
-            target.p = (pose_x, pose_y, pose_z)
-            target.r = _yaw_to_quat(pose_yaw)
-            iface.set_rigid_body_pose(handle, target)
+            pos = np.array([pose_x, pose_y, pose_z])
+            orn = _yaw_to_quat_xyzw(pose_yaw)
+            base.set_world_pose(pos, orn)
 
-            if translate_attr and translate_attr.IsValid():
-                translate_attr.Set(Gf.Vec3d(pose_x, pose_y, pose_z))
-            if orient_attr and orient_attr.IsValid():
-                qx, qy, qz, qw = _yaw_to_quat(pose_yaw)
-                orient_attr.Set(Gf.Quatd(qw, Gf.Vec3d(qx, qy, qz)))
-
-            APP.update()
+            world.step(render=True)
 
             if step % REPORT_EVERY != 0:
                 continue
-            actual = iface.get_rigid_body_pose(handle)
+            actual_pos, _ = base.get_world_pose()
             print(
                 f"[tick {step:>5}] "
                 f"cmd=({cmd['vx']:+.2f},{cmd['vy']:+.2f},w={cmd['wz']:+.2f}) "
-                f"pos=({actual.p[0]:+.2f},{actual.p[1]:+.2f},{actual.p[2]:+.2f}) "
+                f"pos=({actual_pos[0]:+.2f},{actual_pos[1]:+.2f},{actual_pos[2]:+.2f}) "
                 f"yaw={math.degrees(pose_yaw):+.1f}deg",
                 flush=True,
             )
