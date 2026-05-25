@@ -305,6 +305,46 @@ EOS
   assert_output --partial "bash"
 }
 
+# ── #386: foreground exit auto compose-down ────────────────────────────────
+# trap _compose_cleanup EXIT is installed for any foreground invocation
+# (devel + one-shot stages). It fires on normal exit, Ctrl-C, and signal.
+# Under --dry-run the trap still fires but _compose only prints, never
+# touches docker, which is what these tests assert against.
+
+@test "run.sh default foreground (devel) installs auto-down trap" {
+  run bash "${SANDBOX}/run.sh" --dry-run
+  assert_success
+  # The trap-fired teardown is distinguishable from the -d branch's
+  # pre-up bare `down` by the --remove-orphans flag mirrored from stop.sh.
+  assert_output --partial "down --remove-orphans"
+}
+
+@test "run.sh foreground non-devel target also installs auto-down trap" {
+  # The pre-#386 trap only covered devel; one-shot stages (runtime / test)
+  # leaked the project default network because `compose run --rm` removes
+  # the container but leaves the network. The central install now covers
+  # both paths.
+  run bash "${SANDBOX}/run.sh" --dry-run -t test
+  assert_success
+  assert_output --partial "down --remove-orphans"
+}
+
+@test "run.sh --no-rm disables auto-down trap" {
+  run bash "${SANDBOX}/run.sh" --dry-run --no-rm
+  assert_success
+  # exec/up still appear; only the trap-fired down is suppressed.
+  refute_output --partial "down --remove-orphans"
+}
+
+@test "run.sh -d does not install auto-down trap" {
+  # Detached mode leaves lifecycle to the user. The pre-up explicit
+  # `down` (bare, no --remove-orphans) still runs to clear any stale
+  # instance, but the trap path must not fire.
+  run bash "${SANDBOX}/run.sh" --dry-run -d
+  assert_success
+  refute_output --partial "down --remove-orphans"
+}
+
 @test "run.sh -d combined with CMD is rejected with exit 2" {
   run bash "${SANDBOX}/run.sh" --dry-run -d ls /tmp
   assert_failure

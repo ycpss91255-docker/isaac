@@ -829,6 +829,46 @@ _make_dockerfile_with_stages() {
   [[ "${_called}" -eq 1 ]]
 }
 
+@test "_render_runtime_menu: logging choice dispatches to _edit_section_logging (#328)" {
+  local _called=0
+  _edit_section_logging() { _called=1; }
+  queue "0|logging" "0|__back"
+  _render_runtime_menu
+  [[ "${_called}" -eq 1 ]]
+}
+
+@test "_edit_section_logging: global choice dispatches to _edit_logging_keys logging (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|global" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging" ]]
+}
+
+@test "_edit_section_logging: devel choice dispatches to _edit_logging_keys logging.devel (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|devel" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.devel" ]]
+}
+
+@test "_edit_section_logging: test choice dispatches to _edit_logging_keys logging.test (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|test" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.test" ]]
+}
+
+@test "_edit_section_logging: runtime choice dispatches to _edit_logging_keys logging.runtime (#328)" {
+  local _seen=""
+  _edit_logging_keys() { _seen="$1"; }
+  queue "0|runtime" "0|__back"
+  _edit_section_logging
+  [[ "${_seen}" == "logging.runtime" ]]
+}
+
 # Mounts sub-menu
 
 @test "_render_mounts_menu: __back exits with 0" {

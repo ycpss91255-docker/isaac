@@ -21,6 +21,13 @@ setup() {
   assert_line --partial "Usage:"
 }
 
+@test "build.sh -h describes auto-apply default (no stale 'warn on drift', #365)" {
+  run bash /lint/build.sh -h
+  assert_success
+  assert_line --partial "auto-regenerate"
+  refute_line --partial "warn on drift"
+}
+
 # -------------------- run.sh --------------------
 
 @test "run.sh -h exits 0" {
@@ -36,6 +43,13 @@ setup() {
 @test "run.sh -h prints usage" {
   run bash /lint/run.sh -h
   assert_line --partial "Usage:"
+}
+
+@test "run.sh -h describes auto-apply default (no stale 'warn on drift', #365)" {
+  run bash /lint/run.sh -h
+  assert_success
+  assert_line --partial "auto-regenerate"
+  refute_line --partial "warn on drift"
 }
 
 # -------------------- exec.sh --------------------

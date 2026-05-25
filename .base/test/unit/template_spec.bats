@@ -298,21 +298,23 @@ setup() {
   assert_success
 }
 
-@test "run.sh devel branch installs trap to auto-down on exit" {
-  # Refactored: trap calls _devel_cleanup which runs compose down.
-  run grep -E 'trap _devel_cleanup EXIT' /source/script/docker/run.sh
+@test "run.sh foreground installs trap to auto-down on exit" {
+  # #386: trap calls _compose_cleanup which runs compose down. Trap is
+  # installed centrally before the dispatch block so both devel and
+  # non-devel foreground paths get the cleanup; -d / --no-rm opt out.
+  run grep -E 'trap _compose_cleanup EXIT' /source/script/docker/run.sh
   assert_success
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
+  run grep -E '_compose_cleanup\(\)' /source/script/docker/run.sh
   assert_success
 }
 
-@test "run.sh _devel_cleanup uses short timeout to avoid 10s grace period" {
-  # Regression: compose down's default 10s SIGTERM grace makes ./run.sh
-  # appear to hang for ~10s after the user exits the bash shell. Interactive
-  # devel doesn't need graceful shutdown — the user already exited.
-  run grep -E '_devel_cleanup\(\)' /source/script/docker/run.sh
+@test "run.sh _compose_cleanup uses --remove-orphans + short timeout" {
+  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
+  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
+  # period (user already exited the foreground shell — nothing to drain).
+  run grep -E '_compose_cleanup\(\)' /source/script/docker/run.sh
   assert_success
-  run grep -E 'down -t 0|down --timeout 0' /source/script/docker/run.sh
+  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/run.sh
   assert_success
 }
 
@@ -665,6 +667,70 @@ _stage_lint_layout() {
   assert_success
 }
 
+@test "Dockerfile.example copies _entrypoint_logging.sh to /usr/local/lib/base/ in devel stage (#368)" {
+  # PR #356 documented the source-line example as
+  # `. /home/${USER}/work/.base/script/docker/_entrypoint_logging.sh`,
+  # which has two failure modes that broke every v0.30.0 adopter:
+  # (1) $USER is unset/empty in the Dockerfile test stage, crashing
+  # `set -u` entrypoints; (2) on multi-repo workspaces WS_PATH is the
+  # workspace parent, not the repo root, so .base/ is never at the
+  # documented path. Path A: COPY the helper into a stable in-image
+  # location so downstream entrypoints can source it unconditionally
+  # without $USER deref or path arithmetic. Refs #368.
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  run grep -F 'COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh' "${_df}"
+  assert_success
+  # COPY must sit in devel stage (between `FROM ... AS devel` and the
+  # devel-test FROM line); a placement inside the commented runtime
+  # block is also documented but devel is the canonical site.
+  local _devel_line _test_line _copy_line
+  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
+  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
+  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/script/docker/_entrypoint_logging.sh /usr/local/lib/base/_entrypoint_logging.sh' "${_df}" | head -1 | cut -d: -f1)"
+  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
+  (( _devel_line < _copy_line ))
+  (( _copy_line < _test_line ))
+}
+
+@test "Dockerfile.example commented runtime stage shows _entrypoint_logging.sh COPY example (#368)" {
+  # The optional runtime stage starts from a fresh BASE_IMAGE, not
+  # FROM devel, so the helper is NOT inherited. Repos that ship a
+  # runtime image and want host-side log tee must opt in via a
+  # second COPY in the runtime stage. The commented-out scaffold
+  # documents it so downstream maintainers see the requirement at
+  # the moment they uncomment the runtime block.
+  local _df="/source/dockerfile/Dockerfile.example"
+  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
+  # The example line must be commented (leading '# ') so it doesn't
+  # accidentally activate in repos that haven't enabled the runtime
+  # stage. Either inside the runtime-base/runtime block or the
+  # documentation block above it.
+  run grep -E '^# COPY --chmod=0755 \.base/script/docker/_entrypoint_logging\.sh /usr/local/lib/base/_entrypoint_logging\.sh' "${_df}"
+  assert_success
+}
+
+@test "_entrypoint_logging.sh header documents in-image source-line (no \$USER, no work/.base) (#368)" {
+  # The helper's own Usage block is the canonical reference downstream
+  # entrypoint authors copy from. Pre-#368 the example was
+  # `. /home/${USER}/work/.base/script/docker/_entrypoint_logging.sh`
+  # which only works on a single-repo workspace AND only at runtime
+  # AFTER the compose bind mount lands -- failing at build-time smoke
+  # and on multi-repo workspace layouts. Header must show the
+  # in-image path instead, with no $USER deref and no work/.base
+  # prefix.
+  local _h="/source/script/docker/_entrypoint_logging.sh"
+  # Positive: header documents the stable in-image path.
+  run grep -F '#   . /usr/local/lib/base/_entrypoint_logging.sh' "${_h}"
+  assert_success
+  # Negative regression guards: the broken pre-#368 patterns must not
+  # reappear anywhere in the helper file (header, comments, or code).
+  run grep -F '${USER}/work/.base/script/docker/_entrypoint_logging.sh' "${_h}"
+  assert_failure
+  run grep -F '/home/${USER}/work/.base' "${_h}"
+  assert_failure
+}
+
 @test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {
   # Lock in: only i18n.sh defines _detect_lang. build.sh / run.sh /
   # exec.sh / stop.sh / _lib.sh previously shipped their own copies,
@@ -828,7 +894,11 @@ EOF
   # production sed commands here, mirroring what upgrade.sh does.
   # We do this by extracting and running the sed commands from upgrade.sh.
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
@@ -862,7 +932,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.10.0-rc1
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
@@ -895,7 +969,11 @@ jobs:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.9
 EOF
   local _seds
-  _seds="$(grep -E "^[[:space:]]*sed -i" /source/upgrade.sh)"
+  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
+  # carries Dockerfile-targeted seds (#348 auto-patch); the substitution
+  # below only knows how to fill in main_yaml + target_ver, so feeding it
+  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/upgrade.sh)"
   while IFS= read -r _line; do
     # shellcheck disable=SC2001
     _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"

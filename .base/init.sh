@@ -52,19 +52,30 @@ _symlink() {
 
 _create_symlinks() {
   _log "Creating symlinks:"
-  _symlink "${TEMPLATE_REL}/script/docker/build.sh" "build.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/run.sh" "run.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/exec.sh" "exec.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/stop.sh" "stop.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/prune.sh" "prune.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/setup.sh" "setup.sh"
-  _symlink "${TEMPLATE_REL}/script/docker/setup_tui.sh" "setup_tui.sh"
-  # Upgrade hygiene: drop the pre-rename `tui.sh` symlink if present
-  # so we don't leave a dangling pointer after the file was renamed.
-  if [[ -L tui.sh ]]; then
-    rm -f tui.sh
-    _log "  Removed stale tui.sh symlink (renamed to setup_tui.sh)"
-  fi
+  # #330: the seven user-facing wrappers live under script/ now, with
+  # link targets relative to the link's directory ("../" prefix).
+  # Root keeps `Makefile` as the elevated user entry; flag / sub-cmd
+  # forwarding is documented in script/docker/Makefile itself.
+  mkdir -p script
+  _symlink "../${TEMPLATE_REL}/script/docker/build.sh" "script/build.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/run.sh" "script/run.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/exec.sh" "script/exec.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/stop.sh" "script/stop.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/prune.sh" "script/prune.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/setup.sh" "script/setup.sh"
+  _symlink "../${TEMPLATE_REL}/script/docker/setup_tui.sh" "script/setup_tui.sh"
+  # Migration hygiene: drop pre-#330 root *.sh symlinks (now under
+  # script/) plus the pre-setup_tui-rename `tui.sh` legacy name. The
+  # [[ -L X ]] guard makes the loop idempotent on already-migrated
+  # repos and silent on very old forks that never carried setup.sh /
+  # setup_tui.sh at root.
+  local _stale
+  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh; do
+    if [[ -L "${_stale}" ]]; then
+      rm -f "${_stale}"
+      _log "  Removed stale root symlink ${_stale} (moved to script/)"
+    fi
+  done
   _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
 
   if [[ ! -f .hadolint.yaml ]] \
@@ -180,6 +191,12 @@ _create_new_repo() {
   mkdir -p script
   cat > script/entrypoint.sh <<'ENTRY'
 #!/usr/bin/env bash
+# Tee container stdout/stderr to a host file when [logging] local_path
+# is set in setup.conf. No-op when local_path is unset (default), so
+# default-sourcing has zero side effect on stock repos. Helper is
+# COPY'd into the image at /usr/local/lib/base/ by Dockerfile.example's
+# devel stage (refs #364 + #368).
+. /usr/local/lib/base/_entrypoint_logging.sh
 
 exec "${@}"
 ENTRY

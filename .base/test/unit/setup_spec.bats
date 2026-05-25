@@ -325,6 +325,148 @@ EOF
   _setup_known_section "additional_contexts"
 }
 
+@test "_setup_known_section recognises logging + [logging.<svc>] sub-section (#328)" {
+  _setup_known_section "logging"
+  _setup_known_section "logging.runtime"
+  _setup_known_section "logging.devel"
+  run _setup_known_section "logging."
+  assert_failure
+  run _setup_known_section "loggings"
+  assert_failure
+}
+
+@test "set logging.driver round-trips via show (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.driver journald --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.driver --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "journald"
+}
+
+@test "set logging.compress accepts true/false; rejects others (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.compress true --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.compress maybe --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set logging.max_file rejects non-positive integers (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.max_file 5 --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_file 0 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_file -1 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_file abc --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.max_size accepts num+unit; rejects malformed (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.max_size 50m --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_size 1g --base-path "${TEMP_DIR}"
+  assert_success
+  run main set logging.max_size 10X --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.max_size abc --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.driver rejects whitespace/empty-shape names (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.driver "bad name" --base-path "${TEMP_DIR}"
+  assert_failure
+  run main set logging.driver "1starts-with-digit" --base-path "${TEMP_DIR}"
+  assert_failure
+}
+
+@test "set logging.<svc>.<key> writes to per-service section (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+EOF
+  run main set logging.runtime.driver journald --base-path "${TEMP_DIR}"
+  assert_success
+  # Per-service section now exists with the override.
+  run grep -F "[logging.runtime]" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  run main show logging.runtime.driver --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "journald"
+}
+
+@test "remove logging.<svc>.<key> deletes the per-service key (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.runtime]
+driver = journald
+max_file = 7
+EOF
+  run main remove logging.runtime.driver --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F "driver = journald" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_failure
+  # Sibling key untouched.
+  run grep -F "max_file = 7" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+}
+
+@test "show logging prints the whole resolved [logging] section (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main show logging --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "driver"
+  assert_output --partial "max_size"
+  assert_output --partial "max_file"
+  assert_output --partial "compress"
+}
+
+@test "set logging.local_path accepts relative path (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path ./logs/ --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "./logs/"
+}
+
+@test "set logging.local_path accepts absolute path (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path /srv/app-logs --base-path "${TEMP_DIR}"
+  assert_success
+  run main show logging.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/srv/app-logs"
+}
+
+@test "set logging.local_path rejects whitespace-only value (#328)" {
+  cp /source/config/docker/setup.conf "${TEMP_DIR}/config/docker/setup.conf"
+  run main set logging.local_path "   " --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "set logging.<svc>.local_path writes to per-service section (#328)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[logging]
+driver = json-file
+EOF
+  run main set logging.devel.local_path ./devel-logs/ --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -F "[logging.devel]" "${TEMP_DIR}/config/docker/setup.conf"
+  assert_success
+  run main show logging.devel.local_path --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "./devel-logs/"
+}
+
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
@@ -3946,4 +4088,175 @@ EOC
   "
   assert_success
   refute_output --partial "[setup] USER="
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #338: setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
+# ════════════════════════════════════════════════════════════════════
+
+@test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  # Baseline: mode=force resolves GUI_ENABLED=true regardless of host
+  # GUI detection.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+  # CLI override flips GUI to off, ignoring setup.conf.
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui off --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui=force enables GUI even when setup.conf says off (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui=force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --gui rejects values outside auto|force|off (#338)" {
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --gui bogus 2>&1
+  "
+  assert_failure
+  assert_output --partial "Invalid value"
+}
+
+@test "apply --print-resolved prints KEY=VALUE state without writing .env (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = off
+[deploy]
+gpu_mode = off
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  # Expected resolved lines
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+  assert_output --partial "GPU_MODE=off"
+  assert_output --partial "GPU_ENABLED=false"
+  # And NO file was written.
+  [[ ! -f "${TEMP_DIR}/.env" ]]
+  [[ ! -f "${TEMP_DIR}/compose.yaml" ]]
+}
+
+@test "apply --print-resolved respects --gui override in the dump (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_DETECT_JETSON=false main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=force"
+  assert_output --partial "GUI_ENABLED=true"
+}
+
+@test "apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --no-x11-cookie --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=1"
+}
+
+@test "apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "X11_COOKIE_SKIP=0"
+}
+
+@test "apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = force
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --print-resolved 2>/dev/null
+  "
+  assert_success
+  assert_output --partial "GUI_MODE=off"
+  assert_output --partial "GUI_ENABLED=false"
+}
+
+@test "apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[gui]
+mode = auto
+EOF
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
+FROM scratch AS sys
+FROM sys AS base
+FROM base AS devel
+EOC
+  run bash -c "
+    source /source/script/docker/setup.sh
+    SETUP_GUI=off main apply --base-path '${TEMP_DIR}' --gui force --print-resolved 2>/dev/null
+  "
+  assert_success
+  # CLI --gui force wins
+  assert_output --partial "GUI_MODE=force"
 }

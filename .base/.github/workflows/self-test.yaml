@@ -116,30 +116,77 @@ jobs:
             echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
           fi
 
-  test:
+  shellcheck:
+    # Dedicated ShellCheck job (#376). Runs on plain ubuntu-latest where
+    # shellcheck is pre-installed, no buildx / test-tools image needed.
+    # A 30s shellcheck regression now surfaces in ~45s wall time instead
+    # of waiting for the full bats suite inside the `test` job. The
+    # `test` job passes --bats-only so the shellcheck phase doesn't run
+    # twice; local `make test` keeps the full pipeline.
     needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
-      # Doc-only short-circuit: `test` is the only branch-protection-required
-      # status check on `main`, so we must always REPORT a SUCCESS result.
-      # `skipped` is NOT `success` for required checks. The pattern is: keep
-      # the job in the graph, branch internally, exit 0 on doc-only PRs.
-      - name: Doc-only short-circuit
-        if: needs.classify.outputs.code_changed == 'false'
-        run: |
-          echo "Doc-only PR — bats / shellcheck / kcov skipped; reporting SUCCESS for branch protection."
-
       - name: Checkout
-        if: needs.classify.outputs.code_changed == 'true'
+        uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        run: ./script/ci/ci.sh --shellcheck-only
+
+  hadolint:
+    # Dedicated Hadolint job (#376). Statically lints the two
+    # template-owned Dockerfiles. Hadolint historically only ran in
+    # downstream repos' Dockerfile `test` stages during their own
+    # builds; this job adds a lint pass for template's own
+    # Dockerfile.example + Dockerfile.test-tools so a regression to
+    # either surfaces here before downstream CI fans out.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Hadolint — Dockerfile.example
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfile/Dockerfile.example
+          config: .hadolint.yaml
+
+      - name: Hadolint — Dockerfile.test-tools
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfile/Dockerfile.test-tools
+          config: .hadolint.yaml
+
+  bats-unit:
+    # Matrix shard of the unit suite (#377). Replaces the previous
+    # monolithic `test` job's unit phase. Round-robin partition over
+    # `find test/unit -name '*_spec.bats' | sort` keeps each shard's
+    # file count balanced enough at the current ~30 spec scale; weight
+    # by test count per spec is deferred (#377 out-of-scope).
+    #
+    # Shards run in parallel — the wall-time gain comes from cutting
+    # the pre-#376 5min `test` job (which serialised 1308 unit + 64
+    # integration + shellcheck) into 4 parallel jobs each ~1-2min.
+    # ci-rollup folds each matrix shard's result into a single
+    # `needs.bats-unit.result` so branch-protection sees one signal.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    steps:
+      - name: Checkout
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        if: needs.classify.outputs.code_changed == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Obtain test-tools:local (#317 P2 3-layer fallback)
         id: obtain
-        if: needs.classify.outputs.code_changed == 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -175,7 +222,7 @@ jobs:
           echo "build_local=true" >> "${GITHUB_OUTPUT}"
 
       - name: Build test-tools:local (with GHA cache)
-        if: ${{ needs.classify.outputs.code_changed == 'true' && steps.obtain.outputs.build_local == 'true' }}
+        if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -185,14 +232,91 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run CI (ShellCheck + Bats + Kcov)
-        if: needs.classify.outputs.code_changed == 'true'
+      - name: Run Bats unit shard ${{ matrix.shard }}
         env:
           TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh
+        run: ./script/ci/ci.sh --bats-unit-shard ${{ matrix.shard }}
+
+  bats-integration:
+    # Dedicated job for the 64 integration specs (#377). Pre-#377 these
+    # ran sequentially after the 1308 unit specs inside the monolithic
+    # `test` job; pulling them into their own job removes that tail
+    # from each unit shard's wall time.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git fetch origin \
+              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              --depth=200 >/dev/null 2>&1 || true
+            if ! git diff --quiet \
+                 "origin/${BASE_REF}"...HEAD \
+                 -- dockerfile/Dockerfile.test-tools; then
+              echo "build_local=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            docker tag \
+              ghcr.io/ycpss91255-docker/test-tools:main \
+              test-tools:local
+            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build test-tools:local (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: test-tools:local
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Run Bats integration suite
+        env:
+          TEST_TOOLS_IMAGE: test-tools:local
+        run: ./script/ci/ci.sh --bats-integration
+
+  coverage:
+    # Kcov coverage now main-push-only (#377). Pre-#377 the test job
+    # always ran the Codecov upload step but never with COVERAGE=1 on
+    # PRs (kcov 2-5x slowdown was too expensive), so PR runs produced
+    # no coverage data and the badge only updated post-merge via the
+    # main-push self-test run. This makes that implicit policy explicit:
+    # coverage runs ONLY on push to main (not on PRs, not on tags),
+    # and is NOT in ci-rollup's `needs:` so a coverage hiccup never
+    # blocks a PR merge.
+    needs: [actionlint, classify]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run CI with Kcov coverage
+        run: ./script/ci/ci.sh --coverage
 
       - name: Upload coverage to Codecov
-        if: ${{ needs.classify.outputs.code_changed == 'true' && always() }}
+        if: ${{ always() }}
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -273,14 +397,17 @@ jobs:
           cd "${REPO_DIR}"
           bash .base/init.sh
 
-          # Sanity: verify symlinks resolve and core files exist
-          test -L build.sh && test -L run.sh && test -L exec.sh && test -L stop.sh
-          test -L setup_tui.sh
+          # Sanity: verify symlinks resolve and core files exist.
+          # Post-#330: wrappers live under script/; Makefile stays at root.
+          test -L script/build.sh && test -L script/run.sh \
+            && test -L script/exec.sh && test -L script/stop.sh
+          test -L script/setup_tui.sh
+          test -L Makefile
           test -f Dockerfile && test -f compose.yaml && test -f config/docker/setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
 
-      - name: Build test stage (build.sh test)
+      - name: Build test stage (script/build.sh test)
         working-directory: ${{ env.REPO_DIR }}
         env:
           # build.sh skips its internal test-tools:local build when this
@@ -291,25 +418,25 @@ jobs:
           # the dockerfile/Dockerfile.test-tools build.
           TEST_TOOLS_IMAGE: test-tools:local
         run: |
-          ./build.sh test
+          ./script/build.sh test
 
       - name: Build devel stage
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./build.sh
+          ./script/build.sh
 
       - name: Run container in detach mode and exec into it
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./run.sh -d
+          ./script/run.sh -d
           # Verify the container is up and reachable via exec.sh
-          ./exec.sh echo "exec.sh OK from CI"
-          ./exec.sh whoami
+          ./script/exec.sh echo "exec.sh OK from CI"
+          ./script/exec.sh whoami
 
       - name: Stop and verify cleanup
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./stop.sh
+          ./script/stop.sh
           # No project containers should remain
           if docker ps --format '{{.Names}}' | grep -q '^e2e_test$'; then
             echo "ERROR: container still running after stop.sh"
@@ -378,8 +505,64 @@ jobs:
           TEST_TOOLS_IMAGE: test-tools:local
         run: docker compose run --rm ci-behavioural
 
+  ci-rollup:
+    # Single aggregator required by branch protection. Every PR check
+    # joins this `needs:` list so branch protection never needs to
+    # change to track new sub-jobs. Pattern mirrors ros1_bridge's
+    # `ci-summary` and env/* `ci-passed`.
+    #
+    # Hard-mandatory jobs (actionlint / classify) must succeed: SKIPPED
+    # there indicates a workflow bug, not an intentional gate. The
+    # post-#377 rollup has no remaining always-running test gate — bats
+    # is now split into shard'd jobs that SKIP on doc-only PRs along
+    # with everything else.
+    #
+    # Conditionally-gated jobs (shellcheck / hadolint / bats-unit /
+    # bats-integration / integration-e2e / behavioural) carry job-level
+    # `if:` so they SKIP on doc-only / non-behavioural PRs (#317 P1/P3,
+    # #376, #377); the rollup collapses SKIPPED into pass for those,
+    # otherwise doc-only PRs cannot merge.
+    #
+    # `coverage` is intentionally NOT in `needs:` — it's a metric job
+    # gated on push-to-main, not a PR gate; a coverage hiccup must not
+    # block PR merge.
+    needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify upstream jobs
+        env:
+          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          HADOLINT_RESULT: ${{ needs.hadolint.result }}
+          BATS_UNIT_RESULT: ${{ needs.bats-unit.result }}
+          BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
+          BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
+        run: |
+          set -euo pipefail
+          echo "actionlint:       ${ACTIONLINT_RESULT}"
+          echo "classify:         ${CLASSIFY_RESULT}"
+          echo "shellcheck:       ${SHELLCHECK_RESULT}"
+          echo "hadolint:         ${HADOLINT_RESULT}"
+          echo "bats-unit:        ${BATS_UNIT_RESULT}"
+          echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
+          echo "integration-e2e:  ${INTEGRATION_RESULT}"
+          echo "behavioural:      ${BEHAVIOURAL_RESULT}"
+          fail=0
+          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
+            [[ "${r}" == "success" ]] || fail=1
+          done
+          for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
+                   "${BATS_UNIT_RESULT}" "${BATS_INTEGRATION_RESULT}" \
+                   "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
+            [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
+          done
+          exit "${fail}"
+
   release:
-    needs: [test, integration-e2e, behavioural]
+    needs: [shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

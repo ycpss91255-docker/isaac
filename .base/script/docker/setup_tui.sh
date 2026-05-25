@@ -17,7 +17,17 @@
 set -euo pipefail
 
 # ── Script / template paths (resolve symlink to locate siblings) ───────────
-FILE_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
+# (post-#330), and direct invocation — see build.sh for the heuristic.
+_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+else
+  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
+fi
+unset _FILE_PATH_INVOKE_DIR
 readonly FILE_PATH
 
 _TUI_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
@@ -51,6 +61,7 @@ _TUI_MSG_EN[main.advanced]="Advanced"
 _TUI_MSG_EN[main.save]="Save & Exit"
 _TUI_MSG_EN[main.security]="privileged / cap_add / security_opt"
 _TUI_MSG_EN[main.additional_contexts]="Named build contexts (build.additional_contexts)"
+_TUI_MSG_EN[main.logging]="container log driver + rotation"
 _TUI_MSG_EN[main.runtime]="Runtime (network / GPU / display / env)"
 _TUI_MSG_EN[main.mounts]="Mounts (volumes / devices / tmpfs)"
 _TUI_MSG_EN[main.features]="Features (conditional / power-user)"
@@ -216,6 +227,29 @@ _TUI_MSG_EN[err.invalid_env_kv]=$'Invalid env var\n  - Expected: KEY=VALUE\n  - 
 _TUI_MSG_EN[err.invalid_network_name]=$'Invalid network name\n  - Expected: start with [a-zA-Z0-9]\n  - Then letters/digits/[_.-]\n  - Example: my_bridge'
 _TUI_MSG_EN[err.invalid_capability]=$'Invalid capability name\n  - Expected: ALL_UPPERCASE with optional underscores\n  - Example: SYS_ADMIN, NET_ADMIN, ALL'
 _TUI_MSG_EN[err.invalid_additional_context]=$'Invalid named build context\n  - Expected: <name>=<source>\n  - <name>: starts with [A-Za-z0-9], then letters/digits/[_.-]\n  - <source>: must be non-empty\n  - Example: repo=..'
+_TUI_MSG_EN[logging.title]="Logging"
+_TUI_MSG_EN[logging.svc.title]="Logging [%s]"
+_TUI_MSG_EN[logging.top.menu]="Pick scope: global or per-service override"
+_TUI_MSG_EN[logging.top.global]="Global [logging] (applies to every service)"
+_TUI_MSG_EN[logging.top.devel]="Per-service: devel"
+_TUI_MSG_EN[logging.top.test]="Per-service: test"
+_TUI_MSG_EN[logging.top.runtime]="Per-service: runtime"
+_TUI_MSG_EN[logging.menu]="Select: driver / max_size / max_file / compress"
+_TUI_MSG_EN[logging.back]="Back to runtime menu"
+_TUI_MSG_EN[logging.driver.label]="driver"
+_TUI_MSG_EN[logging.driver.prompt]="Logging driver (json-file / journald / syslog / fluentd / none / ...)"
+_TUI_MSG_EN[logging.max_size.label]="max_size"
+_TUI_MSG_EN[logging.max_size.prompt]="Max size per log file (e.g. 10m, 1g)"
+_TUI_MSG_EN[logging.max_file.label]="max_file"
+_TUI_MSG_EN[logging.max_file.prompt]="Max number of rotated log files (positive integer)"
+_TUI_MSG_EN[logging.compress.label]="compress"
+_TUI_MSG_EN[logging.compress.prompt]="Compress rotated log files?"
+_TUI_MSG_EN[logging.local_path.label]="local_path"
+_TUI_MSG_EN[logging.local_path.prompt]=$'Host directory for container log tee (empty = off)\n  - Relative path: resolved against repo root (./logs/)\n  - Absolute path: used verbatim (/var/log/app/)\n  - ~ expansion supported (~/dir/)\n  - Mounts at /var/log/<repo> inside the container'
+_TUI_MSG_EN[err.invalid_log_driver]=$'Invalid log driver name\n  - Expected: start with a letter, then letters/digits/[._-]\n  - Example: json-file, journald, syslog'
+_TUI_MSG_EN[err.invalid_log_max_size]=$'Invalid max_size\n  - Expected: <num><unit>\n  - Units: b, k, m, g (case-insensitive)\n  - Example: 10m, 1g, 512k'
+_TUI_MSG_EN[err.invalid_log_max_file]=$'Invalid max_file\n  - Expected: positive integer (1, 2, 3, ...)'
+_TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-empty and non-whitespace\n  - Cannot contain embedded newlines'
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
@@ -242,6 +276,7 @@ _TUI_MSG_ZH_TW[main.advanced]="進階"
 _TUI_MSG_ZH_TW[main.save]="儲存並結束"
 _TUI_MSG_ZH_TW[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_ZH_TW[main.additional_contexts]="具名 build context（build.additional_contexts）"
+_TUI_MSG_ZH_TW[main.logging]="container log driver + 輪轉"
 _TUI_MSG_ZH_TW[main.runtime]="執行時期（網路／GPU／顯示／環境變數）"
 _TUI_MSG_ZH_TW[main.mounts]="掛載（volumes／devices／tmpfs）"
 _TUI_MSG_ZH_TW[main.features]="功能（條件式／進階使用）"
@@ -407,6 +442,29 @@ _TUI_MSG_ZH_TW[err.invalid_env_kv]=$'環境變數格式錯誤\n  - 預期：KEY=
 _TUI_MSG_ZH_TW[err.invalid_network_name]=$'網路名稱格式錯誤\n  - 預期：開頭為 [a-zA-Z0-9]\n  - 後續含字母／數字／[_.-]\n  - 範例：my_bridge'
 _TUI_MSG_ZH_TW[err.invalid_capability]=$'Capability 名稱錯誤\n  - 預期：全大寫 ASCII + 底線\n  - 範例：SYS_ADMIN、NET_ADMIN、ALL'
 _TUI_MSG_ZH_TW[err.invalid_additional_context]=$'具名 build context 格式錯誤\n  - 預期：<name>=<source>\n  - <name>：以 [A-Za-z0-9] 開頭，僅含字母／數字／[_.-]\n  - <source>：不可為空\n  - 範例：repo=..'
+_TUI_MSG_ZH_TW[logging.title]="Logging"
+_TUI_MSG_ZH_TW[logging.svc.title]="Logging [%s]"
+_TUI_MSG_ZH_TW[logging.top.menu]="選擇範圍：global 或 per-service override"
+_TUI_MSG_ZH_TW[logging.top.global]="Global [logging]（套用到所有 service）"
+_TUI_MSG_ZH_TW[logging.top.devel]="Per-service：devel"
+_TUI_MSG_ZH_TW[logging.top.test]="Per-service：test"
+_TUI_MSG_ZH_TW[logging.top.runtime]="Per-service：runtime"
+_TUI_MSG_ZH_TW[logging.menu]="選擇：driver／max_size／max_file／compress"
+_TUI_MSG_ZH_TW[logging.back]="回 Runtime 選單"
+_TUI_MSG_ZH_TW[logging.driver.label]="driver"
+_TUI_MSG_ZH_TW[logging.driver.prompt]="Log driver（json-file / journald / syslog / fluentd / none / ...）"
+_TUI_MSG_ZH_TW[logging.max_size.label]="max_size"
+_TUI_MSG_ZH_TW[logging.max_size.prompt]="單一 log 檔大小上限（例如 10m、1g）"
+_TUI_MSG_ZH_TW[logging.max_file.label]="max_file"
+_TUI_MSG_ZH_TW[logging.max_file.prompt]="輪轉檔案數量（正整數）"
+_TUI_MSG_ZH_TW[logging.compress.label]="compress"
+_TUI_MSG_ZH_TW[logging.compress.prompt]="壓縮輪轉後的 log？"
+_TUI_MSG_ZH_TW[logging.local_path.label]="local_path"
+_TUI_MSG_ZH_TW[logging.local_path.prompt]=$'容器 log tee 到 host 端的目錄（留空＝關閉）\n  - 相對路徑：以 repo 根目錄為基準（./logs/）\n  - 絕對路徑：原樣使用（/var/log/app/）\n  - 支援 ~ 展開（~/dir/）\n  - 容器內掛載點為 /var/log/<repo>'
+_TUI_MSG_ZH_TW[err.invalid_log_driver]=$'log driver 名稱格式錯誤\n  - 預期：字母開頭，後接字母／數字／[._-]\n  - 範例：json-file、journald、syslog'
+_TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<數字><單位>\n  - 單位：b、k、m、g（不分大小寫）\n  - 範例：10m、1g、512k'
+_TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
+_TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env + compose.yaml..."
 _TUI_MSG_ZH_TW[action.prompt]="選擇動作"
@@ -431,6 +489,7 @@ _TUI_MSG_ZH_CN[main.advanced]="进阶"
 _TUI_MSG_ZH_CN[main.save]="保存并退出"
 _TUI_MSG_ZH_CN[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_ZH_CN[main.additional_contexts]="具名 build context（build.additional_contexts）"
+_TUI_MSG_ZH_CN[main.logging]="container log driver + 轮转"
 _TUI_MSG_ZH_CN[main.runtime]="运行时（网络／GPU／显示／环境变量）"
 _TUI_MSG_ZH_CN[main.mounts]="挂载（volumes／devices／tmpfs）"
 _TUI_MSG_ZH_CN[main.features]="功能（条件式／进阶使用）"
@@ -588,6 +647,29 @@ _TUI_MSG_ZH_CN[additional_contexts.back]="回主菜单"
 _TUI_MSG_ZH_CN[additional_contexts.entry.prompt]=$'具名 build context\n  - 格式：<name>=<source>\n  - 留空 = 删除此项目\n  - <source> 可以是 BuildKit 接受的任意来源：相对路径、docker-image://、https://、oci-layout://\n  - 示例（相对路径）：repo=..\n  - 示例（image）：base=docker-image://debian:bookworm-slim'
 _TUI_MSG_ZH_CN[err.invalid_mount]="挂载格式错误（预期 <host>:<container>[:ro|rw]）"
 _TUI_MSG_ZH_CN[err.invalid_additional_context]=$'具名 build context 格式错误\n  - 预期：<name>=<source>\n  - <name>：以 [A-Za-z0-9] 开头，仅含字母／数字／[_.-]\n  - <source>：不可为空\n  - 示例：repo=..'
+_TUI_MSG_ZH_CN[logging.title]="Logging"
+_TUI_MSG_ZH_CN[logging.svc.title]="Logging [%s]"
+_TUI_MSG_ZH_CN[logging.top.menu]="选择范围：global 或 per-service override"
+_TUI_MSG_ZH_CN[logging.top.global]="Global [logging]（套用到所有 service）"
+_TUI_MSG_ZH_CN[logging.top.devel]="Per-service：devel"
+_TUI_MSG_ZH_CN[logging.top.test]="Per-service：test"
+_TUI_MSG_ZH_CN[logging.top.runtime]="Per-service：runtime"
+_TUI_MSG_ZH_CN[logging.menu]="选择：driver／max_size／max_file／compress"
+_TUI_MSG_ZH_CN[logging.back]="回 Runtime 菜单"
+_TUI_MSG_ZH_CN[logging.driver.label]="driver"
+_TUI_MSG_ZH_CN[logging.driver.prompt]="Log driver（json-file / journald / syslog / fluentd / none / ...）"
+_TUI_MSG_ZH_CN[logging.max_size.label]="max_size"
+_TUI_MSG_ZH_CN[logging.max_size.prompt]="单一 log 文件大小上限（例如 10m、1g）"
+_TUI_MSG_ZH_CN[logging.max_file.label]="max_file"
+_TUI_MSG_ZH_CN[logging.max_file.prompt]="轮转文件数量（正整数）"
+_TUI_MSG_ZH_CN[logging.compress.label]="compress"
+_TUI_MSG_ZH_CN[logging.compress.prompt]="压缩轮转后的 log？"
+_TUI_MSG_ZH_CN[logging.local_path.label]="local_path"
+_TUI_MSG_ZH_CN[logging.local_path.prompt]=$'容器 log tee 到 host 端的目录（留空＝关闭）\n  - 相对路径：以 repo 根目录为基准（./logs/）\n  - 绝对路径：原样使用（/var/log/app/）\n  - 支援 ~ 展开（~/dir/）\n  - 容器内挂载点为 /var/log/<repo>'
+_TUI_MSG_ZH_CN[err.invalid_log_driver]=$'log driver 名称格式错误\n  - 预期：字母开头，后接字母／数字／[._-]\n  - 示例：json-file、journald、syslog'
+_TUI_MSG_ZH_CN[err.invalid_log_max_size]=$'max_size 格式错误\n  - 预期：<数字><单位>\n  - 单位：b、k、m、g（不分大小写）\n  - 示例：10m、1g、512k'
+_TUI_MSG_ZH_CN[err.invalid_log_max_file]=$'max_file 格式错误\n  - 预期：正整数（1、2、3、...）'
+_TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可为空或纯空白\n  - 不可含换行符'
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
@@ -615,6 +697,7 @@ _TUI_MSG_JA[main.advanced]="詳細"
 _TUI_MSG_JA[main.save]="保存して終了"
 _TUI_MSG_JA[main.security]="privileged／cap_add／security_opt"
 _TUI_MSG_JA[main.additional_contexts]="名前付き build context（build.additional_contexts）"
+_TUI_MSG_JA[main.logging]="container log driver + ローテーション"
 _TUI_MSG_JA[main.runtime]="ランタイム（ネットワーク／GPU／表示／環境変数）"
 _TUI_MSG_JA[main.mounts]="マウント（volumes／devices／tmpfs）"
 _TUI_MSG_JA[main.features]="機能（条件付き／上級者向け）"
@@ -772,6 +855,29 @@ _TUI_MSG_JA[additional_contexts.back]="メインメニューへ戻る"
 _TUI_MSG_JA[additional_contexts.entry.prompt]=$'名前付き build context\n  - 形式: <name>=<source>\n  - 空 = この項目を削除\n  - <source> は BuildKit が受け付ける任意の形式: 相対パス、docker-image://、https://、oci-layout://\n  - 例（相対パス）: repo=..\n  - 例（image）: base=docker-image://debian:bookworm-slim'
 _TUI_MSG_JA[err.invalid_mount]="マウント形式が不正（<host>:<container>[:ro|rw] を期待）"
 _TUI_MSG_JA[err.invalid_additional_context]=$'名前付き build context が不正\n  - 形式: <name>=<source>\n  - <name>: [A-Za-z0-9] で始まり、文字／数字／[_.-]\n  - <source>: 空にできません\n  - 例: repo=..'
+_TUI_MSG_JA[logging.title]="Logging"
+_TUI_MSG_JA[logging.svc.title]="Logging [%s]"
+_TUI_MSG_JA[logging.top.menu]="範囲を選択: global または per-service override"
+_TUI_MSG_JA[logging.top.global]="Global [logging]（全 service に適用）"
+_TUI_MSG_JA[logging.top.devel]="Per-service: devel"
+_TUI_MSG_JA[logging.top.test]="Per-service: test"
+_TUI_MSG_JA[logging.top.runtime]="Per-service: runtime"
+_TUI_MSG_JA[logging.menu]="選択: driver／max_size／max_file／compress"
+_TUI_MSG_JA[logging.back]="Runtime メニューに戻る"
+_TUI_MSG_JA[logging.driver.label]="driver"
+_TUI_MSG_JA[logging.driver.prompt]="Log driver（json-file / journald / syslog / fluentd / none / ...）"
+_TUI_MSG_JA[logging.max_size.label]="max_size"
+_TUI_MSG_JA[logging.max_size.prompt]="1 log ファイルの最大サイズ（例: 10m、1g）"
+_TUI_MSG_JA[logging.max_file.label]="max_file"
+_TUI_MSG_JA[logging.max_file.prompt]="ローテーションファイル数（正の整数）"
+_TUI_MSG_JA[logging.compress.label]="compress"
+_TUI_MSG_JA[logging.compress.prompt]="ローテーション後の log を圧縮しますか？"
+_TUI_MSG_JA[logging.local_path.label]="local_path"
+_TUI_MSG_JA[logging.local_path.prompt]=$'コンテナ log を host 側にバインドマウントするディレクトリ（空＝無効）\n  - 相対パス: repo ルートから解決（./logs/）\n  - 絶対パス: そのまま使用（/var/log/app/）\n  - ~ 展開対応（~/dir/）\n  - コンテナ内のマウント先は /var/log/<repo>'
+_TUI_MSG_JA[err.invalid_log_driver]=$'log driver 名が不正\n  - 形式: 文字で始まり、その後は文字／数字／[._-]\n  - 例: json-file、journald、syslog'
+_TUI_MSG_JA[err.invalid_log_max_size]=$'max_size が不正\n  - 形式: <数値><単位>\n  - 単位: b、k、m、g（大小文字区別なし）\n  - 例: 10m、1g、512k'
+_TUI_MSG_JA[err.invalid_log_max_file]=$'max_file が不正\n  - 形式: 正の整数（1、2、3、...）'
+_TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または空白のみは不可\n  - 改行を含めることはできません'
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
@@ -1649,6 +1755,120 @@ _edit_section_additional_contexts() {
     _validate_additional_context err.invalid_additional_context
 }
 
+# _edit_logging_keys <section>
+#
+# Generic editor for the four [logging] / [logging.<svc>] scalar keys.
+# Operates on whichever section name is passed (`logging`, `logging.devel`,
+# `logging.test`, `logging.runtime`, or a custom `logging.<svc>` typed
+# via the CLI). The same input shape, the same validators, the same
+# fall-through-on-empty semantics for every service — the only thing
+# that changes is the namespaced override key the value lands on.
+_edit_logging_keys() {
+  local _section="${1:?_edit_logging_keys: missing section}"
+  while :; do
+    local _drv _ms _mf _cp _lp
+    _drv="$(_override_get "${_section}.driver" "")"
+    _ms="$(_override_get "${_section}.max_size" "")"
+    _mf="$(_override_get "${_section}.max_file" "")"
+    _cp="$(_override_get "${_section}.compress" "")"
+    _lp="$(_override_get "${_section}.local_path" "")"
+
+    local _title
+    if [[ "${_section}" == "logging" ]]; then
+      _title="$(_tui_msg logging.title)"
+    else
+      local _fmt _svc="${_section#logging.}"
+      _fmt="$(_tui_msg logging.svc.title)"
+      # shellcheck disable=SC2059  # i18n format string from our table
+      printf -v _title "${_fmt}" "${_svc}"
+    fi
+
+    local _choice
+    _choice="$(_tui_menu "${_title}" "$(_tui_msg logging.menu)" \
+      driver     "$(_tui_msg logging.driver.label) = ${_drv:-(inherit)}" \
+      max_size   "$(_tui_msg logging.max_size.label) = ${_ms:-(inherit)}" \
+      max_file   "$(_tui_msg logging.max_file.label) = ${_mf:-(inherit)}" \
+      compress   "$(_tui_msg logging.compress.label) = ${_cp:-(inherit)}" \
+      local_path "$(_tui_msg logging.local_path.label) = ${_lp:-(off)}" \
+      __back     "$(_tui_msg logging.back)")" || return 0
+
+    case "${_choice}" in
+      driver)
+        local _new
+        _new="$(_tui_inputbox "${_title}" \
+          "$(_tui_msg logging.driver.prompt)" "${_drv}")" || continue
+        if [[ -n "${_new}" ]] && ! _validate_log_driver "${_new}"; then
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_driver)"
+          continue
+        fi
+        _override_set "${_section}.driver" "${_new}"
+        ;;
+      max_size)
+        local _new
+        _new="$(_tui_inputbox "${_title}" \
+          "$(_tui_msg logging.max_size.prompt)" "${_ms}")" || continue
+        if [[ -n "${_new}" ]] && ! _validate_log_max_size "${_new}"; then
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_size)"
+          continue
+        fi
+        _override_set "${_section}.max_size" "${_new}"
+        ;;
+      max_file)
+        local _new
+        _new="$(_tui_inputbox "${_title}" \
+          "$(_tui_msg logging.max_file.prompt)" "${_mf}")" || continue
+        if [[ -n "${_new}" ]] && ! _validate_log_max_file "${_new}"; then
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_max_file)"
+          continue
+        fi
+        _override_set "${_section}.max_file" "${_new}"
+        ;;
+      compress)
+        if _tui_yesno "${_title}" \
+            "$(_tui_msg logging.compress.prompt)"; then
+          _override_set "${_section}.compress" "true"
+        else
+          _override_set "${_section}.compress" "false"
+        fi
+        ;;
+      local_path)
+        local _new
+        _new="$(_tui_inputbox "${_title}" \
+          "$(_tui_msg logging.local_path.prompt)" "${_lp}")" || continue
+        if [[ -n "${_new}" ]] && ! _validate_log_local_path "${_new}"; then
+          _tui_msgbox "${_title}" "$(_tui_msg err.invalid_log_local_path)"
+          continue
+        fi
+        _override_set "${_section}.local_path" "${_new}"
+        ;;
+      __back|"") return 0 ;;
+    esac
+  done
+}
+
+_edit_section_logging() {
+  while :; do
+    local _choice
+    # Per-service entries cover the three baseline services emitted by
+    # _emit_logging_block (devel at line 1804 / test at 2165 in setup.sh;
+    # `runtime` shows up when auto-emit picks up `FROM ... AS runtime` per
+    # #215). Editing a per-service section without populating it leaves
+    # the global block as-is (compose key-level merge).
+    _choice="$(_tui_menu "$(_tui_msg logging.title)" "$(_tui_msg logging.top.menu)" \
+      global   "$(_tui_msg logging.top.global)" \
+      devel    "$(_tui_msg logging.top.devel)" \
+      test     "$(_tui_msg logging.top.test)" \
+      runtime  "$(_tui_msg logging.top.runtime)" \
+      __back   "$(_tui_msg logging.back)")" || return 0
+
+    case "${_choice}" in
+      global)            _edit_logging_keys "logging" ;;
+      devel|test|runtime) _edit_logging_keys "logging.${_choice}" ;;
+      __back|"") return 0 ;;
+    esac
+  done
+}
+
 # ── Main menu ────────────────────────────────────────────────────────────
 
 # ── Per-stage overrides (#220) ───────────────────────────────────────────
@@ -2032,8 +2252,10 @@ _render_main_menu() {
 }
 
 _render_runtime_menu() {
-  # Runtime grouper (#221): network / GPU / display / env vars — all
-  # the things that take effect when the container actually runs.
+  # Runtime grouper (#221): network / GPU / display / env vars / logging
+  # — all the things that take effect when the container actually runs.
+  # Logging joined the menu in #328 to close the [logging] UX orphan
+  # left by #310 / #314 (compose-emit shipped without TUI / CLI reach).
   while :; do
     local _choice
     _choice="$(_tui_menu "$(_tui_msg runtime.title)" "$(_tui_msg runtime.menu)" \
@@ -2041,9 +2263,10 @@ _render_runtime_menu() {
       deploy      "$(_tui_msg main.deploy)" \
       gui         "$(_tui_msg main.gui)" \
       environment "$(_tui_msg main.environment)" \
+      logging     "$(_tui_msg main.logging)" \
       __back      "$(_tui_msg runtime.back)")" || break
     case "${_choice}" in
-      network|deploy|gui|environment) "_edit_section_${_choice}" ;;
+      network|deploy|gui|environment|logging) "_edit_section_${_choice}" ;;
       __back|"") break ;;
     esac
   done

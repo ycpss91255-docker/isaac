@@ -372,3 +372,152 @@ teardown() {
   assert_success
   [[ "${stderr}" == *"+ "* ]]
 }
+
+# ── TTY auto-detect + explicit -T / -i (#382, Option 1+2) ──────────────
+#
+# `docker compose exec` defaults to -it; running a one-shot CMD inherits
+# that TTY so container-side bash echoes terminal escape sequences
+# (focus-in `^[[I`, bracketed-paste, etc.) into stdout. Fix shape:
+#   - auto-detect: positional CMD `bash|sh|dash|zsh|ash|ksh -c ...`
+#     implies no-TTY (the 90% case)
+#   - explicit `-T / --no-tty` forces no-TTY (escape hatch for the
+#     heuristic-misses case, e.g. `whoami`, `env BAR=1 bash -c '...'`)
+#   - explicit `-i / --tty` forces TTY (override for the rare case
+#     where a `bash -c` actually wants a TTY, e.g. `bash -c 'tput cols'`)
+#   - last-wins between -T and -i (standard CLI convention)
+#
+# Verification is via --dry-run path: _compose prints all argv via
+# `printf '%q'` so we can grep for the literal `-T` between `exec` and
+# the target name.
+
+@test "exec.sh --dry-run with no CMD: no -T (default interactive bash entry, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run
+  assert_success
+  assert_output --partial "exec devel"
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run with interactive binary (htop): no -T (auto-detect doesn't fire, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run htop
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run bash -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run bash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run sh -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run sh -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run dash -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run dash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run zsh -c '...': auto-detect adds -T (#382 Option 2)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run zsh -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run bash hello.sh: no -T (no -c → not a one-shot, #382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run bash hello.sh
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -T whoami: explicit -T forces no-TTY (#382 Option 1)" {
+  # Heuristic doesn't fire (whoami isn't bash/sh + -c); explicit -T
+  # covers this leaked-output case.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T whoami
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run --no-tty long form forces no-TTY (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run --no-tty whoami
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -T env BAR=1 bash -c '...': covers auto-detect's heuristic gap (#382)" {
+  # `env` is the first positional so the bash + -c heuristic misses;
+  # explicit -T is the escape hatch for this case.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T env BAR=1 bash -c 'echo $BAR'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -i bash -c '...': explicit -i overrides heuristic (#382 Option 1)" {
+  # User wants TTY for `bash -c 'tput cols'`-style commands; -i wins
+  # over the auto-detect -T.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -i bash -c 'tput cols'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run --tty long form overrides heuristic (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run --tty bash -c 'tput cols'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -T -i: last-wins gives TTY (#382)" {
+  # Standard CLI last-wins precedence. -T then -i → -i (TTY).
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T -i bash -c 'echo hi'
+  assert_success
+  refute_output --partial "exec -T"
+}
+
+@test "exec.sh --dry-run -i -T: last-wins gives no-TTY (#382)" {
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -i -T bash -c 'echo hi'
+  assert_success
+  assert_output --partial "exec -T devel"
+}
+
+@test "exec.sh --dry-run -T after -t TARGET still attaches to the right service (#382)" {
+  echo "tester-mockimg-headless" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -t headless -T whoami
+  assert_success
+  assert_output --partial "exec -T headless"
+}
+
+@test "exec.sh --dry-run -- separator: -T propagates, CMD flows through (#382 + #289)" {
+  # The -- separator stops exec.sh option parsing. -T must be BEFORE --.
+  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  run bash "${SANDBOX}/exec.sh" --dry-run -T -- my-tool --version
+  assert_success
+  assert_output --partial "exec -T devel"
+  assert_output --partial "my-tool"
+  assert_output --partial "--version"
+}
+
+@test "exec.sh --help mentions -T / --no-tty and -i / --tty flags (#382)" {
+  run bash "${SANDBOX}/exec.sh" --help
+  assert_success
+  assert_output --partial "-T"
+  assert_output --partial "--no-tty"
+  assert_output --partial "-i"
+  assert_output --partial "--tty"
+}

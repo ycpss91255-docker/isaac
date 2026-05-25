@@ -1,0 +1,1 @@
+../.base/script/docker/build.sh
