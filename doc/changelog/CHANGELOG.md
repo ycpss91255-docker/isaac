@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Added
+- **`apps/isaacsim.exp.base.python.streaming.kit`** — new custom Kit experience that layers `omni.kit.livestream.{core,webrtc}` on top of the lightweight `isaacsim.exp.base` bundle (same bundle the SimulationApp default `isaacsim.exp.base.python.kit` uses). Closes issue #21 fix-B: SimulationApp drivers can now pass `experience="/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit"` and get a working WebRTC livestream that the Isaac Sim WebRTC Streaming Client can connect to — without inheriting the full editor bundle that segfaults when `isaacsim.exp.full.streaming.kit` is loaded via SimulationApp instead of the kit binary directly. Copied into `/isaac-sim/apps/` in the devel stage via `COPY apps/*.kit`; future custom experiences land in the same dir.
+
+### Changed
+- **Mount layout refactor** — host `${WS_PATH}/isaac-sim/` reorganised by which subsystem owns the data, instead of by whether it's cache vs logs vs data. New layout:
+  - `kit/{cache,data,logs}` — Kit framework cache, app data (`user.config.json`, pipapi envs), and app logs. **`kit/data` + `kit/logs` are new mounts** that close issue #21 fix-A: the streaming-enabled SimulationApp experience needs them writable (was previously root-owned, no mount → permission-denied crash).
+  - `ov/{cache,data,logs}` — Omniverse cache (shader build), data (`~/.local/share/ov/data`), logs (`~/.nvidia-omniverse/logs`).
+  - `pip` — pip cache (was `cache/pip`).
+  - `nvidia/{glcache,computecache}` — NVIDIA GPU caches (was `cache/glcache` + `cache/computecache`).
+  - `documents` — unchanged.
+  - `script/init_isaac_dirs.sh` now auto-migrates pre-existing host data (`cache/{kit,ov,pip,glcache,computecache}`, flat `logs/`, flat `data/`) into the new layout on first run after upgrade. Shader / pip / compute caches are preserved through the `mv`.
+  - 4-language README mount tables synced.
+
+### Added
 - Isaac Sim 5.1.0 base image (`nvcr.io/nvidia/isaac-sim:5.1.0`) wired in via Dockerfile `ARG BASE_IMAGE`
 - `script/init_isaac_dirs.sh` — host-side first-time setup that pre-creates 8 Isaac Sim cache dirs under `${WS_PATH}/isaac-sim/` so the container's non-root user can write to them (avoids docker daemon root auto-mkdir)
 - `setup.conf [environment]`: `ACCEPT_EULA=Y`, `PRIVACY_CONSENT=Y`

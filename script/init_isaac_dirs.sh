@@ -31,15 +31,43 @@ fi
 
 base="${WS_PATH}/isaac-sim"
 dirs=(
-  "${base}/cache/kit"
-  "${base}/cache/ov"
-  "${base}/cache/pip"
-  "${base}/cache/glcache"
-  "${base}/cache/computecache"
-  "${base}/logs"
-  "${base}/data"
+  "${base}/kit/cache"
+  "${base}/kit/data"
+  "${base}/kit/logs"
+  "${base}/ov/cache"
+  "${base}/ov/data"
+  "${base}/ov/logs"
+  "${base}/pip"
+  "${base}/nvidia/glcache"
+  "${base}/nvidia/computecache"
   "${base}/documents"
 )
+
+# Migration: pre-2026-05-21 layout used flat cache/, logs/, data/ paths
+# alongside namespaced kit/cache. Refactor (issue ycpss91255-docker/isaac#21
+# fix-A) renamed everything under kit/ / ov/ / pip/ / nvidia/ namespaces.
+# Move any pre-existing host data to the new locations on first run so
+# users do not lose accumulated shader / pip / compute caches.
+declare -A migrations=(
+  ["${base}/cache/kit"]="${base}/kit/cache"
+  ["${base}/cache/ov"]="${base}/ov/cache"
+  ["${base}/cache/pip"]="${base}/pip"
+  ["${base}/cache/glcache"]="${base}/nvidia/glcache"
+  ["${base}/cache/computecache"]="${base}/nvidia/computecache"
+  ["${base}/logs"]="${base}/ov/logs"
+  ["${base}/data"]="${base}/ov/data"
+)
+migrated=()
+for old in "${!migrations[@]}"; do
+  new="${migrations[$old]}"
+  if [[ -d "${old}" ]] && [[ ! -d "${new}" ]]; then
+    mkdir -p "$(dirname "${new}")"
+    mv "${old}" "${new}"
+    migrated+=("${old} -> ${new}")
+  fi
+done
+# Clean up empty parent dirs left over from the old layout.
+rmdir "${base}/cache" 2>/dev/null || true
 
 # Detect pre-existing root-owned dirs (the failure mode this script
 # prevents) and abort with an actionable message rather than silently
@@ -62,5 +90,9 @@ fi
 
 mkdir -p "${dirs[@]}"
 
+if (( ${#migrated[@]} > 0 )); then
+  echo "[init_isaac_dirs] migrated ${#migrated[@]} dirs to new layout:"
+  printf '  %s\n' "${migrated[@]}"
+fi
 echo "[init_isaac_dirs] OK — ${#dirs[@]} cache dirs ready under ${base}/"
 echo "[init_isaac_dirs] Next: ./build.sh && ./run.sh"
