@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Apache-2.0 `LICENSE` file, aligned with `ycpss91255-docker/base` org convention (closes #26).
+- `.gitignore`: `isaac_ws/` entry to prevent Docker bind-mount auto-mkdir artifacts from appearing as untracked (closes #25).
+
 ### Fixed
 - Dockerfile test stage: replace stale `COPY *.sh /lint/` + `COPY script/*.sh /lint/script/` with single `COPY script/*.sh /lint/` (flat). Root wrappers moved to `script/` in base v0.31.0; the old COPY grabbed zero files, and the `/lint/script/` destination broke upstream smoke tests (`script_help.bats`, `display_env.bats`) that expect `/lint/build.sh`. base v0.34.1 `upgrade.sh` auto-patch was skipped due to false-positive idempotency match (upstream base#399 regex too broad — `COPY script/*.sh /lint/script/` matched the already-patched check).
 
