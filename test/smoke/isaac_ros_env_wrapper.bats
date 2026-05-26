@@ -44,6 +44,19 @@ setup() {
   assert_output "arg1 arg2 arg3"
 }
 
+@test "wrapper appends publicEndpointAddress when PUBLIC_IP is set" {
+  PUBLIC_IP=10.2.23.83 run /usr/local/bin/isaac-ros-env-wrapper.sh echo -v
+  assert_success
+  assert_output "-v --/app/livestream/publicEndpointAddress=10.2.23.83"
+}
+
+@test "wrapper does not append publicEndpointAddress when PUBLIC_IP is empty" {
+  unset PUBLIC_IP
+  run /usr/local/bin/isaac-ros-env-wrapper.sh echo -v
+  assert_success
+  assert_output "-v"
+}
+
 @test "devel stage ENV ROS_DISTRO is baked (soft)" {
   run bash -c 'printf "%s" "${ROS_DISTRO}"'
   assert_success

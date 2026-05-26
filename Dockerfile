@@ -330,7 +330,7 @@ RUN bats /smoke_test/
 FROM devel AS headless
 
 ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runheadless.sh"]
-CMD ["-v"]
+CMD ["-v", "--/app/livestream/nvcf/quitOnSessionEnded=false"]
 
 ############################## gui ##############################
 # [isaac] 本機 GUI（X11 forward）— 需要 host 端 `xhost +local:docker` 已開

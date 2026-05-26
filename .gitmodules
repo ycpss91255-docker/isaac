@@ -1,0 +1,4 @@
+[submodule "web-viewer/src"]
+	path = web-viewer/src
+	url = https://github.com/NVIDIA-Omniverse/web-viewer-sample.git
+	branch = 1.5.2

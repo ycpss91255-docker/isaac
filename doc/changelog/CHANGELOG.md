@@ -3,8 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Web viewer sidecar** (`web-viewer/`) for browser-based Isaac Sim streaming (closes #30). NVIDIA's [`web-viewer-sample`](https://github.com/NVIDIA-Omniverse/web-viewer-sample) v1.5.2 as git submodule, with its own Dockerfile + compose.yaml. Build-arg `SIGNALING_SERVER` (default from `PUBLIC_IP` env) bakes the host IP into `stream.config.json` at build time. Start with `docker compose -f web-viewer/compose.yaml up -d`.
+- `setup.conf [environment] env_8 = PUBLIC_IP=` — host LAN IP for WebRTC ICE candidates. Read by `isaac-ros-env-wrapper.sh` to inject `--/app/livestream/publicEndpointAddress` into headless/gui CMD at runtime. Empty = skip (localhost-only).
 - Apache-2.0 `LICENSE` file, aligned with `ycpss91255-docker/base` org convention (closes #26).
 - `.gitignore`: `isaac_ws/` entry to prevent Docker bind-mount auto-mkdir artifacts from appearing as untracked (closes #25).
+
+### Changed
+- Headless CMD: append `--/app/livestream/nvcf/quitOnSessionEnded=false` so Isaac Sim survives client disconnects instead of exiting silently (NVCF default was `true`).
+- `isaac-ros-env-wrapper.sh`: when `PUBLIC_IP` env is set, appends `--/app/livestream/publicEndpointAddress=$PUBLIC_IP` to the wrapped command args. Ensures WebRTC ICE candidates contain the correct host IP for remote browser access (without this flag, ICE advertises `127.0.0.1`).
 
 ### Fixed
 - Dockerfile test stage: replace stale `COPY *.sh /lint/` + `COPY script/*.sh /lint/script/` with single `COPY script/*.sh /lint/` (flat). Root wrappers moved to `script/` in base v0.31.0; the old COPY grabbed zero files, and the `/lint/script/` destination broke upstream smoke tests (`script_help.bats`, `display_env.bats`) that expect `/lint/build.sh`. base v0.34.1 `upgrade.sh` auto-patch was skipped due to false-positive idempotency match (upstream base#399 regex too broad — `COPY script/*.sh /lint/script/` matched the already-patched check).
