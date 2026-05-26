@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING** (closes #28): consolidate Docker stages from 4 (`headless` / `gui` / `standalone`) to 2 (`headless` / `headless-stream`). Follows Gazebo gzserver/gzclient separation: one container = one Kit process at a time, driven by `ISAAC_LIVESTREAM` env var.
+  - `headless`: pure simulation, no streaming (`ISAAC_LIVESTREAM=0`). Idles on start; driver scripts exec'd in.
+  - `headless-stream`: simulation + WebRTC streaming (`ISAAC_LIVESTREAM=2`). Same idle pattern.
+  - `gui`: removed — use `headless-stream` + WebRTC viewer, or one-off `make exec -- -t headless /isaac-sim/runapp.sh`.
+  - `standalone`: removed — absorbed by new `headless` (same idle + exec pattern).
+
 ### Removed
+- `gui` Docker stage — replaced by `headless-stream` + WebRTC Streaming Client / `omniverse_web_viewer`.
+- `standalone` Docker stage — absorbed by `headless` (both idle + exec pattern).
 - `web-viewer/` sidecar extracted to independent repo [`ycpss91255-docker/omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) — reusable across any Omniverse Kit streaming app, not Isaac-specific. Headless `quitOnSessionEnded` + `publicEndpointAddress` flags remain in this repo.
 
 ### Added
