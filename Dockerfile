@@ -319,55 +319,36 @@ USER "${USER}"
 RUN bats /smoke_test/
 
 ############################## headless ##############################
-# [isaac] Auto-emitted as compose service by setup.sh (base #215).
-# `./run.sh -t headless -d` 直接拉起 Isaac Sim WebRTC streaming server，
-# 不需要 docker exec /isaac-sim/runheadless.sh。
+# [isaac] Pure simulation, no streaming. Idles on startup; driver
+# scripts are exec'd in and read ISAAC_LIVESTREAM=0 to skip streaming.
 #
-# ENTRYPOINT goes through isaac-ros-env-wrapper.sh which re-exports
-# ROS_DISTRO + LD_LIBRARY_PATH from /etc/isaac/ros-distro (baked at
-# build time from ARG ROS_DISTRO). This makes runtime
-# `-e ROS_DISTRO=...` flags ineffective — distro is build-time only.
+# Usage:
+#   make run -- -t headless -d
+#   make exec -- -t headless /isaac-sim/python.sh <driver.py>
+#
+# Follows the Gazebo gzserver/gzclient separation model: one
+# container = one Kit process at a time. The driver script is the
+# single Kit owner; no dual-Kit port conflict.
 FROM devel AS headless
 
-ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runheadless.sh"]
-CMD ["-v", "--/app/livestream/nvcf/quitOnSessionEnded=false"]
+ENV ISAAC_LIVESTREAM=0
+CMD ["sleep", "infinity"]
 
-############################## gui ##############################
-# [isaac] 本機 GUI（X11 forward）— 需要 host 端 `xhost +local:docker` 已開
-# (base run.sh 自動處理) 與 DISPLAY env (base 也自動帶入)。
-# `./run.sh -t gui -d` 直接拉起 Isaac Sim 視窗版本。
+############################## headless-stream ##############################
+# [isaac] Simulation + WebRTC streaming server. Same idle pattern as
+# headless; driver scripts read ISAAC_LIVESTREAM=2 to enable streaming.
 #
-# Same wrapper as headless — re-exports ROS env from baked file.
-FROM devel AS gui
-
-ENTRYPOINT ["/usr/local/bin/isaac-ros-env-wrapper.sh", "/isaac-sim/runapp.sh"]
-CMD []
-
-############################## standalone ##############################
-# [isaac] Standalone Python workflow — 用 `/isaac-sim/python.sh` 直接跑
-# Python 腳本 (內部 `SimulationApp({"livestream": 2})` 自己 boot 一份 kit
-# + WebRTC server)。使用 pattern:
-#   ./run.sh -t standalone -d
-#   ./exec.sh -t standalone /isaac-sim/python.sh <script>
-# (Ctrl+C 殺 script，容器仍 idle；./stop.sh 收尾。)
+# Usage:
+#   make run -- -t headless-stream -d
+#   make exec -- -t headless-stream /isaac-sim/python.sh <driver.py>
+#   # -> browser connects via web-viewer at :5173
 #
-# CMD ["sleep", "infinity"] 讓容器 idle 等待 ./exec.sh dive-in。為什麼
-# 不繼承 devel 的 `bash` CMD: profile-gated compose service 預設
-# `stdin_open: false, tty: false` (vs devel base service `true/true`),
-# bash 在 non-TTY 環境下 immediately exit 0，容器被視為 Exited 啟動失敗。
-# 換成 long-lived `sleep infinity` 保證 idle 直到 ./stop.sh 收。
-# ENTRYPOINT 仍繼承自 devel (`/entrypoint.sh`) — entrypoint 做完 env
-# init 後 exec "$@" 跑 sleep infinity，乾淨。
-#
-# 為什麼不用 devel: base v1 [stage:devel] 是 reserved 不開放 per-stage
-# override。standalone 是 non-base stage，能透過 `[stage:standalone]
-# gui.mode = off` 把 X11 mount strip 掉避免 cosmetic warnings。
-# 為什麼不用 headless: headless 的 ENTRYPOINT 是 runheadless.sh，
-# 容器一起來已經跑著一個 kit 進程，再 exec python.sh 會啟第二份 kit
-# 撞 PhysX / DDS / port 8211。standalone idle 啟動，python.sh 在
-# exec session 內是唯一 kit 進程。
-FROM devel AS standalone
+# For one-off headless streaming without a driver script:
+#   make exec -- -t headless-stream /isaac-sim/runheadless.sh -v \
+#     --/app/livestream/nvcf/quitOnSessionEnded=false
+FROM devel AS headless-stream
 
+ENV ISAAC_LIVESTREAM=2
 CMD ["sleep", "infinity"]
 
 ############################## builder + runtime split (optional) ##############################
