@@ -1,9 +1,0 @@
-services:
-  web-viewer:
-    build:
-      context: .
-      args:
-        SIGNALING_SERVER: ${PUBLIC_IP:-127.0.0.1}
-    image: ${IMAGE_NAME:-isaac}-web-viewer
-    network_mode: host
-    restart: unless-stopped

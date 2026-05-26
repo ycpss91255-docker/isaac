@@ -2,8 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+- `web-viewer/` sidecar extracted to independent repo [`ycpss91255-docker/omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) — reusable across any Omniverse Kit streaming app, not Isaac-specific. Headless `quitOnSessionEnded` + `publicEndpointAddress` flags remain in this repo.
+
 ### Added
-- **Web viewer sidecar** (`web-viewer/`) for browser-based Isaac Sim streaming (closes #30). NVIDIA's [`web-viewer-sample`](https://github.com/NVIDIA-Omniverse/web-viewer-sample) v1.5.2 as git submodule, with its own Dockerfile + compose.yaml. Build-arg `SIGNALING_SERVER` (default from `PUBLIC_IP` env) bakes the host IP into `stream.config.json` at build time. Start with `docker compose -f web-viewer/compose.yaml up -d`.
 - `setup.conf [environment] env_8 = PUBLIC_IP=` — host LAN IP for WebRTC ICE candidates. Read by `isaac-ros-env-wrapper.sh` to inject `--/app/livestream/publicEndpointAddress` into headless/gui CMD at runtime. Empty = skip (localhost-only).
 - Apache-2.0 `LICENSE` file, aligned with `ycpss91255-docker/base` org convention (closes #26).
 - `.gitignore`: `isaac_ws/` entry to prevent Docker bind-mount auto-mkdir artifacts from appearing as untracked (closes #25).
