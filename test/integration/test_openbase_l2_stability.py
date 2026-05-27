@@ -26,7 +26,7 @@ import omni.timeline  # noqa: E402
 import omni.usd  # noqa: E402
 from omni.isaac.dynamic_control import _dynamic_control as dc  # noqa: E402
 
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase_l2.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase_l2.usda"
 BASE_PRIM = "/open_base/base_link"
 SETTLE_TICKS = 60
 POS_TOL = 0.05

@@ -4,10 +4,10 @@
 Run inside the Isaac Sim 5.1 container:
 
     /isaac-sim/python.sh import_urdf.py \\
-        /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \\
+        /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \\
         /tmp/openbase_generated.usda
 
-Note: the curated ``model/usd/openbase/openbase.usda`` is already tracked in
+Note: the curated ``model/usd/robot/openbase/openbase.usda`` is already tracked in
 this repo, so most users do not need to regenerate. Use this script when you
 want to (re)convert a URDF — e.g. you added a new robot under
 ``model/urdf/<robot>/`` and need its initial USD. Output to ``/tmp`` (or
@@ -15,7 +15,7 @@ another non-tracked path) to avoid clobbering the in-repo USDs.
 
 ``package://<pkg>/...`` mesh URIs are resolved relative to the URDF file's
 parent directory (so ``package://open_base/mesh/base.stl`` becomes
-``<urdf_dir>/../mesh/base.stl``). The ``model/urdf/openbase/`` layout
+``<urdf_dir>/../mesh/base.stl``). The ``model/urdf/robot/openbase/`` layout
 already matches this convention.
 """
 

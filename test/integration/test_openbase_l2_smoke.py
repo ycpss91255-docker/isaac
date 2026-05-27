@@ -27,9 +27,9 @@ from pxr import PhysxSchema, Usd, UsdPhysics  # noqa: E402
 
 OVERRIDE_PATH = os.path.join(
     os.path.dirname(__file__),
-    "..", "..", "model", "usd", "openbase", "openbase_l2.usda",
+    "..", "..", "model", "usd", "robot", "openbase", "openbase_l2.usda",
 )
-FALLBACK_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+FALLBACK_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 
 TARGET_PRIM = "/open_base/base_link"
 TARGET_POS = (1.0, 0.0, 0.1)

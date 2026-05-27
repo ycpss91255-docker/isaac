@@ -43,7 +43,7 @@ import omni.graph.core as og  # noqa: E402
 import omni.timeline  # noqa: E402
 import omni.usd  # noqa: E402
 
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 
 
 def main():

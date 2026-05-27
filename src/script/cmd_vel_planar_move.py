@@ -34,9 +34,9 @@ from rclpy.node import Node
 
 # ====== CONFIG =====================================================
 # openbase_free.usda (OpenBase 專案 pre-built) 走 articulation root，
-# dc.set_rigid_body_linear_velocity 寫不進去（已驗）。換 model/usd/openbase/
+# dc.set_rigid_body_linear_velocity 寫不進去（已驗）。換 model/usd/robot/openbase/
 # openbase.usda (root free rigid body，move_openbase_planar 已驗可動)。
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 TOPIC = "/cmd_vel"
 NODE_NAME = "cmd_vel_planar_subscriber"
 REPORT_EVERY = 60

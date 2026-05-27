@@ -118,14 +118,14 @@ GA 後可重評：升 6.0 → 拿掉本 MD 的 GUI 步驟 → 改純腳本路徑
 2. **OpenBase USD 已產出**：
 
    ```bash
-   ls isaac_ws/src/model/usd/openbase/openbase.usda
+   ls isaac_ws/src/model/usd/robot/openbase/openbase.usda
    # 不存在的話:
    ./run.sh -t standalone -d
    ./exec.sh -t standalone /isaac-sim/python.sh \
        /home/yunchien/work/src/script/import_urdf.py \
        --no-fix-base \
-       /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \
-       /home/yunchien/work/src/model/usd/openbase/openbase.usda
+       /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \
+       /home/yunchien/work/src/model/usd/robot/openbase/openbase.usda
    ./stop.sh
    ```
 
@@ -169,7 +169,7 @@ Server 欄填 `localhost`（**不加** `:8011` 或任何 port 後綴）。Click 
 在 kit GUI：
 
 1. **File → Open**
-2. 路徑輸入：`/home/yunchien/work/src/model/usd/openbase/openbase.usda`
+2. 路徑輸入：`/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda`
 3. 載入完 viewport 應該看到 OpenBase 模型（一塊圓形平台 STL mesh）
 
 > 如果 viewport 黑暗 / 看不到物體：Stage 應該已經有 mesh prim 但沒燈光。先做 Step 3.1 + 3.2 補燈跟地板。

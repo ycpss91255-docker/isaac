@@ -56,7 +56,7 @@ camera_config_paths = [Path(c).expanduser().resolve() for c in _args.config]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-USD_PATH = str(REPO_ROOT / "model" / "usd" / "forklift_blocky" / "forklift_blocky.usda")
+USD_PATH = str(REPO_ROOT / "model" / "usd" / "robot" / "forklift_blocky" / "forklift_blocky.usda")
 LOG_PATH = str(SCRIPT_DIR / "forklift_status.log")
 
 # Rest poses (matches USD initial translate). Driver overlays state on these.

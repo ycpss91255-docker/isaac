@@ -44,10 +44,10 @@ cd isaac_ws/src/docker
 ./build.sh                # 第一次 / 改 Dockerfile 後跑
 ```
 
-### 2. OpenBase USD 在 `isaac_ws/src/model/usd/openbase/openbase.usda`
+### 2. OpenBase USD 在 `isaac_ws/src/model/usd/robot/openbase/openbase.usda`
 
 ```bash
-ls /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/model/usd/openbase/openbase.usda
+ls /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/model/usd/robot/openbase/openbase.usda
 ```
 
 不存在的話 (從 `openbase_minimal.urdf` 走 import_urdf.py 規 SW → URDF → openUSD pipeline)：
@@ -57,8 +57,8 @@ ls /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/model/usd/openbase/openbase.
 ./exec.sh -t standalone /isaac-sim/python.sh \
     /home/yunchien/work/src/script/import_urdf.py \
     --no-fix-base \
-    /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \
-    /home/yunchien/work/src/model/usd/openbase/openbase.usda
+    /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \
+    /home/yunchien/work/src/model/usd/robot/openbase/openbase.usda
 ./stop.sh
 ```
 
@@ -111,7 +111,7 @@ WebRTC viewport 內：
 預期 Output：
 
 ```
-[setup] opened /home/yunchien/work/src/model/usd/openbase/openbase.usda
+[setup] opened /home/yunchien/work/src/model/usd/robot/openbase/openbase.usda
 [setup] sunlight added
 [setup] ground plane added (Isaac grid texture)
 [setup] back_rim_joint: drive disabled
@@ -199,7 +199,7 @@ cd /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/docker
 | `[exec] Container '...' is not running` | run.sh 沒帶 `-d`，跑成 `compose run --rm` 一次性 | `./stop.sh && ./run.sh -t headless -d` |
 | 看不到 base | base 跑出 camera 視野 | Stage panel 點 base_link → viewport 按 **F** focus |
 | pos.x = 0 + lin = 0 + ticks 持續增加 | timeline 沒 play | viewport 按 Spacebar |
-| pos.x = 0 + lin = 0 + USD_PATH 是 `openbase_free.usda` | articulation root blocks dc velocity write | USD_PATH 用 `model/usd/openbase/openbase.usda` (root free rigid body)；script 已 hardcode |
+| pos.x = 0 + lin = 0 + USD_PATH 是 `openbase_free.usda` | articulation root blocks dc velocity write | USD_PATH 用 `model/usd/robot/openbase/openbase.usda` (root free rigid body)；script 已 hardcode |
 | pos.z 持續下沉 | gravity 在 PhysX substep 累積 | script 已加 `disable gravity on base_link`，重 Run 確認 setup log 有 `base_link: gravity disabled` |
 | 推 cmd_vel 但 base 不動 | ROS_DOMAIN_ID / fastdds.xml profile 不一致 | 確認 sibling container 跟 isaac container 用同 DOMAIN_ID + 同 fastdds.xml |
 

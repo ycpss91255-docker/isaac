@@ -66,7 +66,7 @@ from geometry_msgs.msg import Twist  # noqa: E402
 from rclpy.node import Node  # noqa: E402
 from rclpy.signals import SignalHandlerOptions  # noqa: E402
 
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase_l2.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase_l2.usda"
 BASE_PRIM = "/open_base/base_link"
 TOPIC = "/cmd_vel"
 NODE_NAME = "cmd_vel_l2_subscriber"

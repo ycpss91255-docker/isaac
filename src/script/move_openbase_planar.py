@@ -28,9 +28,9 @@ from pxr import PhysxSchema, UsdLux, UsdPhysics
 # ====== CONFIG =====================================================
 # openbase_free.usda (OpenBase 專案 pre-built) 在 in-kit 跑 dc.set_rigid_body
 # _linear_velocity 寫不進去（articulation 子 link handle 被 PhysX 覆蓋）。
-# 換用 model/usd/openbase/openbase.usda（standalone 已驗 root free rigid body
+# 換用 model/usd/robot/openbase/openbase.usda（standalone 已驗 root free rigid body
 # 可寫）— 標準 SOP 也是這個。
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 
 # 目標 base velocity (世界坐標 / base 朝向 — 視 base 初始 yaw 而定)
 CMD_VX  = 0.5    # m/s, +x

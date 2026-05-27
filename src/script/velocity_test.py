@@ -10,7 +10,7 @@ Run inside the Isaac Sim 5.1 container, after stopping the existing
 ``runheadless.sh`` session (otherwise port 49100/8011 collide):
 
     /isaac-sim/python.sh velocity_test.py \\
-        /home/yunchien/work/src/model/usd/openbase/openbase.usda
+        /home/yunchien/work/src/model/usd/robot/openbase/openbase.usda
 
 Pass ``--no-fix-base`` only if the USD itself was imported with the root link
 free (so the base can translate). With the default fixed-base USD the wheels

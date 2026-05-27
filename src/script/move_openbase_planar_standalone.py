@@ -71,7 +71,7 @@ from pxr import PhysxSchema, UsdLux, UsdPhysics  # noqa: E402
 
 
 # ====== CONFIG =====================================================
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 
 # 目標 base velocity (世界坐標 / base 朝向 — 視 base 初始 yaw 而定)
 CMD_VX = 0.5    # m/s, +x

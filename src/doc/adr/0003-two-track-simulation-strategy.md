@@ -22,8 +22,8 @@ isaac_ws 同時維護兩條 SIM 模型軌道，**並行不取代**：
 ## Consequences
 
 - **兩個 USD 並存**：
-  - `isaac_ws/src/model/usd/openbase/openbase.usda` (Model A，當前使用)
-  - 未來 `isaac_ws/src/model/usd/openbase/openbase_full.usda`（Model B，C-Phase 1 產出）
+  - `isaac_ws/src/model/usd/robot/openbase/openbase.usda` (Model A，當前使用)
+  - 未來 `isaac_ws/src/model/usd/robot/openbase/openbase_full.usda`（Model B，C-Phase 1 產出）
 - **兩支 in-kit script 並存**：
   - `cmd_vel_planar_move.py` (Model A，當前)
   - 未來 `cmd_vel_motion_control.py` 或 Action Graph in USD（Model B，C-Phase 設計）

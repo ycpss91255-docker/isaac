@@ -34,7 +34,7 @@ Isaac Sim 5.1 的 3-way signal handler 衝突（Kit handler + driver handler + r
 
 ### USD 路徑: repo-relative（不是絕對 hardcode）
 
-現有 3/4 driver hardcode `/home/yunchien/work/src/model/...`，綁死容器 mount 點。改為 subclass 設 repo-relative path（如 `"model/usd/openbase/openbase_l2.usda"`），base class 從 `__file__` 推算 repo root 後 resolve。
+現有 3/4 driver hardcode `/home/yunchien/work/src/model/...`，綁死容器 mount 點。改為 subclass 設 repo-relative path（如 `"model/usd/robot/openbase/openbase_l2.usda"`），base class 從 `__file__` 推算 repo root 後 resolve。
 
 ### Scene defaults: base class 預設補建（opt-out）
 

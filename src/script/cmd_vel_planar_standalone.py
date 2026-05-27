@@ -91,7 +91,7 @@ from rclpy.node import Node  # noqa: E402
 from rclpy.signals import SignalHandlerOptions  # noqa: E402
 
 
-USD_PATH = "/home/yunchien/work/src/model/usd/openbase/openbase.usda"
+USD_PATH = "/home/yunchien/work/src/model/usd/robot/openbase/openbase.usda"
 TOPIC = "/cmd_vel"
 NODE_NAME = "cmd_vel_planar_subscriber"
 REPORT_EVERY = 60
@@ -107,7 +107,7 @@ def _stage_setup():
             f"USD not found: {USD_PATH}\n"
             f"Generate it from URDF first:\n"
             f"  /isaac-sim/python.sh /home/yunchien/work/src/script/import_urdf.py \\\n"
-            f"      /home/yunchien/work/src/model/urdf/openbase/openbase_minimal.urdf \\\n"
+            f"      /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \\\n"
             f"      {USD_PATH}"
         )
     # In standalone mode `ctx.open_stage(path)` is async — returns True
