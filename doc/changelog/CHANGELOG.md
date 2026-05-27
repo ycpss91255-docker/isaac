@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Multi-instance support scripts (closes #34):
+  - `script/init_instance.sh <id>` — create per-instance `config/instances/<id>.env` (ports + cache dir) and cache directory tree.
+  - `script/run_instance.sh <id> [stage]` — start a named instance with isolated cache + unique ports.
+  - `script/stop_instance.sh <id>` — stop a named instance.
+- `config/instances/` directory for per-instance env files (committed to git).
+
 ### Changed
 - `.base/` subtree upgraded **v0.34.1 → v0.35.0**. Key upstream changes:
   - (base #413) `[network] pid` mode support — enables `pid: host` in compose.yaml for multi-instance GPU sharing (refs #34).
