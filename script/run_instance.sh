@@ -119,10 +119,10 @@ WV_DIR="${script_dir}/web_viewer"
 WV_IMAGE="owv:runtime"
 WV_CONTAINER="owv-${id}"
 
-if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
+_start_web_viewer() {
   if ! docker image inspect "${WV_IMAGE}" >/dev/null 2>&1; then
     echo "[run_instance] Building web-viewer image (one-time)..."
-    docker build -q -t "${WV_IMAGE}" "${WV_DIR}"
+    docker build -t "${WV_IMAGE}" "${WV_DIR}"
   fi
 
   docker run --rm -d \
@@ -131,9 +131,13 @@ if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
     -e "SIGNALING_SERVER=${PUBLIC_IP:-127.0.0.1}" \
     -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
     -e "SERVE_PORT=${VIEWER_PORT}" \
-    "${WV_IMAGE}"
+    "${WV_IMAGE}" >/dev/null
 
   echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${PUBLIC_IP:-localhost}:${VIEWER_PORT}"
+}
+
+if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
+  _start_web_viewer &
 else
   echo "[run_instance] web_viewer/ submodule not found — skipping web-viewer."
   echo "  Run: git submodule update --init web_viewer"

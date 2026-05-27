@@ -4,6 +4,7 @@
 
 ### Fixed
 - Dockerfile: remove stale `COPY .base/dockerfile/setup` and `SETUP_DIR` references. base v0.35.0 (#419) removed `dockerfile/setup/` scaffolding; the dangling COPY broke clean builds (CI has been failing since v0.35.0 upgrade).
+- `run_instance.sh`: web-viewer build shows progress (remove `-q`), runs in background so Isaac Sim logs are immediately visible (closes #46).
 
 ### Changed
 - `run_instance.sh`: web-viewer uses runtime env vars (`-e SIGNALING_SERVER/PORT/SERVE_PORT`) instead of per-instance `docker build --build-arg`. Image built once and reused across all instances (closes #42, depends on omniverse_web_viewer#4).
