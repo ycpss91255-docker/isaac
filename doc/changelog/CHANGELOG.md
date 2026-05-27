@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Changed
+- `.base/` subtree upgraded **v0.34.1 → v0.35.0**. Key upstream changes:
+  - (base #413) `[network] pid` mode support — enables `pid: host` in compose.yaml for multi-instance GPU sharing (refs #34).
+  - (base #404) `upgrade.sh` #399 idempotency regex fix.
+  - (base #416) Makefile VAR=VALUE arg guard fix.
+  - (base #417) `extra_stages` build-worker input.
+  - (base #419) pip/setup scaffolding removed from template (downstream owns pip).
+- `setup.conf [network] pid = host` — required for multi-instance Isaac Sim on same GPU (NVIDIA driver pthread mutex needs shared PID namespace). See #34.
+- Dockerfile: remove `pip/setup.sh` call (upstream base v0.35.0 dropped pip scaffolding).
 - **BREAKING** (closes #28): consolidate Docker stages from 4 (`headless` / `gui` / `standalone`) to 2 (`headless` / `headless-stream`). Follows Gazebo gzserver/gzclient separation: one container = one Kit process at a time, driven by `ISAAC_LIVESTREAM` env var.
   - `headless`: pure simulation, no streaming (`ISAAC_LIVESTREAM=0`). Idles on start; driver scripts exec'd in.
   - `headless-stream`: simulation + WebRTC streaming (`ISAAC_LIVESTREAM=2`). Same idle pattern.

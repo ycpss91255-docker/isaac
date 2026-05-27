@@ -223,9 +223,6 @@ USER "${USER}"
 # non-interactive `docker exec` cwd — match the interactive shell.
 ENV HOME="/home/${USER_NAME}"
 
-# Setup pip packages (build-time scaffolding from SETUP_DIR, base #261).
-RUN "${SETUP_DIR}"/pip/setup.sh
-
 # Setup shell, terminator, tmux. The bashrc append picks up the
 # bashrc.d bootstrap loop (base #254) which sources any *.sh
 # drop-ins under ~/.bashrc.d/ at interactive shell start.
