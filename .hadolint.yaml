@@ -1,1 +1,9 @@
-.base/.hadolint.yaml
+---
+ignored:
+  - DL3003  # Use WORKDIR (test stage `cd /lint && hadolint` is base convention)
+  - DL3004  # Do not use sudo (dev container passwordless sudo is by design)
+  - DL3006  # Always tag image version (ARG BASE_IMAGE handles pinning externally)
+  - DL3008  # Pin versions in apt get install (impractical for dev images on rolling base)
+  - DL3013  # Pin versions in pip install (downstream repo responsibility)
+  - DL3018  # Pin versions in apk add (aligned with DL3008 strategy)
+  - DL3046  # useradd without -l (UID is host-aligned, never high enough to matter)
