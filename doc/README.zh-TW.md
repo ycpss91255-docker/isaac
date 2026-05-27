@@ -36,15 +36,46 @@ make run                      # 進 devel 容器互動 shell
 
 ## 連接 WebRTC livestream
 
-Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 協定，**舊版的瀏覽器 viewer 已移除**，只能用桌面 client 連：
+Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 協定。可用桌面 client 或瀏覽器 viewer 連線：
 
-1. 從 [NVIDIA 文件 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) 下載 **Isaac Sim WebRTC Streaming Client (1.1.5)**。1.1.5 是 5.1 的最新版。
-2. 容器內 `runheadless.sh -v` 跑著時，啟動 client，輸入 Server: `<server-ip>`（同機用 `localhost`，遠端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 後綴** — client 會自己挑 signaling / data port；加 port 後綴會走錯 path、看到黑畫面。
+1. 從 [NVIDIA 文件 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) 下載 **Isaac Sim WebRTC Streaming Client (1.1.5)**。1.1.5 是 5.1 隨附的最新版。
+2. `headless-stream` 跑著時，啟動 client，輸入 Server: `<server-ip>`（同機用 `localhost`，遠端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 後綴** — client 會自己挑 signaling / data port；加 port 後綴會走錯 path、看到黑畫面。
 3. 按 Connect。首次 shader compile 需要 1–3 分鐘 viewport 才會出畫面。
+
+### 瀏覽器 viewer (omniverse_web_viewer)
+
+[`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) repo 提供瀏覽器版 client，以 sidecar 容器形式運行。已作為 submodule 掛在本 repo 的 `web_viewer/`。
+
+```bash
+# 首次：初始化 submodule
+git submodule update --init web_viewer
+
+# 在 setup.conf 設定 host IP（若尚未設定）
+./script/setup.sh set environment.env_8 "PUBLIC_IP=<host-ip>"
+./script/setup.sh apply
+
+# 啟動 headless-stream
+make run -- -t headless-stream -d
+# 等待 "is loaded"...
+
+# Build + 啟動 web-viewer（從 .env 讀取 PUBLIC_IP）
+cd web_viewer
+./script/setup.sh set build.arg_4 "SIGNALING_SERVER=<host-ip>"
+./script/setup.sh apply
+make build
+make run -- -d
+
+# 開啟 Chrome -> http://<host-ip>:5173
+# 選擇 "UI for any streaming app" -> Next
+```
+
+Multi-instance 模式下，`run_instance.sh` 會自動為每個 instance 建置並啟動配對的 web-viewer（見下方 [Multi-Instance](#multi-instance)）。
+
+需求：Chrome 或 Chromium（Firefox 不相容）。每個 Isaac Sim instance 只能同時連一個互動 client。
 
 注意：
 
-- streaming kit app 同時 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）跟 `49100`（self-host WebRTC）。1.1.5 client 會自己選對的，**不要寫 port**
+- streaming kit app 同時 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）、`49100`（self-host WebRTC）以及 `8211`（kit API / streaming viewer）。1.1.5 client 會自己選對的，**不要寫 port**
 - **同時只能一個 client 連**（NVIDIA 限制）。第二個連線會被拒
 - `setup.conf` 已開 `network_mode: host`，容器內 listen 的 port = host 的 port。Host 防火牆要放行 `8011/tcp` 跟 `49100/tcp`（`sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`）
 - `setup.conf [deploy] gpu_capabilities` 必須含 `video` — 沒有的話 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 連得上但畫面 encode 不出來 → 黑畫面。當前 `setup.conf` 已加

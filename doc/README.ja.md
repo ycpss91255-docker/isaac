@@ -36,15 +36,46 @@ make run                      # devel コンテナで対話シェル
 
 ## WebRTC livestream への接続
 
-Isaac Sim 5.1 は NVCF（`omni.services.livestream.nvcf`）livestream プロトコルを使用し、**旧版のブラウザビューアは廃止**。デスクトップ client のみで接続：
+Isaac Sim 5.1 は NVCF（`omni.services.livestream.nvcf`）livestream プロトコルを使用。デスクトップ client またはブラウザベースのビューアで接続：
 
 1. [NVIDIA ドキュメント — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) から **Isaac Sim WebRTC Streaming Client (1.1.5)** をダウンロード。1.1.5 は 5.1 の最新版です。
-2. コンテナ内で `runheadless.sh -v` 実行中、client を起動し Server: `<server-ip>` を入力（同一マシン: `localhost`、リモート: server の LAN IP）。**`:8011` などの port サフィックスを付けないこと** — client が signaling / data port を内部で管理しており、port を付けると誤った経路に入って黒画面になります。
+2. `headless-stream` 実行中、client を起動し Server: `<server-ip>` を入力（同一マシン: `localhost`、リモート: server の LAN IP）。**`:8011` などの port サフィックスを付けないこと** — client が signaling / data port を内部で管理しており、port を付けると誤った経路に入って黒画面になります。
 3. Connect をクリック。初回 shader compile に 1–3 分かかってから viewport が描画されます。
+
+### Browser-based viewer (omniverse_web_viewer)
+
+[`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) リポジトリが、サイドカーコンテナとしてブラウザベースの client を提供。本リポジトリの `web_viewer/` にサブモジュールとして同梱。
+
+```bash
+# 初回：サブモジュールの初期化
+git submodule update --init web_viewer
+
+# setup.conf で host IP を設定（未設定の場合）
+./script/setup.sh set environment.env_8 "PUBLIC_IP=<host-ip>"
+./script/setup.sh apply
+
+# headless-stream を起動
+make run -- -t headless-stream -d
+# "is loaded" を待つ...
+
+# web-viewer を build + 起動（.env の PUBLIC_IP を読み取る）
+cd web_viewer
+./script/setup.sh set build.arg_4 "SIGNALING_SERVER=<host-ip>"
+./script/setup.sh apply
+make build
+make run -- -d
+
+# Chrome -> http://<host-ip>:5173 を開く
+# "UI for any streaming app" を選択 -> Next
+```
+
+マルチインスタンスの場合、`run_instance.sh` がインスタンスごとにペアの web-viewer を自動 build + 起動する（後述の [Multi-Instance](#multi-instance) を参照）。
+
+要件：Chrome または Chromium（Firefox 非互換）。Isaac Sim インスタンスごとに 1 つのインタラクティブ client のみ接続可能。
 
 注意：
 
-- streaming kit app は `8011`（NVCF signaling、FastAPI/uvicorn）と `49100`（self-host WebRTC）の両方を listen。1.1.5 client が正しい方を選ぶので **port を書かないこと**
+- streaming kit app は `8011`（NVCF signaling、FastAPI/uvicorn）、`49100`（self-host WebRTC）、`8211`（kit API / streaming viewer）を同時に listen。1.1.5 client が正しい方を選ぶので **port を書かないこと**
 - **同時に 1 つの client のみ接続可能**（NVIDIA 制限）。2 つ目の接続は拒否されます
 - `setup.conf` で `network_mode: host` が設定済みのため、コンテナ内の listen port = host の port。Host ファイアウォールで `8011/tcp` と `49100/tcp` を許可（`sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`）
 - `setup.conf [deploy] gpu_capabilities` に `video` が必須 — なければ nvidia-container-runtime が NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`）を mount せず、server 接続成功でも encode できない → 黒画面。現在の `setup.conf` には追加済み

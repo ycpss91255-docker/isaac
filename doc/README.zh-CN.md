@@ -36,15 +36,46 @@ make run                      # 进 devel 容器互动 shell
 
 ## 连接 WebRTC livestream
 
-Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议，**旧版的浏览器 viewer 已移除**，只能用桌面 client 连：
+Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议。可以用桌面 client 或浏览器 viewer 连接：
 
 1. 从 [NVIDIA 文档 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) 下载 **Isaac Sim WebRTC Streaming Client (1.1.5)**。1.1.5 是 5.1 的最新版。
-2. 容器内 `runheadless.sh -v` 运行时，启动 client，输入 Server: `<server-ip>`（同机用 `localhost`，远端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 后缀** — client 自己会选 signaling / data port；加 port 后缀会走错 path、看到黑画面。
+2. `headless-stream` 运行时，启动 client，输入 Server: `<server-ip>`（同机用 `localhost`，远端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 后缀** — client 自己会选 signaling / data port；加 port 后缀会走错 path、看到黑画面。
 3. 按 Connect。首次 shader compile 需 1–3 分钟 viewport 才会出画面。
+
+### Browser-based viewer (omniverse_web_viewer)
+
+[`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) repo 提供浏览器 client，以 sidecar 容器运行。作为 submodule 放在本 repo 的 `web_viewer/`。
+
+```bash
+# 首次：初始化 submodule
+git submodule update --init web_viewer
+
+# 在 setup.conf 设置 host IP（如尚未设置）
+./script/setup.sh set environment.env_8 "PUBLIC_IP=<host-ip>"
+./script/setup.sh apply
+
+# 启动 headless-stream
+make run -- -t headless-stream -d
+# 等待 "is loaded"...
+
+# Build + 启动 web-viewer（从 .env 读取 PUBLIC_IP）
+cd web_viewer
+./script/setup.sh set build.arg_4 "SIGNALING_SERVER=<host-ip>"
+./script/setup.sh apply
+make build
+make run -- -d
+
+# 打开 Chrome -> http://<host-ip>:5173
+# 选 "UI for any streaming app" -> Next
+```
+
+多实例场景下，`run_instance.sh` 会自动 build 并启动与每个实例配对的 web-viewer（见下方 [Multi-Instance](#multi-instance)）。
+
+要求：Chrome 或 Chromium（Firefox 不兼容）。每个 Isaac Sim 实例只能有一个交互式 client。
 
 注意：
 
-- streaming kit app 同时 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）跟 `49100`（self-host WebRTC）。1.1.5 client 会自己选对的，**不要写 port**
+- streaming kit app 同时 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）、`49100`（self-host WebRTC）与 `8211`（kit API / streaming viewer）。1.1.5 client 会自己选对的，**不要写 port**
 - **同时只能一个 client 连**（NVIDIA 限制）。第二个连接会被拒绝
 - `setup.conf` 已开 `network_mode: host`，容器内 listen 的 port = host 的 port。Host 防火墙要放行 `8011/tcp` 跟 `49100/tcp`（`sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`）
 - `setup.conf [deploy] gpu_capabilities` 必须含 `video` — 否则 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 连得上但画面 encode 不出来 → 黑画面。当前 `setup.conf` 已加
