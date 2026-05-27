@@ -116,20 +116,21 @@ echo "[run_instance] Container '${container_name}' started."
 
 VIEWER_PORT="${VIEWER_PORT:-5173}"
 WV_DIR="${script_dir}/web_viewer"
-WV_IMAGE="owv-${id}"
+WV_IMAGE="owv:runtime"
 WV_CONTAINER="owv-${id}"
 
 if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
-  echo "[run_instance] Building web-viewer for instance '${id}' (port ${VIEWER_PORT})..."
-  docker build -q \
-    --build-arg "SIGNALING_SERVER=${PUBLIC_IP:-127.0.0.1}" \
-    --build-arg "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
-    --build-arg "SERVE_PORT=${VIEWER_PORT}" \
-    -t "${WV_IMAGE}" "${WV_DIR}"
+  if ! docker image inspect "${WV_IMAGE}" >/dev/null 2>&1; then
+    echo "[run_instance] Building web-viewer image (one-time)..."
+    docker build -q -t "${WV_IMAGE}" "${WV_DIR}"
+  fi
 
   docker run --rm -d \
     --name "${WV_CONTAINER}" \
     --network=host \
+    -e "SIGNALING_SERVER=${PUBLIC_IP:-127.0.0.1}" \
+    -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
+    -e "SERVE_PORT=${VIEWER_PORT}" \
     "${WV_IMAGE}"
 
   echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${PUBLIC_IP:-localhost}:${VIEWER_PORT}"
