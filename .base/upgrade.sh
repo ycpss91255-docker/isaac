@@ -331,7 +331,7 @@ _upgrade() {
   # Modelled on the Step 5 / #348 precedent above.
   if [[ ! -f "${_dockerfile}" ]]; then
     _log "  no Dockerfile at repo root — skip (#399 wrapper-copy patch)"
-  elif grep -qE '^[[:space:]]*COPY[[:space:]]+script/\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
+  elif grep -qE '^[[:space:]]*COPY[[:space:]]+script/\*\.sh[[:space:]]+/lint/?[[:space:]]*$' "${_dockerfile}"; then
     _log "  Dockerfile already uses COPY script/*.sh /lint/ — skip (#399 idempotent)"
   elif grep -qE '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' "${_dockerfile}"; then
     sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY script/*.sh /lint/|' "${_dockerfile}"

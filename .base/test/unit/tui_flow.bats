@@ -508,31 +508,32 @@ EOF
 # branches: bridge → network_name + ports; ipc!=host → shm_size.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_edit_section_network: host + host writes both modes, no shm prompt" {
-  queue "0|host" "0|host"
+@test "_edit_section_network: host + host + private writes all modes, no shm prompt" {
+  queue "0|host" "0|host" "0|private"
   _edit_section_network
   [[ "$(ovr_get network.mode)" == "host" ]]
   [[ "$(ovr_get network.ipc)" == "host" ]]
+  [[ "$(ovr_get network.pid)" == "private" ]]
   [[ "$(ovr_get network.network_name)" == "" ]]
 }
 
 @test "_edit_section_network: bridge + host prompts for network_name + ports menu" {
-  # mode=bridge → name inputbox + ports submenu (back immediately).
-  queue "0|bridge" "0|host" "0|mynet" "0|back"
+  # mode=bridge → ipc → pid → name inputbox + ports submenu (back immediately).
+  queue "0|bridge" "0|host" "0|private" "0|mynet" "0|back"
   _edit_section_network
   [[ "$(ovr_get network.mode)" == "bridge" ]]
   [[ "$(ovr_get network.network_name)" == "mynet" ]]
 }
 
 @test "_edit_section_network: ipc=private prompts for shm_size" {
-  queue "0|host" "0|private" "0|2gb"
+  queue "0|host" "0|private" "0|private" "0|2gb"
   _edit_section_network
   [[ "$(ovr_get network.ipc)" == "private" ]]
   [[ "$(ovr_get resources.shm_size)" == "2gb" ]]
 }
 
 @test "_edit_section_network: empty network_name allowed (compose default bridge)" {
-  queue "0|bridge" "0|host" "0|" "0|back"
+  queue "0|bridge" "0|host" "0|private" "0|" "0|back"
   _edit_section_network
   [[ "$(ovr_get network.network_name)" == "" ]]
 }

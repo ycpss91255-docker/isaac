@@ -285,7 +285,7 @@ Allowlist (v1 — keys that can be overridden per-stage):
 |---|---|
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
 | `[gui]` | `mode` |
-| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
@@ -348,7 +348,7 @@ two derived artifacts.
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
 [gui]      mode (auto|force|off)
-[network]  mode (host|bridge|none), ipc, privileged
+[network]  mode (host|bridge|none), ipc, pid (host|private), privileged
 [volumes]  mount_1 (workspace, auto-populated on first run)
            mount_2..mount_N (extra host mounts; devices via /dev path)
 [logging]  driver (json-file default), max_size, max_file, compress

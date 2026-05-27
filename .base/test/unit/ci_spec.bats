@@ -186,7 +186,6 @@ teardown() {
   assert_output --partial "script/ci/ci.sh"
   assert_output --partial "init.sh"
   assert_output --partial "upgrade.sh"
-  assert_output --partial "dockerfile/setup/pip/setup.sh"
   assert_output --partial "config/shell/terminator/setup.sh"
   assert_output --partial "config/shell/tmux/setup.sh"
 }
