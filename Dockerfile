@@ -125,16 +125,6 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-# Build-time setup scaffolding (base #261): pip install + other deferred
-# Dockerfile RUN helpers live under .base/dockerfile/setup/ post this
-# release. Previously sat under .base/config/pip/ but that blurred
-# "user-facing runtime config" (everything else in config/) with
-# "build-time install scaffolding" (pip only). Separating them keeps
-# config/ as the pure runtime-override surface (base #254 layered COPY
-# semantics) and lets new build-time helpers land alongside without
-# re-introducing the conceptual mix. Cleared via `sudo rm -rf ${SETUP_DIR}`
-# at the end of the shell-setup RUN block, same lifetime as CONFIG_DIR.
-ARG SETUP_DIR="/tmp/setup"
 # Layered config/ override (base #254): two sequential COPYs into
 # /tmp/config/. The first brings .base/config/ defaults; the second
 # overlays <repo>/config/ on top. File-level merge — files in
@@ -162,14 +152,6 @@ COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree pull).
 # Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
-# Build-time setup scaffolding (base #261). No layered override here —
-# .base/dockerfile/setup/ is the single source of truth; downstream
-# customizes by patching its own Dockerfile RUN line(s) or by adding
-# more entries to its own dockerfile/setup/ tree + a matching COPY
-# (rare). The directory is cleared at the end of the shell-setup RUN
-# block alongside CONFIG_DIR.
-COPY --chmod=0755 .base/dockerfile/setup "${SETUP_DIR}"
-
 # [isaac] Fast DDS profile (UDPv4-only, no built-in transports). Per
 # Isaac Sim 5.1 official ROS 2 install guide, required for cross-container
 # DDS to work reliably on a shared host (--net=host). Pointed to by
@@ -226,9 +208,6 @@ ENV HOME="/home/${USER_NAME}"
 # Setup shell, terminator, tmux. The bashrc append picks up the
 # bashrc.d bootstrap loop (base #254) which sources any *.sh
 # drop-ins under ~/.bashrc.d/ at interactive shell start.
-# SETUP_DIR is cleared alongside CONFIG_DIR (same build-time-only
-# lifetime; once their content has been consumed by the RUN steps
-# above, they are pure bloat in the final image).
 RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     chown "${USER}":"${GROUP}" "${HOME}/.bashrc" && \
     mkdir -p "${HOME}/.bashrc.d" && \
@@ -236,7 +215,7 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     chown -R "${USER}":"${GROUP}" "${HOME}/.bashrc.d" && \
     "${CONFIG_DIR}"/shell/terminator/setup.sh && \
     "${CONFIG_DIR}"/shell/tmux/setup.sh && \
-    sudo rm -rf "${CONFIG_DIR}" "${SETUP_DIR}"
+    sudo rm -rf "${CONFIG_DIR}"
 
 # (Optional) Repo-local Dockerfile-internal build helpers. Put any
 # shell helpers that should run during `docker build` under
