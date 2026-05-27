@@ -113,4 +113,29 @@ docker run --rm -d \
   "${kit_args[@]}"
 
 echo "[run_instance] Container '${container_name}' started."
-echo "  Wait for 'is loaded' then connect via web-viewer at :${VIEWER_PORT:-5173}"
+
+VIEWER_PORT="${VIEWER_PORT:-5173}"
+WV_DIR="${script_dir}/web_viewer"
+WV_IMAGE="owv-${id}"
+WV_CONTAINER="owv-${id}"
+
+if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
+  echo "[run_instance] Building web-viewer for instance '${id}' (port ${VIEWER_PORT})..."
+  docker build -q \
+    --build-arg "SIGNALING_SERVER=${PUBLIC_IP:-127.0.0.1}" \
+    --build-arg "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
+    --build-arg "SERVE_PORT=${VIEWER_PORT}" \
+    -t "${WV_IMAGE}" "${WV_DIR}"
+
+  docker run --rm -d \
+    --name "${WV_CONTAINER}" \
+    --network=host \
+    "${WV_IMAGE}"
+
+  echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${PUBLIC_IP:-localhost}:${VIEWER_PORT}"
+else
+  echo "[run_instance] web_viewer/ submodule not found — skipping web-viewer."
+  echo "  Run: git submodule update --init web_viewer"
+fi
+
+echo "[run_instance] Wait for 'is loaded' then open browser at :${VIEWER_PORT}"

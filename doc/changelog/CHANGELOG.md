@@ -8,6 +8,7 @@
   - `script/run_instance.sh <id> [stage]` — start a named instance with isolated cache + unique ports.
   - `script/stop_instance.sh <id>` — stop a named instance.
 - `config/instances/` directory for per-instance env files (committed to git).
+- `web_viewer/` submodule ([`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer)) — browser-based WebRTC viewer sidecar. `run_instance.sh` auto-builds and starts a paired web-viewer per instance; `stop_instance.sh` stops both Isaac Sim and web-viewer containers.
 
 ### Changed
 - `.base/` subtree upgraded **v0.34.1 → v0.35.0**. Key upstream changes:
