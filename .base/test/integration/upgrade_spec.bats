@@ -228,6 +228,28 @@ EOF
   [ "$(grep -c 'COPY script/\*\.sh /lint/' Dockerfile)" = "1" ]
 }
 
+@test "upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)" {
+  cd "${DOWN_DIR}"
+  mkdir -p script
+  ln -sf ../.base/script/docker/build.sh script/build.sh
+  cat > Dockerfile <<'EOF'
+FROM busybox AS lint
+COPY *.sh /lint/
+COPY script/*.sh /lint/script/
+COPY .base/script/docker/lib /lint/lib
+RUN shellcheck -S warning /lint/*.sh /lint/script/*.sh /lint/lib/*.sh
+EOF
+  git add Dockerfile script/
+  git commit -q -m "add Dockerfile (stale root + script/ subdest)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Dockerfile patched: COPY *.sh /lint/ -> COPY script/*.sh /lint/ (#399)"
+
+  grep -qE '^COPY script/\*\.sh /lint/$' Dockerfile
+  grep -q 'COPY script/\*\.sh /lint/script/' Dockerfile
+}
+
 @test "upgrade.sh skips #399 patch when Dockerfile has no COPY *.sh /lint/ line" {
   cd "${DOWN_DIR}"
   cat > Dockerfile <<'EOF'

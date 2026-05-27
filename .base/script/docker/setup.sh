@@ -1153,7 +1153,7 @@ _load_stage_overrides() {
 #
 #   [deploy]      gpu_mode, gpu_count, gpu_capabilities, runtime
 #   [gui]         mode
-#   [network]     mode, ipc, network_name, port_<N>, port_inherit
+#   [network]     mode, ipc, pid, network_name, port_<N>, port_inherit
 #   [security]    privileged
 #   [volumes]     mount_<N>, mount_inherit
 #   [environment] env_<N>, env_inherit
@@ -1168,7 +1168,7 @@ _validate_stage_override_key() {
   case "${_key}" in
     deploy.gpu_mode|deploy.gpu_count|deploy.gpu_capabilities|deploy.runtime) return 0 ;;
     gui.mode) return 0 ;;
-    network.mode|network.ipc|network.network_name) return 0 ;;
+    network.mode|network.ipc|network.pid|network.network_name) return 0 ;;
     security.privileged) return 0 ;;
     network.port_inherit|volumes.mount_inherit|environment.env_inherit) return 0 ;;
   esac
@@ -1568,17 +1568,18 @@ generate_compose_yaml() {
   local _shm_size="${13:-}"
   local _net_mode="${14:-host}"
   local _ipc_mode="${15:-host}"
-  local _cap_add_str="${16:-}"
-  local _cap_drop_str="${17:-}"
-  local _sec_opt_str="${18:-}"
-  local _cgroup_rule_str="${19:-}"
-  local _user_build_args_str="${20:-}"
-  local _target_arch="${21:-}"
-  local _build_network="${22:-}"
-  local _runtime="${23:-}"
-  local _additional_contexts_str="${24:-}"
-  local _logging_global_str="${25:-}"
-  local _logging_per_svc_str="${26:-}"
+  local _pid_mode="${16:-private}"
+  local _cap_add_str="${17:-}"
+  local _cap_drop_str="${18:-}"
+  local _sec_opt_str="${19:-}"
+  local _cgroup_rule_str="${20:-}"
+  local _user_build_args_str="${21:-}"
+  local _target_arch="${22:-}"
+  local _build_network="${23:-}"
+  local _runtime="${24:-}"
+  local _additional_contexts_str="${25:-}"
+  local _logging_global_str="${26:-}"
+  local _logging_per_svc_str="${27:-}"
 
   # _logging_svc_kv <svc> <out_assoc_name>
   #
@@ -1892,6 +1893,13 @@ YAML
     container_name: \${USER_NAME}-${_name}\${INSTANCE_SUFFIX:-}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
+YAML
+    # pid: only emitted for "host" — Docker rejects "private" as a
+    # literal; omitting the key gives the same private-namespace default.
+    if [[ "${_pid_mode}" == "host" ]]; then
+      echo "    pid: \${PID_MODE}"
+    fi
+    cat <<YAML
     stdin_open: true
     tty: true
 YAML
@@ -2165,9 +2173,10 @@ YAML
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.gpu_capabilities" "${_gpu_caps}" _eff_gpu_caps
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "deploy.runtime" "${_runtime}" _eff_runtime
 
-      local _eff_net_mode _eff_ipc_mode _eff_net_name _eff_privileged
+      local _eff_net_mode _eff_ipc_mode _eff_pid_mode _eff_net_name _eff_privileged
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.mode" "${_net_mode}" _eff_net_mode
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.ipc" "${_ipc_mode}" _eff_ipc_mode
+      _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.pid" "${_pid_mode}" _eff_pid_mode
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "network.network_name" "${_net_name}" _eff_net_name
       _resolve_stage_scalar _so_filtered_keys _so_filtered_values "security.privileged" "" _eff_privileged
 
@@ -2239,6 +2248,14 @@ YAML
         echo "    ipc: ${_eff_ipc_mode}"
       else
         echo "    ipc: \${IPC_MODE}"
+      fi
+      # pid: only emitted for "host" — Docker rejects "private" as literal.
+      if [[ "${_eff_pid_mode}" == "host" ]]; then
+        if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]]; then
+          echo "    pid: ${_eff_pid_mode}"
+        else
+          echo "    pid: \${PID_MODE}"
+        fi
       fi
       # runtime: only when explicitly set non-empty / non-auto / non-off.
       if [[ -n "${_eff_runtime}" ]] && \
@@ -2455,7 +2472,7 @@ YAML
 #                  <hardware> <docker_hub_user> <gpu_detected>
 #                  <image_name> <ws_path>
 #                  <apt_mirror_ubuntu> <apt_mirror_debian> <tz>
-#                  <network_mode> <ipc_mode> <privileged>
+#                  <network_mode> <ipc_mode> <pid_mode> <privileged>
 #                  <gpu_count> <gpu_caps>
 #                  <gui_detected> <conf_hash>
 #                  [<network_name>] [<user_build_args>] [<target_arch>]
@@ -2487,6 +2504,7 @@ write_env() {
   local _tz="${1}"; shift
   local _network_mode="${1}"; shift
   local _ipc_mode="${1}"; shift
+  local _pid_mode="${1}"; shift
   local _privileged="${1}"; shift
   local _gpu_count="${1}"; shift
   local _gpu_caps="${1}"; shift
@@ -2532,6 +2550,7 @@ TZ=${_tz}
 NETWORK_MODE=${_network_mode}
 NETWORK_NAME=${_network_name}
 IPC_MODE=${_ipc_mode}
+PID_MODE=${_pid_mode}
 PRIVILEGED=${_privileged}
 GPU_COUNT=${_gpu_count}
 GPU_CAPABILITIES="${_gpu_caps}"
@@ -3810,7 +3829,7 @@ _setup_apply() {
 
   local gpu_mode="" gpu_count="" gpu_caps="" runtime_mode=""
   local gui_mode=""
-  local net_mode="" ipc_mode="" privileged="" network_name=""
+  local net_mode="" ipc_mode="" pid_mode="" privileged="" network_name=""
   _get_conf_value _dep_k _dep_v "gpu_mode"         "auto" gpu_mode
   _get_conf_value _dep_k _dep_v "gpu_count"        "all"  gpu_count
   _get_conf_value _dep_k _dep_v "gpu_capabilities" "gpu"  gpu_caps
@@ -3828,8 +3847,9 @@ _setup_apply() {
     esac
   fi
   _get_conf_value _net_k _net_v "mode"             "host" net_mode
-  _get_conf_value _net_k _net_v "ipc"              "host" ipc_mode
-  _get_conf_value _net_k _net_v "network_name"     ""     network_name
+  _get_conf_value _net_k _net_v "ipc"              "host"    ipc_mode
+  _get_conf_value _net_k _net_v "pid"              "private" pid_mode
+  _get_conf_value _net_k _net_v "network_name"     ""        network_name
   _get_conf_value _sec_k _sec_v "privileged"       "true" privileged
 
   # ── WS_PATH + workspace mount ──
@@ -4049,6 +4069,7 @@ _setup_apply() {
     printf 'GUI_ENABLED=%s\n' "${gui_enabled_eff}"
     printf 'NETWORK_MODE=%s\n' "${net_mode}"
     printf 'IPC_MODE=%s\n' "${ipc_mode}"
+    printf 'PID_MODE=%s\n' "${pid_mode}"
     printf 'PRIVILEGED=%s\n' "${privileged}"
     printf 'NETWORK_NAME=%s\n' "${network_name}"
     printf 'TARGET_ARCH=%s\n' "${target_arch}"
@@ -4084,7 +4105,7 @@ _setup_apply() {
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
     "${image_name}" "${ws_path}" \
     "${apt_mirror_ubuntu}" "${apt_mirror_debian}" "${tz}" \
-    "${net_mode}" "${ipc_mode}" "${privileged}" \
+    "${net_mode}" "${ipc_mode}" "${pid_mode}" "${privileged}" \
     "${gpu_count}" "${gpu_caps}" \
     "${gui_detected}" "${conf_hash}" "${dockerfile_hash}" \
     "${network_name}" \
@@ -4106,7 +4127,7 @@ _setup_apply() {
     extra_volumes "${network_name}" \
     "${_devices_str}" \
     "${_env_str}" "${_tmpfs_str}" "${_ports_str}" \
-    "${_shm_size}" "${net_mode}" "${ipc_mode}" \
+    "${_shm_size}" "${net_mode}" "${ipc_mode}" "${pid_mode}" \
     "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}" \
     "${_cgroup_rule_str}" \
     "${_user_build_args_str}" \

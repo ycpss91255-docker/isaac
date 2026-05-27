@@ -39,6 +39,7 @@ ARG BASE_IMAGE="ubuntu:24.04"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS sys
 
 ARG USER_NAME="user"
@@ -79,7 +80,7 @@ RUN if getent group "${USER_GID}" >/dev/null; then \
         usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m \
             "$(getent passwd "${USER_UID}" | cut -d: -f1)"; \
     else \
-        useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"; \
+        useradd -m -l -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"; \
     fi && \
     echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
@@ -93,6 +94,7 @@ RUN apt-get update && \
         -o Dpkg::Options::="--force-confdef" \
         -o Dpkg::Options::="--force-confold" \
         sudo \
+        ca-certificates \
         git \
         vim \
         tmux \
@@ -100,7 +102,6 @@ RUN apt-get update && \
         curl \
         wget \
         python3 \
-        python3-pip \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -112,17 +113,6 @@ ARG USER="${USER_NAME}"
 ARG GROUP="${USER_GROUP}"
 ARG ENTRYPOINT_FILE="script/entrypoint.sh"
 ARG CONFIG_DIR="/tmp/config"
-# Build-time setup scaffolding (#261): pip install + other deferred
-# Dockerfile RUN helpers live under .base/dockerfile/setup/ post
-# this release. Previously sat under .base/config/pip/ but that
-# blurred "user-facing runtime config" (everything else in config/)
-# with "build-time install scaffolding" (pip only). Separating them
-# keeps config/ as the pure runtime-override surface (#254 layered
-# COPY semantics) and lets new build-time helpers land alongside
-# without re-introducing the conceptual mix. Cleared via
-# `sudo rm -rf ${SETUP_DIR}` at the end of the shell-setup RUN
-# block, same lifetime as CONFIG_DIR.
-ARG SETUP_DIR="/tmp/setup"
 # Layered config/ override (template#254): two sequential COPYs into
 # /tmp/config/. The first brings .base/config/ defaults; the
 # second overlays <repo>/config/ on top. File-level merge -- files in
@@ -162,13 +152,6 @@ COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree
 # pull). Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
-# Build-time setup scaffolding (#261). No layered override here --
-# .base/dockerfile/setup/ is the single source of truth; downstream
-# customizes by patching its own Dockerfile RUN line(s) or by adding
-# more entries to its own dockerfile/setup/ tree + a matching COPY
-# (rare). The directory is cleared at the end of the shell-setup RUN
-# block alongside CONFIG_DIR.
-COPY --chmod=0755 .base/dockerfile/setup "${SETUP_DIR}"
 
 USER "${USER}"
 
@@ -179,15 +162,9 @@ USER "${USER}"
 # WorkingDir. Refs #334.
 ENV HOME="/home/${USER_NAME}"
 
-# Setup pip packages (build-time scaffolding from SETUP_DIR, #261).
-RUN "${SETUP_DIR}"/pip/setup.sh
-
 # Setup shell, terminator, tmux. The bashrc append picks up the
 # bashrc.d bootstrap loop (template#254) which sources any *.sh
 # drop-ins under ~/.bashrc.d/ at interactive shell start.
-# SETUP_DIR is cleared alongside CONFIG_DIR (same build-time-only
-# lifetime; once their content has been consumed by the RUN steps
-# above, they are pure bloat in the final image).
 RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     chown "${USER}":"${GROUP}" "${HOME}/.bashrc" && \
     mkdir -p "${HOME}/.bashrc.d" && \
@@ -195,7 +172,7 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     chown -R "${USER}":"${GROUP}" "${HOME}/.bashrc.d" && \
     "${CONFIG_DIR}"/shell/terminator/setup.sh && \
     "${CONFIG_DIR}"/shell/tmux/setup.sh && \
-    sudo rm -rf "${CONFIG_DIR}" "${SETUP_DIR}"
+    sudo rm -rf "${CONFIG_DIR}"
 
 # (Optional) Repo-local Dockerfile-internal build helpers. Put any
 # shell helpers that should run during `docker build` under
@@ -217,6 +194,7 @@ CMD ["bash"]
 
 ############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+# hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
@@ -254,7 +232,8 @@ COPY .base/script/docker/lib /lint/lib
 # them into /lint/ so ShellCheck catches issues at build time.
 #COPY script/docker/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
-RUN cd /lint && hadolint Dockerfile
+WORKDIR /lint
+RUN hadolint Dockerfile
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
 COPY --from=test-tools-stage /opt/bats /opt/bats

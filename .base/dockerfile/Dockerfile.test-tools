@@ -7,9 +7,12 @@
 #   Then in repo Dockerfile:
 #     COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
 
-FROM bats/bats:latest AS bats-src
+ARG BATS_VERSION=1.13.0
+ARG ALPINE_VERSION=3.21
 
-FROM alpine:latest AS bats-extensions
+FROM bats/bats:${BATS_VERSION} AS bats-src
+
+FROM alpine:${ALPINE_VERSION} AS bats-extensions
 RUN apk add --no-cache git && \
     git clone --depth 1 -b v0.3.0 \
         https://github.com/bats-core/bats-support /bats/bats-support && \
@@ -18,7 +21,7 @@ RUN apk add --no-cache git && \
     git clone --depth 1 -b v1.2.5 \
         https://github.com/jasonkarns/bats-mock   /bats/bats-mock
 
-FROM alpine:latest AS lint-tools
+FROM alpine:${ALPINE_VERSION} AS lint-tools
 # TARGETARCH is auto-populated by BuildKit (docker 23+) with "amd64" /
 # "arm64" / etc. Do NOT set a default — a default value shadows
 # BuildKit's auto-inject (moby/buildkit#3403), which caused every
@@ -27,6 +30,7 @@ FROM alpine:latest AS lint-tools
 # (visible symptom: `shellcheck: Exec format error` on arm64 downstream
 # CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
 ARG TARGETARCH
+# hadolint ignore=DL4006
 RUN apk add --no-cache curl xz && \
     case "${TARGETARCH}" in \
       amd64)  sc_arch="x86_64";  hd_arch="x86_64" ;; \
@@ -72,7 +76,7 @@ RUN apk add --no-cache curl xz && \
 # smoke gate actually gates. Only active when the ci-behavioural
 # compose service is invoked (it mounts the host docker.sock); the
 # default `ci` service ignores docker even when CLI is present.
-FROM alpine:latest
+FROM alpine:${ALPINE_VERSION}
 RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make docker-cli docker-cli-buildx
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats

@@ -249,7 +249,7 @@ Override 可能な key (v1)：
 |---|---|
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
 | `[gui]` | `mode` |
-| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
@@ -314,7 +314,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
 [gui]      mode (auto|force|off)
-[network]  mode (host|bridge|none)、ipc、privileged
+[network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
 [volumes]  mount_1（workspace、初回 setup.sh 実行時に自動記入）
            mount_2..mount_N（ユーザ定義の追加 host mount；/dev デバイスは path 指定）
 [logging]  driver（デフォルト json-file）、max_size、max_file、compress

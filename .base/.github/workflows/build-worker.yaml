@@ -112,6 +112,25 @@ on:
               build_contexts: |
                 repo_root=.
                 third_party=./vendor
+      extra_stages:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Comma-separated list of extra Dockerfile stages to build after
+          the standard devel/runtime pipeline. For each stage <name>, if
+          a corresponding <name>-test stage exists in the Dockerfile, it
+          is built first (ephemeral, same as devel-test / runtime-test
+          convention).
+
+          Each extra stage gets its own GHA cache scope
+          (<cache-key>-<name>-cache / <cache-key>-<name>-test-cache).
+
+          Stages in the standard pipeline blocklist (sys, devel-base,
+          devel, devel-test, runtime-test, runtime) are rejected.
+
+          Default empty string preserves existing behavior — no extra
+          stages are built. Closes #415.
       cache_variant:
         required: false
         type: string
@@ -454,6 +473,100 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             ${{ inputs.build_args }}
+
+      # ────────────────────────────────────────────────────────────
+      # #415 — Extra stages loop.
+      #
+      # Iterates over the comma-separated `extra_stages` input and
+      # builds each stage (plus its <name>-test companion if present
+      # in the Dockerfile). Uses `docker buildx build` directly
+      # because GHA YAML does not support dynamic step generation.
+      # GHA cache (`type=gha`) works because docker/setup-buildx-action
+      # already configured the builder with the cache backend.
+      #
+      # Blocklist prevents re-building stages owned by the standard
+      # pipeline. Test-stage detection reuses the same `FROM ... AS`
+      # regex pattern as setup.sh's _parse_dockerfile_stages().
+      # ────────────────────────────────────────────────────────────
+      - name: Build extra stages
+        if: ${{ inputs.extra_stages != '' }}
+        env:
+          EXTRA_STAGES: ${{ inputs.extra_stages }}
+          CACHE_KEY: ${{ steps.cache.outputs.key }}
+          CONTEXT_PATH: ${{ inputs.context_path }}
+          DOCKERFILE: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          BUILD_CONTEXTS_INPUT: ${{ inputs.build_contexts }}
+          BUILD_ARGS_INPUT: ${{ inputs.build_args }}
+          PLATFORM: ${{ matrix.platform }}
+          HARDWARE: ${{ matrix.hardware }}
+          TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"
+        run: |
+          set -euo pipefail
+
+          blocklist="sys devel-base devel devel-test runtime-test runtime"
+
+          available_stages=$(grep -iE '^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+' \
+            "${DOCKERFILE}" | \
+            sed -E 's/^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+).*/\1/i')
+
+          build_arg_flags=(
+            --build-arg "USER_NAME=ci"
+            --build-arg "USER_GROUP=ci"
+            --build-arg "USER_UID=1000"
+            --build-arg "USER_GID=1000"
+            --build-arg "HARDWARE=${HARDWARE}"
+            --build-arg "TEST_TOOLS_IMAGE=${TEST_TOOLS_IMAGE}"
+          )
+          while IFS= read -r line; do
+            [ -z "${line}" ] && continue
+            build_arg_flags+=(--build-arg "${line}")
+          done <<< "${BUILD_ARGS_INPUT}"
+
+          build_ctx_flags=()
+          if [ -n "${BUILD_CONTEXTS_INPUT}" ]; then
+            while IFS= read -r line; do
+              [ -z "${line}" ] && continue
+              build_ctx_flags+=(--build-context "${line}")
+            done <<< "${BUILD_CONTEXTS_INPUT}"
+          fi
+
+          IFS=',' read -ra stages <<< "${EXTRA_STAGES}"
+          for stage in "${stages[@]}"; do
+            stage="$(echo "${stage}" | tr -d '[:space:]')"
+            [ -z "${stage}" ] && continue
+
+            for blocked in ${blocklist}; do
+              if [ "${stage}" = "${blocked}" ]; then
+                echo "::error::extra_stages contains blocked stage '${stage}'. Use the standard pipeline inputs instead."
+                exit 1
+              fi
+            done
+
+            test_stage="${stage}-test"
+            if echo "${available_stages}" | grep -qx "${test_stage}"; then
+              echo "::group::Build ${test_stage} (extra stage test)"
+              docker buildx build \
+                --file "${DOCKERFILE}" \
+                --target "${test_stage}" \
+                --platform "${PLATFORM}" \
+                --cache-from "type=gha,scope=${CACHE_KEY}-${test_stage}-cache" \
+                --cache-to "type=gha,scope=${CACHE_KEY}-${test_stage}-cache,mode=max" \
+                "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+                "${CONTEXT_PATH}"
+              echo "::endgroup::"
+            fi
+
+            echo "::group::Build ${stage} (extra stage)"
+            docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${stage}" \
+              --platform "${PLATFORM}" \
+              --cache-from "type=gha,scope=${CACHE_KEY}-${stage}-cache" \
+              --cache-to "type=gha,scope=${CACHE_KEY}-${stage}-cache,mode=max" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"
+            echo "::endgroup::"
+          done
 
   # ────────────────────────────────────────────────────────────────
   # Stable-name aggregator so downstream branch-protection rules

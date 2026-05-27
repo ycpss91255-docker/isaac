@@ -147,7 +147,6 @@ _run_shellcheck() {
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/dockerfile/setup/pip/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
 }

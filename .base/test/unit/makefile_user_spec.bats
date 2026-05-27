@@ -232,3 +232,44 @@ teardown() {
   refute_line --regexp '^run( |$)'
   refute_line --regexp '^upgrade( |$)'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# VAR=VALUE guard (#414 case 1)
+# ════════════════════════════════════════════════════════════════════
+
+@test "VAR=VALUE arg is detected and aborts with error (#414)" {
+  run make exec FOO=bar
+  assert_failure
+  assert_line --partial "Error:"
+  assert_line --partial "FOO=bar"
+  assert_line --partial "directly"
+}
+
+@test "multiple VAR=VALUE args are all reported (#414)" {
+  run make setup KEY1=val1 KEY2=val2
+  assert_failure
+  assert_line --partial "KEY1=val1"
+  assert_line --partial "KEY2=val2"
+}
+
+@test "VAR=VALUE after -- separator is still caught (#414)" {
+  run make exec -- FOO=bar
+  assert_failure
+  assert_line --partial "FOO=bar"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Absolute container path forwarding (#414 case 2)
+# ════════════════════════════════════════════════════════════════════
+
+@test "absolute path is forwarded correctly (#414)" {
+  run make exec -- /nonexistent/container/path.sh
+  assert_success
+  assert_line "exec /nonexistent/container/path.sh"
+}
+
+@test "absolute path with multiple segments is forwarded (#414)" {
+  run make exec -- /root/demo/ros1_server.sh arg1
+  assert_success
+  assert_line "exec /root/demo/ros1_server.sh arg1"
+}
