@@ -43,7 +43,36 @@ Isaac Sim 5.1 uses the NVCF (`omni.services.livestream.nvcf`) livestream protoco
 2. While `headless-stream` is running, launch the client and enter Server: `<server-ip>` (use `localhost` for same-machine, the server's LAN IP otherwise). **Do not add `:8011` or any port suffix** — the client manages signaling/data ports internally; appending a port routes through the wrong path and yields a black screen.
 3. Click Connect. First-time shader compile takes 1–3 min before the viewport renders.
 
-**Browser-based alternative:** the [`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) repo provides a lightweight browser client. Point it at the same server IP — useful when the native client is unavailable or for multi-instance setups where each instance gets its own viewer tab.
+### Browser-based viewer (omniverse_web_viewer)
+
+The [`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) repo provides a browser-based client as a sidecar container. Bundled as a submodule at `web_viewer/` in this repo.
+
+```bash
+# First time: init submodule
+git submodule update --init web_viewer
+
+# Configure host IP in setup.conf (if not already set)
+./script/setup.sh set environment.env_8 "PUBLIC_IP=<host-ip>"
+./script/setup.sh apply
+
+# Start headless-stream
+make run -- -t headless-stream -d
+# Wait for "is loaded"...
+
+# Build + start web-viewer (reads PUBLIC_IP from .env)
+cd web_viewer
+./script/setup.sh set build.arg_4 "SIGNALING_SERVER=<host-ip>"
+./script/setup.sh apply
+make build
+make run -- -d
+
+# Open Chrome -> http://<host-ip>:5173
+# Select "UI for any streaming app" -> Next
+```
+
+For multi-instance, `run_instance.sh` automatically builds and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below).
+
+Requirements: Chrome or Chromium (Firefox incompatible). One interactive client per Isaac Sim instance.
 
 Notes:
 

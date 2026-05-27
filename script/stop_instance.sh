@@ -12,10 +12,13 @@ if [[ -z "${id}" ]]; then
 fi
 
 container_name="isaac-${id}"
+wv_container="owv-${id}"
 
-if docker ps -q --filter "name=^${container_name}$" | grep -q .; then
-  docker stop "${container_name}"
-  echo "[stop_instance] Container '${container_name}' stopped."
-else
-  echo "[stop_instance] Container '${container_name}' not running."
-fi
+for name in "${wv_container}" "${container_name}"; do
+  if docker ps -q --filter "name=^${name}$" | grep -q .; then
+    docker stop "${name}"
+    echo "[stop_instance] Container '${name}' stopped."
+  else
+    echo "[stop_instance] Container '${name}' not running."
+  fi
+done
