@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- `run_instance.sh`: web-viewer uses runtime env vars (`-e SIGNALING_SERVER/PORT/SERVE_PORT`) instead of per-instance `docker build --build-arg`. Image built once and reused across all instances (closes #42, depends on omniverse_web_viewer#4).
+
 ### Added
 - Multi-instance support scripts (closes #34):
   - `script/init_instance.sh <id>` — create per-instance `config/instances/<id>.env` (ports + cache dir) and cache directory tree.
