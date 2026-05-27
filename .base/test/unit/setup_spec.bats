@@ -680,7 +680,7 @@ EOS
     alice alice 1000 1000 \
     x86_64 alice false myrepo /tmp/ws \
     tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
-    bridge host false all "gpu compute" \
+    bridge host private false all "gpu compute" \
     true confhash dockerhash \
     "" "" "" "" \
     "/path/to/.docker.xauth"
@@ -697,7 +697,7 @@ EOS
     alice alice 1000 1000 \
     x86_64 alice false myrepo /tmp/ws \
     tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
-    bridge host false all "gpu compute" \
+    bridge host private false all "gpu compute" \
     true confhash dockerhash \
     "" "" "" "" \
     ""
@@ -1179,7 +1179,7 @@ EOF
     "x86_64" "dockerhub" "true" \
     "ros_noetic" "/workspace" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" \
+    "host" "host" "private" "true" \
     "all" "gpu" \
     "true" "abc123" "df456"
 
@@ -1190,6 +1190,7 @@ EOF
   run grep 'IMAGE_NAME=ros_noetic' "${_env}"; assert_success
   run grep 'NETWORK_MODE=host'  "${_env}"; assert_success
   run grep 'IPC_MODE=host'      "${_env}"; assert_success
+  run grep 'PID_MODE=private'   "${_env}"; assert_success
   run grep 'PRIVILEGED=true'    "${_env}"; assert_success
   run grep 'GPU_COUNT=all'      "${_env}"; assert_success
   run grep -F 'GPU_CAPABILITIES="gpu"' "${_env}"; assert_success
@@ -1226,7 +1227,7 @@ EOF
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" "all" "gpu" \
+    "host" "host" "private" "true" "all" "gpu" \
     "false" "${_h}" ""
   # stub detect_gui/detect_gpu to match stored false
   detect_gui() { local -n _o=$1; _o="false"; }
@@ -1245,7 +1246,7 @@ EOF
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" "all" "gpu" \
+    "host" "host" "private" "true" "all" "gpu" \
     "false" "${_h_old}" ""
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
@@ -1272,7 +1273,7 @@ EOF
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" "all" "gpu" \
+    "host" "host" "private" "true" "all" "gpu" \
     "false" "${_h}" ""
   # Now detection says true
   detect_gui() { local -n _o=$1; _o="false"; }
@@ -1461,7 +1462,7 @@ EOF
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" "all" "gpu" \
+    "host" "host" "private" "true" "all" "gpu" \
     "false" "${_h}" ""
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
@@ -1478,7 +1479,7 @@ EOF
     "x86_64" "hub" "false" \
     "img" "${TEMP_DIR}" \
     "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
-    "host" "host" "true" "all" "gpu" \
+    "host" "host" "private" "true" "all" "gpu" \
     "false" "${_h_old}" ""
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
@@ -2707,6 +2708,68 @@ EOF
   assert_output "IPC_MODE=private"
 }
 
+@test "[network] pid = host writes PID_MODE=host to .env" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+pid = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^PID_MODE=' '${TEMP_DIR}/.env'
+  "
+  assert_output "PID_MODE=host"
+}
+
+@test "[network] pid default (private) writes PID_MODE=private to .env" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^PID_MODE=' '${TEMP_DIR}/.env'
+  "
+  assert_output "PID_MODE=private"
+}
+
+@test "[network] pid default (private) omits pid: line from compose.yaml" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep 'pid:' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_failure
+}
+
+@test "[network] pid = host emits pid: host in compose.yaml" {
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
+[network]
+mode = host
+ipc = host
+pid = host
+EOF
+  unset SETUP_CONF
+  run bash -c "
+    source /source/script/docker/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -F 'pid: \${PID_MODE}' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+}
+
 @test "[network] network_name = my_bridge under mode=bridge emits external network ref" {
   cat > "${TEMP_DIR}/config/docker/setup.conf" <<'EOF'
 [network]
@@ -3568,6 +3631,7 @@ EOF
     gui.mode \
     network.mode \
     network.ipc \
+    network.pid \
     network.network_name \
     security.privileged
   do

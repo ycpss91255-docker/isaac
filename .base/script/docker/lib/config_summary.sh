@@ -222,9 +222,9 @@ _print_config_summary() {
     "$(_lib_msg gpu_enabled)" "${GPU_ENABLED:--}" "${GPU_COUNT:--}" "${GPU_CAPABILITIES:--}"
   printf "[%s]   %s : %s\n" "${_tag}" \
     "$(_lib_msg gui_enabled)" "${SETUP_GUI_DETECTED:--}"
-  printf "[%s]   %s     : %s  ipc=%s  %s=%s\n" "${_tag}" \
+  printf "[%s]   %s     : %s  ipc=%s  pid=%s  %s=%s\n" "${_tag}" \
     "$(_lib_msg network)" "${NETWORK_MODE:--}" "${IPC_MODE:--}" \
-    "$(_lib_msg privileged)" "${PRIVILEGED:--}"
+    "${PID_MODE:--}" "$(_lib_msg privileged)" "${PRIVILEGED:--}"
   printf "[%s]   TZ=%s  apt_ubuntu=%s  apt_debian=%s\n" "${_tag}" \
     "${TZ:--}" "${APT_MIRROR_UBUNTU:--}" "${APT_MIRROR_DEBIAN:--}"
 

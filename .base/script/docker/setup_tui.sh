@@ -50,7 +50,7 @@ _TUI_MSG_EN[title]="Docker Container Configuration"
 _TUI_MSG_EN[main.prompt]=""
 _TUI_MSG_EN[main.image]="IMAGE_NAME detection rules"
 _TUI_MSG_EN[main.build]="APT mirrors + Dockerfile build args"
-_TUI_MSG_EN[main.network]="mode / ipc / name"
+_TUI_MSG_EN[main.network]="mode / ipc / pid / name"
 _TUI_MSG_EN[main.deploy]="GPU reservation"
 _TUI_MSG_EN[main.gui]="display mode"
 _TUI_MSG_EN[main.volumes]="workspace + extra mounts"
@@ -90,7 +90,7 @@ _TUI_MSG_EN[per_stage.overrides_set]="overrides set"
 _TUI_MSG_EN[per_stage.inherits_all]="(inherits all)"
 _TUI_MSG_EN[per_stage.one.menu]="Pick a section to edit, or Back"
 _TUI_MSG_EN[per_stage.scalar.menu]="Pick a key to edit, or Back"
-_TUI_MSG_EN[per_stage.scalar.prompt]=$'Override value\n  - Empty = inherit top-level (clear this override)\n  - For mode keys: auto / force / off (gui, gpu)\n  - For network mode: host / bridge / none\n  - For ipc: host / shareable / private\n  - For privileged: true / false\n  - For runtime: auto / nvidia / off'
+_TUI_MSG_EN[per_stage.scalar.prompt]=$'Override value\n  - Empty = inherit top-level (clear this override)\n  - For mode keys: auto / force / off (gui, gpu)\n  - For network mode: host / bridge / none\n  - For ipc: host / shareable / private\n  - For pid: host / private\n  - For privileged: true / false\n  - For runtime: auto / nvidia / off'
 _TUI_MSG_EN[per_stage.list.menu]="Edit list entries, toggle inheritance, or Back"
 _TUI_MSG_EN[per_stage.list.entry_prompt]=$'List entry value\n  - Empty = delete this entry\n  - Format depends on the list (mount: host:container[:mode] / port: host:container[/proto] / env: KEY=VALUE)'
 _TUI_MSG_EN[per_stage.network.ports]="ports list (per-stage)"
@@ -152,6 +152,9 @@ _TUI_MSG_EN[network.ipc.prompt]="IPC namespace"
 _TUI_MSG_EN[network.ipc.host]="host (share host IPC / shared memory)"
 _TUI_MSG_EN[network.ipc.shareable]="shareable (own IPC, accessible to other containers)"
 _TUI_MSG_EN[network.ipc.private]="private (own IPC, isolated — Docker default)"
+_TUI_MSG_EN[network.pid.prompt]="PID namespace"
+_TUI_MSG_EN[network.pid.host]="host (share host PID namespace — required for multi-GPU-container NVIDIA driver mutex)"
+_TUI_MSG_EN[network.pid.private]="private (own PID namespace — Docker default)"
 _TUI_MSG_EN[network.priv.prompt]="Run container privileged?"
 _TUI_MSG_EN[network.name.prompt]=$'Bridge network name\n  - Empty = compose auto-creates <project>_default bridge each run\n  - Non-empty = compose creates a bridge with this name (auto-managed)\n      Example: my_bridge\n        → compose creates <project>_my_bridge on up\n        → removed on down'
 _TUI_MSG_EN[deploy.title]="Deploy"
@@ -305,7 +308,7 @@ _TUI_MSG_ZH_TW[per_stage.overrides_set]="個 override"
 _TUI_MSG_ZH_TW[per_stage.inherits_all]="(全部繼承)"
 _TUI_MSG_ZH_TW[per_stage.one.menu]="選擇要編輯的 section，或返回"
 _TUI_MSG_ZH_TW[per_stage.scalar.menu]="選擇要編輯的 key，或返回"
-_TUI_MSG_ZH_TW[per_stage.scalar.prompt]=$'Override 值\n  - 空白 = 繼承 top-level（清除此 override）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
+_TUI_MSG_ZH_TW[per_stage.scalar.prompt]=$'Override 值\n  - 空白 = 繼承 top-level（清除此 override）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - pid：host / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
 _TUI_MSG_ZH_TW[per_stage.list.menu]="編輯 list 項目、切換繼承、或返回"
 _TUI_MSG_ZH_TW[per_stage.list.entry_prompt]=$'List 項目值\n  - 空白 = 刪除此項目\n  - 格式依 list 不同（mount: host:container[:mode] / port: host:container[/proto] / env: KEY=VALUE）'
 _TUI_MSG_ZH_TW[per_stage.network.ports]="ports list (per-stage)"
@@ -367,6 +370,9 @@ _TUI_MSG_ZH_TW[network.ipc.prompt]="IPC 命名空間"
 _TUI_MSG_ZH_TW[network.ipc.host]="host（共用主機 IPC／共享記憶體）"
 _TUI_MSG_ZH_TW[network.ipc.shareable]="shareable（獨立 IPC，其他容器可存取）"
 _TUI_MSG_ZH_TW[network.ipc.private]="private（獨立 IPC，Docker 預設）"
+_TUI_MSG_ZH_TW[network.pid.prompt]="PID 命名空間"
+_TUI_MSG_ZH_TW[network.pid.host]="host（共用主機 PID 命名空間 — 多 GPU 容器 NVIDIA 驅動 mutex 需要）"
+_TUI_MSG_ZH_TW[network.pid.private]="private（獨立 PID 命名空間 — Docker 預設）"
 _TUI_MSG_ZH_TW[network.priv.prompt]="以特權模式執行？"
 _TUI_MSG_ZH_TW[network.name.prompt]=$'Bridge 網路名稱\n  - 留空 = compose 每次自動建立 <project>_default bridge\n  - 填寫 = compose 建立以此為名的 bridge（仍由 compose 管理）\n      範例：my_bridge\n        → compose 啟動時建立 <project>_my_bridge\n        → 停止時自動移除'
 _TUI_MSG_ZH_TW[deploy.title]="Deploy"
@@ -518,7 +524,7 @@ _TUI_MSG_ZH_CN[per_stage.overrides_set]="个 override"
 _TUI_MSG_ZH_CN[per_stage.inherits_all]="(全部继承)"
 _TUI_MSG_ZH_CN[per_stage.one.menu]="选择要编辑的 section，或返回"
 _TUI_MSG_ZH_CN[per_stage.scalar.menu]="选择要编辑的 key，或返回"
-_TUI_MSG_ZH_CN[per_stage.scalar.prompt]=$'Override 值\n  - 空白 = 继承 top-level（清除此 override）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
+_TUI_MSG_ZH_CN[per_stage.scalar.prompt]=$'Override 值\n  - 空白 = 继承 top-level（清除此 override）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - pid：host / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
 _TUI_MSG_ZH_CN[per_stage.list.menu]="编辑 list 项目、切换继承、或返回"
 _TUI_MSG_ZH_CN[per_stage.list.entry_prompt]=$'List 项目值\n  - 空白 = 删除此项目\n  - 格式依 list 不同（mount: host:container[:mode] / port: host:container[/proto] / env: KEY=VALUE）'
 _TUI_MSG_ZH_CN[per_stage.network.ports]="ports list (per-stage)"
@@ -580,6 +586,9 @@ _TUI_MSG_ZH_CN[network.ipc.prompt]="IPC 命名空间"
 _TUI_MSG_ZH_CN[network.ipc.host]="host（共用主机 IPC／共享内存）"
 _TUI_MSG_ZH_CN[network.ipc.shareable]="shareable（独立 IPC，其他容器可访问）"
 _TUI_MSG_ZH_CN[network.ipc.private]="private（独立 IPC，Docker 默认）"
+_TUI_MSG_ZH_CN[network.pid.prompt]="PID 命名空间"
+_TUI_MSG_ZH_CN[network.pid.host]="host（共用主机 PID 命名空间 — 多 GPU 容器 NVIDIA 驱动 mutex 需要）"
+_TUI_MSG_ZH_CN[network.pid.private]="private（独立 PID 命名空间 — Docker 默认）"
 _TUI_MSG_ZH_CN[network.priv.prompt]="以特权模式运行？"
 _TUI_MSG_ZH_CN[network.name.prompt]=$'Bridge 网络名称\n  - 留空 = compose 每次自动建立 <project>_default bridge\n  - 填写 = compose 建立以此为名的 bridge（仍由 compose 管理）\n      示例：my_bridge\n        → compose 启动时建立 <project>_my_bridge\n        → 停止时自动移除'
 _TUI_MSG_ZH_CN[deploy.title]="Deploy"
@@ -726,7 +735,7 @@ _TUI_MSG_JA[per_stage.overrides_set]="件の override"
 _TUI_MSG_JA[per_stage.inherits_all]="(すべて継承)"
 _TUI_MSG_JA[per_stage.one.menu]="編集する section を選択するか、戻る"
 _TUI_MSG_JA[per_stage.scalar.menu]="編集する key を選択するか、戻る"
-_TUI_MSG_JA[per_stage.scalar.prompt]=$'Override 値\n  - 空白 = top-level を継承（この override をクリア）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
+_TUI_MSG_JA[per_stage.scalar.prompt]=$'Override 値\n  - 空白 = top-level を継承（この override をクリア）\n  - mode keys：auto / force / off (gui, gpu)\n  - network mode：host / bridge / none\n  - ipc：host / shareable / private\n  - pid：host / private\n  - privileged：true / false\n  - runtime：auto / nvidia / off'
 _TUI_MSG_JA[per_stage.list.menu]="list 項目の編集、継承の切替、または戻る"
 _TUI_MSG_JA[per_stage.list.entry_prompt]=$'List 項目の値\n  - 空白 = この項目を削除\n  - 形式は list ごとに異なります（mount: host:container[:mode] / port: host:container[/proto] / env: KEY=VALUE）'
 _TUI_MSG_JA[per_stage.network.ports]="ports list (per-stage)"
@@ -788,6 +797,9 @@ _TUI_MSG_JA[network.ipc.prompt]="IPC 名前空間"
 _TUI_MSG_JA[network.ipc.host]="host（ホスト IPC／共有メモリを共有）"
 _TUI_MSG_JA[network.ipc.shareable]="shareable（独自 IPC、他コンテナから可）"
 _TUI_MSG_JA[network.ipc.private]="private（独自 IPC、Docker デフォルト）"
+_TUI_MSG_JA[network.pid.prompt]="PID 名前空間"
+_TUI_MSG_JA[network.pid.host]="host（ホスト PID 名前空間を共有 — マルチ GPU コンテナの NVIDIA ドライバ mutex に必要）"
+_TUI_MSG_JA[network.pid.private]="private（独自 PID 名前空間 — Docker デフォルト）"
 _TUI_MSG_JA[network.priv.prompt]="特権モードで実行？"
 _TUI_MSG_JA[network.name.prompt]=$'Bridge ネットワーク名\n  - 空 = compose が実行ごとに <project>_default bridge を自動作成\n  - 非空 = この名前の bridge を compose が作成 (compose が管理)\n      例: my_bridge\n        → 起動時 <project>_my_bridge を作成\n        → 停止時に自動削除'
 _TUI_MSG_JA[deploy.title]="Deploy"
@@ -1387,6 +1399,13 @@ _edit_section_network() {
     || return 0
   _override_set "network.ipc" "${_v}"
   local _selected_ipc="${_v}"
+
+  _cur="$(_override_get "network.pid" "private")"
+  _v="$(_tui_select "$(_tui_msg network.title)" "$(_tui_msg network.pid.prompt)" \
+    host    "$(_tui_msg network.pid.host)"    "$([[ "${_cur}" == host ]]    && echo ON || echo off)" \
+    private "$(_tui_msg network.pid.private)" "$([[ "${_cur}" == private ]] && echo ON || echo off)")" \
+    || return 0
+  _override_set "network.pid" "${_v}"
 
   # mode=bridge triggers: network_name + ports list
   if [[ "${_selected_mode}" == "bridge" ]]; then

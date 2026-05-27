@@ -1215,68 +1215,26 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# pip relocation: config/pip/ -> dockerfile/setup/pip/ (#261)
+# pip scaffolding removed (#407, reverses #261)
 #
-# config/ is the user-facing override surface post-#254 (layered COPY:
-# .base/config/ defaults + <repo>/config/ overlay = runtime files
-# in the user's interactive shell). pip/setup.sh was the odd one out --
-# build-time install scaffolding that ran once then got wiped by
-# `sudo rm -rf ${CONFIG_DIR}`, never user-facing. Mental-model
-# violation against #254's drop-in semantics + forced every downstream
-# to keep pip/setup.sh in their <repo>/config/ snapshot. #261 moves
-# it to .base/dockerfile/setup/pip/ -- a separate dir intended for
-# build-time scaffolding only, copied into ${SETUP_DIR} (no layered
-# override, single source of truth), cleared alongside CONFIG_DIR.
-#
-# Tests below lock the new path + the Dockerfile.example pattern (new
-# ARG + COPY + RUN + cleanup) so the relocation can't silently revert.
+# dockerfile/setup/ and all pip-related Dockerfile.example patterns
+# have been removed. Downstream repos that need pip handle it
+# independently in their own Dockerfiles.
 # ════════════════════════════════════════════════════════════════════
 
-@test "template ships dockerfile/setup/pip/setup.sh + requirements.txt (#261)" {
-  [[ -f /source/dockerfile/setup/pip/setup.sh ]]
-  [[ -x /source/dockerfile/setup/pip/setup.sh ]]
-  [[ -f /source/dockerfile/setup/pip/requirements.txt ]]
+@test "template no longer ships dockerfile/setup/ (#407, reverses #261)" {
+  [[ ! -e /source/dockerfile/setup ]]
 }
 
 @test "template no longer ships config/pip/ (#261 relocation regression guard)" {
-  # If a future change moves pip/ back under config/, this fires. The
-  # whole point of #261 was to keep config/ pure runtime-override
-  # surface; resurrecting config/pip/ undoes that.
   [[ ! -e /source/config/pip ]]
 }
 
-@test "Dockerfile.example declares ARG SETUP_DIR for build-time scaffolding (#261)" {
+@test "Dockerfile.example has no SETUP_DIR or pip references (#407)" {
   local _df="/source/dockerfile/Dockerfile.example"
   [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^ARG SETUP_DIR="/tmp/setup"$' "${_df}"
-  assert_success
-}
-
-@test "Dockerfile.example COPYs .base/dockerfile/setup into SETUP_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  run grep -E '^COPY --chmod=0755 .base/dockerfile/setup "\$\{SETUP_DIR\}"$' "${_df}"
-  assert_success
-}
-
-@test "Dockerfile.example RUN pip uses SETUP_DIR not CONFIG_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  # Positive: new location
-  run grep -E '^RUN "\$\{SETUP_DIR\}"/pip/setup\.sh$' "${_df}"
-  assert_success
-  # Negative regression guard: no leftover ${CONFIG_DIR}/pip/setup.sh
-  run grep -E '^RUN "\$\{CONFIG_DIR\}"/pip/setup\.sh$' "${_df}"
-  [ "${status}" -ne 0 ] || [ -z "${output}" ]
-}
-
-@test "Dockerfile.example cleans up SETUP_DIR alongside CONFIG_DIR (#261)" {
-  local _df="/source/dockerfile/Dockerfile.example"
-  [[ -f "${_df}" ]] || skip "Dockerfile.example not present in /source"
-  # SETUP_DIR must be removed in the same image layer as CONFIG_DIR
-  # (both are build-time-only). Match the literal cleanup line.
-  run grep -E '^    sudo rm -rf "\$\{CONFIG_DIR\}" "\$\{SETUP_DIR\}"$' "${_df}"
-  assert_success
+  run grep -E 'SETUP_DIR|python3-pip|pip/setup|pip install' "${_df}"
+  assert_failure
 }
 
 # ════════════════════════════════════════════════════════════════════

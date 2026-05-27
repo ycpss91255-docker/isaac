@@ -241,7 +241,7 @@ deploy.gpu_capabilities = gpu compute utility graphics video
 |---|---|
 | `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `runtime` |
 | `[gui]` | `mode` |
-| `[network]` | `mode`, `ipc`, `network_name`, `port_<N>`, `port_inherit` |
+| `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
 | `[security]` | `privileged` |
 | `[volumes]` | `mount_<N>`, `mount_inherit` |
 | `[environment]` | `env_<N>`, `env_inherit` |
@@ -302,7 +302,7 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
 [gui]      mode (auto|force|off)
-[network]  mode (host|bridge|none)、ipc、privileged
+[network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
 [volumes]  mount_1（workspace，首次 setup.sh 執行時自動填入）
            mount_2..mount_N（使用者自訂額外 host mount；/dev 裝置走 path）
 [logging]  driver（預設 json-file）、max_size、max_file、compress

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.35.0] - 2026-05-27
+
+### Added
+- **`[network] pid` setting** for PID namespace mode (`host` / `private`). Default `private` (Docker default). Set `pid = host` when running multiple GPU-rendering containers on the same GPU to avoid NVIDIA driver pthread robust mutex failures (`ESRCH`). Follows the `[network] ipc` precedent: setup.conf -> `.env` `PID_MODE` -> compose.yaml `pid:`. Per-stage override and TUI selection (4 languages) included. Closes #412.
+- **`build-worker.yaml` `extra_stages` input** — opt-in comma-separated list of extra Dockerfile stages to build after the standard pipeline. For each stage `<name>`, if a corresponding `<name>-test` stage exists in the Dockerfile it is built first (same convention as `devel-test` / `runtime-test`). Each extra stage gets its own GHA cache scope. Blocklist validation rejects attempts to re-build standard pipeline stages. Closes #415.
+
+### Changed
+- **`.hadolint.yaml` cleanup** — removed 5 globally ignored rules (DL3003, DL3006, DL3007, DL3046, DL4006) and properly fixed the underlying violations: pinned bats/alpine versions via `ARG` in `Dockerfile.test-tools`, added `-l` flag to `useradd` in `Dockerfile.example`, replaced `RUN cd` with `WORKDIR`, and moved DL4006 to inline ignore on the Alpine `RUN` with pipe. Closes #405.
+
+### Removed
+- **`dockerfile/setup/` pip scaffolding** — removed entirely (reverses #261). `python3-pip` dropped from `Dockerfile.example` apt install, `SETUP_DIR` ARG and all COPY/RUN pip references removed. Downstream repos that need pip handle it independently in their own Dockerfiles. Closes #407.
+
+### Fixed
+- **Makefile forwarding: absolute container paths** — `make exec -- /root/demo/test.sh` failed with `No rule to make target` because GNU Make's built-in implicit rules stat every goal on the host filesystem. Added `--no-builtin-rules` + `.SUFFIXES:` so the `%:` catch-all fires correctly for arbitrary absolute paths. Closes #414 (case 2).
+- **Makefile forwarding: VAR=VALUE args silently lost** — `make setup set build.arg_4 ROS2_DISTRO=jazzy` dropped the `ROS2_DISTRO=jazzy` token because Make treats any `KEY=VALUE` CLI token as a variable override, not a goal. Added a `MAKEOVERRIDES` guard that detects swallowed args and aborts with a clear error message pointing users to the underlying script. Closes #414 (case 1).
+- `upgrade.sh` #399 idempotency regex false-positive: `COPY script/*.sh /lint/script/` was matching the already-patched check because `/lint/` is a prefix of `/lint/script/`. Anchored the regex with `$` so only the exact `/lint/` destination triggers the skip. Closes #403.
+
 ## [v0.34.1] - 2026-05-25
 
 Patch release: single feature from #399 / PR #400.

@@ -258,9 +258,9 @@ teardown() {
   local _extras=()
   local _cap_add
   printf -v _cap_add '%s\n%s' "SYS_ADMIN" "NET_ADMIN"
-  # positional: out name gui gpu count caps extras net_name devices env tmpfs ports shm net_mode ipc_mode cap_add cap_drop sec_opt
+  # positional: out name gui gpu count caps extras net_name devices env tmpfs ports shm net_mode ipc_mode pid_mode cap_add cap_drop sec_opt
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "${_cap_add}" "" ""
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "${_cap_add}" "" ""
   run grep -E '^    cap_add:$' "${COMPOSE_OUT}"
   assert_success
   run grep -F -- '- SYS_ADMIN' "${COMPOSE_OUT}"
@@ -272,7 +272,7 @@ teardown() {
 @test "generate_compose_yaml emits cap_drop from security list" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "" "ALL" ""
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "" "ALL" ""
   run grep -E '^    cap_drop:$' "${COMPOSE_OUT}"
   assert_success
   run grep -F -- '- ALL' "${COMPOSE_OUT}"
@@ -284,7 +284,7 @@ teardown() {
   local _sec_opt
   printf -v _sec_opt '%s\n%s' "seccomp:unconfined" "apparmor:unconfined"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "" "" "${_sec_opt}"
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "" "" "${_sec_opt}"
   run grep -E '^    security_opt:$' "${COMPOSE_OUT}"
   assert_success
   run grep -F -- '- seccomp:unconfined' "${COMPOSE_OUT}"
@@ -314,6 +314,22 @@ teardown() {
   run grep -F 'ipc: ${IPC_MODE}' "${COMPOSE_OUT}"
   assert_success
   run grep -F 'privileged: ${PRIVILEGED}' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml omits pid when default private" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'pid:' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml emits pid env-var ref when host" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "host"
+  run grep -F 'pid: ${PID_MODE}' "${COMPOSE_OUT}"
   assert_success
 }
 
@@ -347,10 +363,10 @@ teardown() {
 
 @test "generate_compose_yaml emits TARGETARCH line in both services when target_arch set" {
   local _extras=()
-  # Positional args up to #20 are optional (defaults via ${N:-}); pos #21 is target_arch.
+  # Positional args up to #21 are optional (defaults via ${N:-}); pos #22 is target_arch.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
-    "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "arm64"
   # Must appear under both devel + test service build.args blocks.
   run grep -cF 'TARGETARCH: ${TARGET_ARCH}' "${COMPOSE_OUT}"
@@ -369,10 +385,10 @@ teardown() {
 
 @test "generate_compose_yaml emits build.network line in both services when build_network set" {
   local _extras=()
-  # Pos #22 is build_network (new).
+  # Pos #23 is build_network.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
-    "" "" "" "" "" "" "host" "host" \
+    "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "host"
   # Must appear under both devel + test service build blocks.
   run grep -cE '^      network: host$' "${COMPOSE_OUT}"
@@ -512,11 +528,11 @@ teardown() {
 @test "generate_compose_yaml emits device_cgroup_rules: when cgroup rules provided" {
   local _extras=()
   # positional: gui gpu count caps extras net_name devices env tmpfs ports
-  # shm_size net_mode ipc_mode cap_add cap_drop sec_opt cgroup_rules
+  # shm_size net_mode ipc_mode pid_mode cap_add cap_drop sec_opt cgroup_rules
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" \
     "" "" "" "" \
-    "" "host" "host" "" "" "" \
+    "" "host" "host" "private" "" "" "" \
     $'c 189:* rwm\nc 81:* rwm'
   run grep -F 'device_cgroup_rules:' "${COMPOSE_OUT}"
   assert_success
@@ -548,11 +564,11 @@ teardown() {
 
 @test "generate_compose_yaml emits runtime: nvidia under devel when runtime=nvidia" {
   local _extras=()
-  # positional args 1..22 unchanged; 23rd is _runtime.
+  # positional args 1..23 unchanged; 24th is _runtime.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "true" "all" "gpu" _extras "" \
     "" "" "" "" \
-    "" "host" "host" "" "" "" \
+    "" "host" "host" "private" "" "" "" \
     "" "" "" "" \
     "nvidia"
   run grep -F '    runtime: nvidia' "${COMPOSE_OUT}"
@@ -566,7 +582,7 @@ teardown() {
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "true" "all" "gpu" _extras "" \
     "" "" "" "" \
-    "" "host" "host" "SYS_ADMIN" "" "" \
+    "" "host" "host" "private" "SYS_ADMIN" "" "" \
     "" "" "" "" \
     "nvidia"
   # runtime: must appear after `tty: true` and before `cap_add:` in devel
