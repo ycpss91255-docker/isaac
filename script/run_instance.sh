@@ -42,7 +42,7 @@ if [[ "${stage}" == "headless" || "${stage}" == "headless-stream" ]]; then
   shift
 fi
 
-instance_env="${script_dir}/config/instances/${id}.env"
+instance_env="${script_dir}/config/docker/instances/${id}.env"
 if [[ ! -f "${instance_env}" ]]; then
   echo "[run_instance] ERROR: ${instance_env} not found." >&2
   echo "[run_instance] Run ./script/init_instance.sh ${id} first." >&2
@@ -63,6 +63,11 @@ source "${instance_env}"
 USER_NAME="${USER_NAME:?USER_NAME not set in .env}"
 WS_PATH="${WS_PATH:?WS_PATH not set in .env}"
 INSTANCE_CACHE_DIR="${INSTANCE_CACHE_DIR:?INSTANCE_CACHE_DIR not set in instance env}"
+# Resolve relative paths against the docker repo root; absolute paths used as-is.
+case "${INSTANCE_CACHE_DIR}" in
+  /*) ;;
+  *) INSTANCE_CACHE_DIR="${script_dir}/${INSTANCE_CACHE_DIR}" ;;
+esac
 ISAAC_SIGNAL_PORT="${ISAAC_SIGNAL_PORT:?ISAAC_SIGNAL_PORT not set in instance env}"
 ISAAC_MEDIA_PORT="${ISAAC_MEDIA_PORT:?ISAAC_MEDIA_PORT not set in instance env}"
 ISAAC_API_PORT="${ISAAC_API_PORT:?ISAAC_API_PORT not set in instance env}"
