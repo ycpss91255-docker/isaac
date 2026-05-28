@@ -11,6 +11,7 @@
 - `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).
 
 ### Fixed
+- `Makefile.local run-stream`: idempotent Isaac Sim exec — `pgrep -f /isaac-sim/kit/kit` guard inside the container before `docker exec runheadless.sh`, so repeat `run-stream` invocations do not spawn duplicate Kit processes competing for the WebRTC signaling port (closes #55). `stop-stream` also `pkill`s the Kit process inside the container before `./script/stop.sh` tears it down, so stopping only the web-viewer no longer leaks a Kit process.
 - `Makefile.local run-stream`: idempotent web-viewer startup — `docker rm -f` existing container before `docker run` so repeat invocations do not error out with name conflict.
 - Dockerfile: remove stale `COPY .base/dockerfile/setup` and `SETUP_DIR` references. base v0.35.0 (#419) removed `dockerfile/setup/` scaffolding; the dangling COPY broke clean builds (CI has been failing since v0.35.0 upgrade).
 - `run_instance.sh`: web-viewer build shows progress (remove `-q`), runs in background so Isaac Sim logs are immediately visible (closes #46).

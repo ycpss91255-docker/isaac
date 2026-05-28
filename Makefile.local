@@ -17,10 +17,14 @@ WV_PUBLIC_IP := $(if $(PUBLIC_IP),$(PUBLIC_IP),127.0.0.1)
 
 run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	./script/run.sh -t headless-stream -d
-	@echo "[run-stream] Starting Isaac Sim in '$(ISAAC_CONTAINER)'..."
-	docker exec -d "$(ISAAC_CONTAINER)" /isaac-sim/runheadless.sh -v \
-	  --/app/livestream/nvcf/quitOnSessionEnded=false \
-	  --/app/livestream/publicEndpointAddress=$(WV_PUBLIC_IP)
+	@if docker exec "$(ISAAC_CONTAINER)" pgrep -f /isaac-sim/kit/kit >/dev/null 2>&1; then \
+	  echo "[run-stream] Isaac Sim already running in '$(ISAAC_CONTAINER)', skipping exec."; \
+	else \
+	  echo "[run-stream] Starting Isaac Sim in '$(ISAAC_CONTAINER)'..."; \
+	  docker exec -d "$(ISAAC_CONTAINER)" /isaac-sim/runheadless.sh -v \
+	    --/app/livestream/nvcf/quitOnSessionEnded=false \
+	    --/app/livestream/publicEndpointAddress=$(WV_PUBLIC_IP); \
+	fi
 	@if ! docker image inspect "$(WV_IMAGE)" >/dev/null 2>&1; then \
 	  echo "[run-stream] Building web-viewer image (one-time)..."; \
 	  $(MAKE) -C web_viewer build -- -t serve; \
@@ -36,4 +40,5 @@ run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 
 stop-stream: ## Stop web-viewer + Isaac headless-stream
 	-docker stop "$(WV_NAME)" 2>/dev/null
+	-@docker exec "$(ISAAC_CONTAINER)" pkill -f /isaac-sim/kit/kit >/dev/null 2>&1 || true
 	./script/stop.sh
