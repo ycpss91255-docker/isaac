@@ -248,3 +248,17 @@ The container runs as a host-UID-aligned non-root user (`USER_NAME` from `.env`,
 ## Smoke Tests
 
 See [doc/test/TEST.md](doc/test/TEST.md).
+
+## Python testing toolkit (devel-test stage)
+
+The `devel-test` stage ships `pytest`, `pyyaml`, and `pytest-cov` installed into Isaac Sim's bundled Python (`/isaac-sim/python.sh`), so consumer repos can run Python unit / integration tests inside the container. The runtime `devel` stage stays lean — the testing dependencies are only paid for in `devel-test`.
+
+Usage:
+
+```bash
+make build -- -t devel-test                                     # build the devel-test stage
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+```
+
+System `python3` cannot install these packages (PEP 668 blocks `pip` on the Isaac base image) — always invoke `/isaac-sim/python.sh -m pytest ...` instead of `pytest ...`.
