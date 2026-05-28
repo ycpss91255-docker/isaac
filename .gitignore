@@ -11,3 +11,6 @@ coverage/
 
 # Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
 isaac_ws/
+
+# Per-host deployment config (use config/host.yaml.example as template)
+config/host.yaml

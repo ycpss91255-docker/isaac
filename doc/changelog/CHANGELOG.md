@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- **Per-host config moved from `setup.conf [environment]` to `config/host.yaml` (gitignored)** (closes #65). `PUBLIC_IP` previously baked in setup.conf forced every developer to edit a tracked file with their host-specific value, leaking app-level config into Docker-setup config. New layout:
+  - `config/host.yaml.example` (committed) — template, copy to `host.yaml` and fill
+  - `config/host.yaml` (gitignored, per-machine)
+  - `script/runheadless-host-config.sh` — runs inside container, reads `/etc/host.yaml` via `awk` (no python/yq dep), injects `--/app/livestream/publicEndpointAddress`
+  - `Makefile.local` `docker cp`'s into Isaac container + `-v` mounts into web-viewer container when present; gracefully skip when absent
+  - `run_instance.sh` mounts via `-v` when present
+  - Web-viewer entrypoint (omniverse_web_viewer#11) reads the same yaml — single source of truth for both containers
+- `setup.conf [environment]`: removed `env_8 = PUBLIC_IP=`. Aligns with ros1_bridge's separation: `setup.conf` = image-level defaults; per-host deployment = separate gitignored config.
+
 ### Added
 - `devel-test` stage: pytest + pyyaml + pytest-cov installed into Isaac Sim's Python (`/isaac-sim/python.sh -m pip install`). Enables in-container Python unit / integration testing for consumer repos. Stage-scoped to avoid bloating the `devel` runtime image. Closes #59.
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.

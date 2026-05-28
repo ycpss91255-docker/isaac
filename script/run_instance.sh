@@ -9,7 +9,9 @@
 #   extra args    Forwarded to Isaac Sim Kit (e.g. scene USD path)
 #
 # Reads per-instance ports + cache dir from config/instances/<id>.env,
-# shared settings from .env (PUBLIC_IP, USER_NAME, WS_PATH, etc.).
+# shared settings from .env (USER_NAME, WS_PATH, etc.). Per-host config
+# (PUBLIC_IP for WebRTC ICE) comes from config/host.yaml when present —
+# mounted into both containers, read by entrypoint / wrapper (#65).
 #
 # Requires: docker compose (for image name), pid=host (setup.conf).
 
@@ -60,7 +62,6 @@ source "${instance_env}"
 
 USER_NAME="${USER_NAME:?USER_NAME not set in .env}"
 WS_PATH="${WS_PATH:?WS_PATH not set in .env}"
-PUBLIC_IP="${PUBLIC_IP:-}"
 INSTANCE_CACHE_DIR="${INSTANCE_CACHE_DIR:?INSTANCE_CACHE_DIR not set in instance env}"
 ISAAC_SIGNAL_PORT="${ISAAC_SIGNAL_PORT:?ISAAC_SIGNAL_PORT not set in instance env}"
 ISAAC_MEDIA_PORT="${ISAAC_MEDIA_PORT:?ISAAC_MEDIA_PORT not set in instance env}"
@@ -70,6 +71,13 @@ IMAGE_NAME="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${stage}"
 
 container_name="isaac-${id}"
 
+host_yaml="${script_dir}/config/host.yaml"
+public_ip=""
+if [[ -f "${host_yaml}" ]]; then
+  public_ip=$(awk -F': *' '/^[[:space:]]*public_ip:/{gsub(/"/,""); print $2}' \
+    "${host_yaml}" 2>/dev/null || true)
+fi
+
 kit_args=(
   -v
   "--/app/livestream/nvcf/quitOnSessionEnded=false"
@@ -78,11 +86,16 @@ kit_args=(
   "--/exts/omni.services.transport.server.http/port=${ISAAC_API_PORT}"
 )
 
-if [[ -n "${PUBLIC_IP}" ]]; then
-  kit_args+=("--/app/livestream/publicEndpointAddress=${PUBLIC_IP}")
+if [[ -n "${public_ip}" ]]; then
+  kit_args+=("--/app/livestream/publicEndpointAddress=${public_ip}")
 fi
 
 kit_args+=("$@")
+
+host_yaml_mount=()
+if [[ -f "${host_yaml}" ]]; then
+  host_yaml_mount=(-v "${host_yaml}:/etc/host.yaml:ro")
+fi
 
 cache="${INSTANCE_CACHE_DIR}"
 
@@ -98,8 +111,8 @@ docker run --rm -d \
   --gpus all \
   -e ACCEPT_EULA=Y \
   -e PRIVACY_CONSENT=Y \
-  -e PUBLIC_IP="${PUBLIC_IP}" \
   -e ISAAC_LIVESTREAM="${stage##*-}" \
+  "${host_yaml_mount[@]}" \
   -v "${WS_PATH}:/home/${USER_NAME}/work" \
   -v "${cache}/kit/cache:/isaac-sim/kit/cache" \
   -v "${cache}/kit/data:/isaac-sim/kit/data" \
@@ -128,12 +141,12 @@ _start_web_viewer() {
   docker run --rm -d \
     --name "${WV_CONTAINER}" \
     --network=host \
-    -e "SIGNALING_SERVER=${PUBLIC_IP:-127.0.0.1}" \
+    "${host_yaml_mount[@]}" \
     -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
     -e "SERVE_PORT=${VIEWER_PORT}" \
     "${WV_IMAGE}" >/dev/null
 
-  echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${PUBLIC_IP:-localhost}:${VIEWER_PORT}"
+  echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${public_ip:-localhost}:${VIEWER_PORT}"
 }
 
 if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then

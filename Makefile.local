@@ -8,23 +8,35 @@ include Makefile
 # because base v0.38.0 compose.yaml injects cap_add/devices defaults
 # that conflict with privileged: false (see base#466). docker run
 # gives a clean container; revisit after base#466 is fixed.
+#
+# Per-host config: when config/host.yaml exists, it is copied / mounted
+# into both containers at /etc/host.yaml. Isaac's runheadless-host-config.sh
+# wrapper reads network.public_ip → Kit publicEndpointAddress arg.
+# Web-viewer entrypoint reads the same field → SIGNALING_SERVER override
+# (omniverse_web_viewer#11). No host-side YAML parsing needed.
 ISAAC_CONTAINER := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-$${IMAGE_NAME}-headless-stream")
 WV_IMAGE := $(shell . ./.env 2>/dev/null && echo "$${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve")
 WV_NAME := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-omniverse_web_viewer-serve")
-WV_PUBLIC_IP := $(if $(PUBLIC_IP),$(PUBLIC_IP),127.0.0.1)
+HOST_YAML := config/host.yaml
+WV_MOUNT_HOST_YAML := $(if $(wildcard $(HOST_YAML)),-v $(abspath $(HOST_YAML)):/etc/host.yaml:ro,)
 
 .PHONY: run-stream stop-stream
 
 run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	./script/run.sh -t headless-stream -d
+	@if [ -f "$(HOST_YAML)" ]; then \
+	  docker cp "$(HOST_YAML)" "$(ISAAC_CONTAINER):/etc/host.yaml"; \
+	  echo "[run-stream] Copied $(HOST_YAML) -> $(ISAAC_CONTAINER):/etc/host.yaml"; \
+	else \
+	  echo "[run-stream] No $(HOST_YAML) — Isaac will skip publicEndpointAddress."; \
+	  echo "[run-stream] Copy $(HOST_YAML).example to $(HOST_YAML) and fill network.public_ip for remote browser access."; \
+	fi
 	@if docker exec "$(ISAAC_CONTAINER)" pgrep -f /isaac-sim/kit/kit >/dev/null 2>&1; then \
 	  echo "[run-stream] Isaac Sim already running in '$(ISAAC_CONTAINER)', skipping exec."; \
 	else \
 	  echo "[run-stream] Starting Isaac Sim in '$(ISAAC_CONTAINER)'..."; \
 	  docker exec -d "$(ISAAC_CONTAINER)" sh -c \
-	    '/isaac-sim/runheadless.sh -v \
-	     --/app/livestream/nvcf/quitOnSessionEnded=false \
-	     --/app/livestream/publicEndpointAddress=$(WV_PUBLIC_IP) \
+	    '/usr/local/bin/runheadless-host-config.sh \
 	     > /proc/1/fd/1 2>/proc/1/fd/2'; \
 	fi
 	@if ! docker image inspect "$(WV_IMAGE)" >/dev/null 2>&1; then \
@@ -33,11 +45,11 @@ run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	fi
 	-@docker rm -f "$(WV_NAME)" >/dev/null 2>&1 || true
 	docker run --rm -d --name "$(WV_NAME)" --network=host \
-	  -e SIGNALING_SERVER="$(WV_PUBLIC_IP)" \
+	  $(WV_MOUNT_HOST_YAML) \
 	  -e SIGNALING_PORT=49100 \
 	  -e SERVE_PORT=5173 \
 	  "$(WV_IMAGE)" >/dev/null
-	@echo "[run-stream] Web-viewer at http://$(WV_PUBLIC_IP):5173"
+	@echo "[run-stream] Web-viewer started on port 5173."
 	@echo "[run-stream] Wait for 'is loaded' (docker logs -f $(ISAAC_CONTAINER))"
 
 stop-stream: ## Stop web-viewer + Isaac headless-stream
