@@ -1,0 +1,11 @@
+include Makefile
+
+.PHONY: run-stream stop-stream
+
+run-stream: ## Start Isaac headless-stream + web-viewer (closes #48)
+	./script/run.sh -t headless-stream -d
+	$(MAKE) -C web_viewer run -- -d
+
+stop-stream: ## Stop web-viewer + Isaac headless-stream
+	$(MAKE) -C web_viewer stop
+	./script/stop.sh
