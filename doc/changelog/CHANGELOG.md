@@ -6,6 +6,7 @@
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
 ### Changed
+- `Makefile.local run-stream`: now also `docker exec` `runheadless.sh` to actually start Isaac Sim (closes #52). `headless-stream` stage's CMD is `sleep infinity` (idle pattern from #28), so the container alone is not enough — Kit args injected: `--/app/livestream/nvcf/quitOnSessionEnded=false`, `--/app/livestream/publicEndpointAddress=${PUBLIC_IP}`.
 - `Makefile.local`: web-viewer started via direct `docker run` (not compose). `serve` stage alone is not sufficient because base v0.38.0 compose.yaml injects `cap_add` / `devices` defaults that conflict with `privileged: false` (see base#466). Reads `PUBLIC_IP` env var for runtime `SIGNALING_SERVER`. Auto-builds image on first run.
 - `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).
 
