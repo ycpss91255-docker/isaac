@@ -284,8 +284,8 @@ RUN cd /lint && hadolint Dockerfile
 # keeping the runtime devel image lean — devel-test is the only stage
 # that pays the ~30-50MB cost. Closes #59.
 RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
-        pytest pyyaml pytest-cov
-RUN /isaac-sim/python.sh -m pytest --version
+        pytest pyyaml pytest-cov \
+ && /isaac-sim/python.sh -m pytest --version
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
 COPY --from=test-tools-stage /opt/bats /opt/bats
