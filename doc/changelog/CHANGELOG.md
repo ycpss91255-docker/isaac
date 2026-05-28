@@ -5,6 +5,10 @@
 ### Added
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
+### Changed
+- `Makefile.local`: web-viewer started via `-t serve` stage (omniverse_web_viewer#9) instead of `devel`, avoiding `/dev/pts` permission error on hosts with active X11 sessions.
+- `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).
+
 ### Fixed
 - Dockerfile: remove stale `COPY .base/dockerfile/setup` and `SETUP_DIR` references. base v0.35.0 (#419) removed `dockerfile/setup/` scaffolding; the dangling COPY broke clean builds (CI has been failing since v0.35.0 upgrade).
 - `run_instance.sh`: web-viewer build shows progress (remove `-q`), runs in background so Isaac Sim logs are immediately visible (closes #46).
