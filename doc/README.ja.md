@@ -194,3 +194,17 @@ make stop                      # 後片付け
 ## Smoke Tests
 
 詳細は [doc/test/TEST.md](test/TEST.md) を参照。
+
+## Python テストツールキット（devel-test ステージ）
+
+`devel-test` ステージには `pytest`、`pyyaml`、`pytest-cov` が Isaac Sim 同梱の Python（`/isaac-sim/python.sh`）にインストールされており、consumer repos がコンテナ内で Python unit / integration test を実行できる。runtime `devel` ステージにはこれらの依存を入れないため、軽量なまま — テストツールのサイズコストは `devel-test` だけで負担する。
+
+使い方：
+
+```bash
+make build -- -t devel-test                                     # devel-test ステージをビルド
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+```
+
+システムの `python3` ではこれらのパッケージはインストールできない（Isaac base image の PEP 668 が `pip` をブロック）— 必ず `/isaac-sim/python.sh -m pytest ...` を使い、`pytest ...` は使わない。

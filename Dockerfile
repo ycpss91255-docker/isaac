@@ -278,6 +278,15 @@ COPY .base/script/docker/lib /lint/lib
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 RUN cd /lint && hadolint Dockerfile
 
+# [isaac] Python testing toolkit (pytest + common deps). Installed into
+# Isaac Sim's bundled Python (/isaac-sim/python.sh) because PEP 668
+# blocks the system python's pip. Stage-scoped to devel-test only,
+# keeping the runtime devel image lean — devel-test is the only stage
+# that pays the ~30-50MB cost. Closes #59.
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
+        pytest pyyaml pytest-cov
+RUN /isaac-sim/python.sh -m pytest --version
+
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
 COPY --from=test-tools-stage /opt/bats /opt/bats
 COPY --from=test-tools-stage /usr/lib/bats /usr/lib/bats

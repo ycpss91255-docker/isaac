@@ -195,3 +195,17 @@ make stop                      # 收尾
 ## Smoke Tests
 
 詳見 [doc/test/TEST.md](test/TEST.md)。
+
+## Python 測試工具鏈（devel-test 階段）
+
+`devel-test` 階段內建 `pytest`、`pyyaml`、`pytest-cov`，安裝在 Isaac Sim 自帶的 Python 環境（`/isaac-sim/python.sh`）裡，讓 consumer repos 可以在容器內跑 Python unit / integration test。runtime `devel` 階段不裝這些依賴，保持精簡 — 測試工具只在 `devel-test` 才付出大小成本。
+
+用法：
+
+```bash
+make build -- -t devel-test                                     # 建置 devel-test 階段
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+```
+
+系統的 `python3` 無法安裝這些套件（Isaac base image 的 PEP 668 擋 `pip`）— 一律走 `/isaac-sim/python.sh -m pytest ...`，不要用 `pytest ...`。

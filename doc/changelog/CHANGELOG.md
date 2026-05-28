@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `devel-test` stage: pytest + pyyaml + pytest-cov installed into Isaac Sim's Python (`/isaac-sim/python.sh -m pip install`). Enables in-container Python unit / integration testing for consumer repos. Stage-scoped to avoid bloating the `devel` runtime image. Closes #59.
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
 ### Changed
