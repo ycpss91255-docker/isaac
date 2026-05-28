@@ -14,3 +14,7 @@ isaac_ws/
 
 # Per-host deployment config (use config/host.yaml.example as template)
 config/host.yaml
+
+# Per-instance state — created by init_instance.sh, machine-specific.
+/config/docker/instances/
+/instance/

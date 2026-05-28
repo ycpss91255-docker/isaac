@@ -1,0 +1,15 @@
+# Per-host / per-instance state — never enter docker build context.
+config/host.yaml
+config/docker/instances/
+instance/
+
+# Other gitignored derived artifacts (mirrored from .gitignore).
+.env
+.env.bak
+compose.yaml
+setup.conf.bak
+setup.conf.local
+coverage/
+.Dockerfile.generated
+.docker.xauth
+isaac_ws/

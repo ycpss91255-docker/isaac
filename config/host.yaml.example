@@ -2,8 +2,11 @@
 # Read inside the container by /usr/local/bin/runheadless-host-config.sh (Isaac)
 # and by the omniverse_web_viewer entrypoint when mounted as /etc/host.yaml.
 #
-# Mount is added automatically by setup.conf [volumes] when config/host.yaml
-# exists on this host. Missing file = mount silently skipped, defaults apply.
+# The launcher (Makefile.local / run_instance.sh) copies / mounts this file
+# into the container when it exists. Missing file = no mount, defaults apply.
 
 network:
-  public_ip: ""   # Host LAN IP for WebRTC ICE candidates (e.g. "10.2.23.83")
+  # Host LAN IP for WebRTC ICE candidates. 127.0.0.1 = localhost-only browser
+  # access. Change to this machine's LAN IP (e.g. "10.2.23.83") for remote
+  # browser access from another machine on the same network.
+  public_ip: "127.0.0.1"

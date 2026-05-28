@@ -3,8 +3,9 @@
 #
 # Usage: ./script/init_instance.sh <instance_id> [--base-signal-port N]
 #
-# Creates config/instances/<id>.env with per-instance port assignments
-# and ${WS_PATH}/isaac-sim/instances/<id>/ cache directory tree.
+# Creates config/docker/instances/<id>.env with per-instance port
+# assignments and instance/<id>/ cache directory tree (both relative
+# to the docker repo root, gitignored).
 #
 # Instance IDs must match [a-z0-9_-] (Docker compose project name rules).
 # Port assignment: auto-increments from base ports by instance index
@@ -36,8 +37,8 @@ Usage: ./script/init_instance.sh <instance_id>
   instance_id   [a-z0-9_-]+ identifier (e.g. warehouse, test-01)
 
 Creates:
-  config/instances/<id>.env         per-instance port + cache config
-  ${WS_PATH}/isaac-sim/instances/<id>/   cache directory tree
+  config/docker/instances/<id>.env  per-instance port + cache config
+  instance/<id>/                    cache directory tree (gitignored)
 
 Port auto-assignment: counts existing instances and offsets from base.
 Edit the generated .env to override.
@@ -53,7 +54,7 @@ if [[ ! "${id}" =~ ^[a-z0-9_-]+$ ]]; then
   exit 1
 fi
 
-instances_dir="${script_dir}/config/instances"
+instances_dir="${script_dir}/config/docker/instances"
 env_file="${instances_dir}/${id}.env"
 
 if [[ -f "${env_file}" ]]; then
@@ -73,7 +74,8 @@ media_port=$(( 47998 + offset * 100 ))
 api_port=$(( 8011 + offset ))
 viewer_port=$(( 5173 + offset ))
 
-cache_dir="${WS_PATH}/isaac-sim/instances/${id}"
+cache_dir_rel="instance/${id}"
+cache_dir_abs="${script_dir}/${cache_dir_rel}"
 
 mkdir -p "${instances_dir}"
 cat > "${env_file}" <<EOF
@@ -100,18 +102,22 @@ VIEWER_PORT=${viewer_port}
 # (kit/cache, kit/data, kit/logs, ov/cache, ov/data, ov/logs,
 # nvidia/glcache, nvidia/computecache) are created automatically
 # by init_instance.sh. DO NOT point two instances at the same dir.
-INSTANCE_CACHE_DIR=${cache_dir}
+#
+# Accepts both relative (resolved against the docker repo root) and
+# absolute paths. Edit to relocate (e.g. SSD-mounted cache):
+#   INSTANCE_CACHE_DIR=/mnt/ssd/isaac-cache/${id}
+INSTANCE_CACHE_DIR=${cache_dir_rel}
 EOF
 
 cache_subdirs=(
-  "${cache_dir}/kit/cache"
-  "${cache_dir}/kit/data"
-  "${cache_dir}/kit/logs"
-  "${cache_dir}/ov/cache"
-  "${cache_dir}/ov/data"
-  "${cache_dir}/ov/logs"
-  "${cache_dir}/nvidia/glcache"
-  "${cache_dir}/nvidia/computecache"
+  "${cache_dir_abs}/kit/cache"
+  "${cache_dir_abs}/kit/data"
+  "${cache_dir_abs}/kit/logs"
+  "${cache_dir_abs}/ov/cache"
+  "${cache_dir_abs}/ov/data"
+  "${cache_dir_abs}/ov/logs"
+  "${cache_dir_abs}/nvidia/glcache"
+  "${cache_dir_abs}/nvidia/computecache"
 )
 
 mkdir -p "${cache_subdirs[@]}"
@@ -126,14 +132,14 @@ done
 if (( ${#root_owned[@]} > 0 )); then
   echo "[init_instance] WARNING: root-owned dirs detected:" >&2
   printf '  %s\n' "${root_owned[@]}" >&2
-  echo "[init_instance] Fix with: sudo chown -R \"\$(id -u):\$(id -g)\" ${cache_dir}" >&2
+  echo "[init_instance] Fix with: sudo chown -R \"\$(id -u):\$(id -g)\" ${cache_dir_abs}" >&2
 fi
 
 echo "[init_instance] Instance '${id}' created:"
 echo "  env:   ${env_file}"
-echo "  cache: ${cache_dir}/"
+echo "  cache: ${cache_dir_abs}/  (relative: ${cache_dir_rel})"
 echo "  ports: signal=${signal_port} media=${media_port} api=${api_port} viewer=${viewer_port}"
 echo ""
 echo "Next steps:"
 echo "  1. Review/edit ${env_file}"
-echo "  2. Start: INSTANCE_ID=${id} make run -- -t headless-stream -d"
+echo "  2. Start: ./script/run_instance.sh ${id} headless-stream"
