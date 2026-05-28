@@ -195,6 +195,13 @@ ENV ROS_DISTRO=${ROS_DISTRO} \
 # so the headless / gui stages can name it absolutely in ENTRYPOINT.
 COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-wrapper.sh
 
+# [isaac] runheadless wrapper that reads per-host config from
+# /etc/host.yaml (mounted from <repo>/config/host.yaml by caller).
+# Used by Makefile.local run-stream + run_instance.sh to inject
+# --/app/livestream/publicEndpointAddress without host-side YAML
+# parsing. See doc/ for the host.yaml schema.
+COPY --chmod=0755 script/runheadless-host-config.sh /usr/local/bin/runheadless-host-config.sh
+
 USER "${USER}"
 
 # [isaac] HOME is implicit on Linux but Docker's WORKDIR directive
@@ -284,8 +291,8 @@ RUN cd /lint && hadolint Dockerfile
 # keeping the runtime devel image lean — devel-test is the only stage
 # that pays the ~30-50MB cost. Closes #59.
 RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
-        pytest pyyaml pytest-cov \
- && /isaac-sim/python.sh -m pytest --version
+        pytest pyyaml pytest-cov && \
+    /isaac-sim/python.sh -m pytest --version
 
 # Bats (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
 COPY --from=test-tools-stage /opt/bats /opt/bats

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- **Per-host config moved from `setup.conf [environment]` to `config/host.yaml` (gitignored)** (closes #65). `PUBLIC_IP` previously baked in setup.conf forced every developer to edit a tracked file with their host-specific value, leaking app-level config into Docker-setup config. New layout:
+  - `config/host.yaml.example` (committed) — template, copy to `host.yaml` and fill
+  - `config/host.yaml` (gitignored, per-machine)
+  - `script/runheadless-host-config.sh` — runs inside container, reads `/etc/host.yaml` via `awk` (no python/yq dep), injects `--/app/livestream/publicEndpointAddress`
+  - `Makefile.local` `docker cp`'s into Isaac container + `-v` mounts into web-viewer container when present; gracefully skip when absent
+  - `run_instance.sh` mounts via `-v` when present
+  - Web-viewer entrypoint (omniverse_web_viewer#11) reads the same yaml — single source of truth for both containers
+- `setup.conf [environment]`: removed `env_8 = PUBLIC_IP=`. Aligns with ros1_bridge's separation: `setup.conf` = image-level defaults; per-host deployment = separate gitignored config.
+
 ### Added
 - `.github/workflows/main.yaml`: new `python-tests` job runs `pytest` inside the freshly built `devel-test` image on a self-hosted GPU runner (`runs-on: [self-hosted, gpu]`), parallel with `call-docker-build`. Skip-check inspects `test/<category>/pytest/` (Layout B from #64) so the job only runs once Python tests land; bats files under `test/smoke/bats/` are exercised by `call-docker-build`'s `RUN bats /smoke_test/`. Per `ycpss91255/isaac` ADR-0011 split (Unit + Lint on hosted; Smoke + Integration on self-hosted GPU). Refs #61, #62, #64.
 - `.github/actionlint.yaml`: declares custom `gpu` / `isaac-sim` self-hosted runner labels so actionlint stops warning on the new job's `runs-on`.
@@ -15,7 +25,6 @@
 - `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).
 
 ### Fixed
-- Dockerfile `devel-test` stage: combine the two consecutive RUN instructions added by #60 (pytest pip install + `pytest --version` verification) into one chained RUN. The split form tripped hadolint `DL3059 [info]: Multiple consecutive RUN instructions` and broke `call-docker-build` in CI (#60 was admin-merged through the same red build; this fix unbreaks main as a side effect of #63).
 - `Makefile.local run-stream`: redirect `runheadless.sh` stdout/stderr to container PID 1 (`/proc/1/fd/{1,2}`) so `docker logs -f <container>` shows Isaac Sim loading progress (closes #57). Preserves the `sleep infinity` idle pattern (ADR-0005, #28) — Kit-as-PID-1 was deliberately rejected for `SimulationApp` driver workflow compatibility.
 - `Makefile.local run-stream`: idempotent Isaac Sim exec — `pgrep -f /isaac-sim/kit/kit` guard inside the container before `docker exec runheadless.sh`, so repeat `run-stream` invocations do not spawn duplicate Kit processes competing for the WebRTC signaling port (closes #55). `stop-stream` also `pkill`s the Kit process inside the container before `./script/stop.sh` tears it down, so stopping only the web-viewer no longer leaks a Kit process.
 - `Makefile.local run-stream`: idempotent web-viewer startup — `docker rm -f` existing container before `docker run` so repeat invocations do not error out with name conflict.
