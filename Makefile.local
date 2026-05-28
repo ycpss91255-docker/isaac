@@ -21,9 +21,11 @@ run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	  echo "[run-stream] Isaac Sim already running in '$(ISAAC_CONTAINER)', skipping exec."; \
 	else \
 	  echo "[run-stream] Starting Isaac Sim in '$(ISAAC_CONTAINER)'..."; \
-	  docker exec -d "$(ISAAC_CONTAINER)" /isaac-sim/runheadless.sh -v \
-	    --/app/livestream/nvcf/quitOnSessionEnded=false \
-	    --/app/livestream/publicEndpointAddress=$(WV_PUBLIC_IP); \
+	  docker exec -d "$(ISAAC_CONTAINER)" sh -c \
+	    '/isaac-sim/runheadless.sh -v \
+	     --/app/livestream/nvcf/quitOnSessionEnded=false \
+	     --/app/livestream/publicEndpointAddress=$(WV_PUBLIC_IP) \
+	     > /proc/1/fd/1 2>/proc/1/fd/2'; \
 	fi
 	@if ! docker image inspect "$(WV_IMAGE)" >/dev/null 2>&1; then \
 	  echo "[run-stream] Building web-viewer image (one-time)..."; \
