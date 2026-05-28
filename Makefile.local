@@ -25,6 +25,7 @@ run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	  echo "[run-stream] Building web-viewer image (one-time)..."; \
 	  $(MAKE) -C web_viewer build -- -t serve; \
 	fi
+	-@docker rm -f "$(WV_NAME)" >/dev/null 2>&1 || true
 	docker run --rm -d --name "$(WV_NAME)" --network=host \
 	  -e SIGNALING_SERVER="$(WV_PUBLIC_IP)" \
 	  -e SIGNALING_PORT=49100 \
