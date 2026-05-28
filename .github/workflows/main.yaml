@@ -49,10 +49,15 @@ jobs:
       - name: Run pytest in devel-test container
         run: |
           set -euo pipefail
-          # Skip cleanly until tests land (tests will arrive via
-          # downstream workspace PRs that copy script/ in).
-          if [ ! -d test/unit ] && [ ! -d test/smoke ]; then
-            echo "no test/unit/ or test/smoke/ directory -- skip"
+          # Skip cleanly until Python smoke / unit / integration tests land.
+          # Per isaac#64 the layout segregates tools under test/<cat>/<tool>/,
+          # so detection looks for test/<cat>/pytest/ directories rather than
+          # the legacy test/<cat>/ (which still hosts .bats files exercised by
+          # call-docker-build's RUN bats /smoke_test/).
+          if [ ! -d test/unit/pytest ] && \
+             [ ! -d test/smoke/pytest ] && \
+             [ ! -d test/integration/pytest ]; then
+            echo "no test/<category>/pytest/ directory -- skip"
             exit 0
           fi
           ./script/exec.sh -t devel-test -T -- \

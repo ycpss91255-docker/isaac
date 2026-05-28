@@ -294,9 +294,12 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from base + repo-specific)
+# Smoke test (shared from base + repo-specific). Repo-local .bats
+# files live under test/smoke/bats/ per isaac#64 (separating tool
+# layers under test/<category>/<tool>/), so future Python smoke tests
+# under test/smoke/pytest/ do not collide with bats discovery.
 COPY .base/test/smoke/ /smoke_test/
-COPY test/smoke/ /smoke_test/
+COPY test/smoke/bats/ /smoke_test/
 
 ARG USER
 USER "${USER}"
