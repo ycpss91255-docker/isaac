@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
+
 ### Fixed
 - Dockerfile: remove stale `COPY .base/dockerfile/setup` and `SETUP_DIR` references. base v0.35.0 (#419) removed `dockerfile/setup/` scaffolding; the dangling COPY broke clean builds (CI has been failing since v0.35.0 upgrade).
 - `run_instance.sh`: web-viewer build shows progress (remove `-q`), runs in background so Isaac Sim logs are immediately visible (closes #46).
