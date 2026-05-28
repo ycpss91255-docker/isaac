@@ -1,11 +1,28 @@
 include Makefile
 
+# Web-viewer is started via `docker run` (not `make -C web_viewer run`)
+# because base v0.38.0 compose.yaml injects cap_add/devices defaults
+# that conflict with privileged: false (see base#466). docker run
+# gives a clean container; revisit after base#466 is fixed.
+WV_IMAGE := $(shell . ./.env && echo "$${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve")
+WV_NAME := $(shell . ./.env && echo "$${USER_NAME}-omniverse_web_viewer-serve")
+WV_PUBLIC_IP := $(if $(PUBLIC_IP),$(PUBLIC_IP),127.0.0.1)
+
 .PHONY: run-stream stop-stream
 
 run-stream: ## Start Isaac headless-stream + web-viewer serve stage
 	./script/run.sh -t headless-stream -d
-	$(MAKE) -C web_viewer run -- -t serve -d
+	@if ! docker image inspect "$(WV_IMAGE)" >/dev/null 2>&1; then \
+	  echo "[run-stream] Building web-viewer image (one-time)..."; \
+	  $(MAKE) -C web_viewer build -- -t serve; \
+	fi
+	docker run --rm -d --name "$(WV_NAME)" --network=host \
+	  -e SIGNALING_SERVER="$(WV_PUBLIC_IP)" \
+	  -e SIGNALING_PORT=49100 \
+	  -e SERVE_PORT=5173 \
+	  "$(WV_IMAGE)" >/dev/null
+	@echo "[run-stream] Web-viewer at http://$(WV_PUBLIC_IP):5173"
 
 stop-stream: ## Stop web-viewer + Isaac headless-stream
-	$(MAKE) -C web_viewer stop
+	-docker stop "$(WV_NAME)" 2>/dev/null
 	./script/stop.sh

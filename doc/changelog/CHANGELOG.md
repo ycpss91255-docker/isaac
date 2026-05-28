@@ -6,7 +6,7 @@
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
 ### Changed
-- `Makefile.local`: web-viewer started via `-t serve` stage (omniverse_web_viewer#9) instead of `devel`, avoiding `/dev/pts` permission error on hosts with active X11 sessions.
+- `Makefile.local`: web-viewer started via direct `docker run` (not compose). `serve` stage alone is not sufficient because base v0.38.0 compose.yaml injects `cap_add` / `devices` defaults that conflict with `privileged: false` (see base#466). Reads `PUBLIC_IP` env var for runtime `SIGNALING_SERVER`. Auto-builds image on first run.
 - `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).
 
 ### Fixed
