@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `.github/workflows/main.yaml`: new `python-tests` job runs `pytest` inside the freshly built `devel-test` image on a self-hosted GPU runner (`runs-on: [self-hosted, gpu]`), parallel with `call-docker-build`. Skips cleanly until `test/unit/` or `test/smoke/` exist. Per `ycpss91255/isaac` ADR-0011 split (Unit + Lint on hosted; Smoke + Integration on self-hosted GPU). Refs #61, #62.
+- `.github/actionlint.yaml`: declares custom `gpu` / `isaac-sim` self-hosted runner labels so actionlint stops warning on the new job's `runs-on`.
 - `devel-test` stage: pytest + pyyaml + pytest-cov installed into Isaac Sim's Python (`/isaac-sim/python.sh -m pip install`). Enables in-container Python unit / integration testing for consumer repos. Stage-scoped to avoid bloating the `devel` runtime image. Closes #59.
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
