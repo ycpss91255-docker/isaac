@@ -1,0 +1,9 @@
+# Per-host deployment config. Copy to config/host.yaml (gitignored) and fill values.
+# Read inside the container by /usr/local/bin/runheadless-host-config.sh (Isaac)
+# and by the omniverse_web_viewer entrypoint when mounted as /etc/host.yaml.
+#
+# Mount is added automatically by setup.conf [volumes] when config/host.yaml
+# exists on this host. Missing file = mount silently skipped, defaults apply.
+
+network:
+  public_ip: ""   # Host LAN IP for WebRTC ICE candidates (e.g. "10.2.23.83")

@@ -48,29 +48,27 @@ Isaac Sim 5.1 uses the NVCF (`omni.services.livestream.nvcf`) livestream protoco
 The [`omniverse_web_viewer`](https://github.com/ycpss91255-docker/omniverse_web_viewer) repo provides a browser-based client as a sidecar container. Bundled as a submodule at `web_viewer/` in this repo.
 
 ```bash
-# First time: init submodule
-git submodule update --init web_viewer
+# First time: init submodules + create per-host config
+git submodule update --init --recursive web_viewer
+cp config/host.yaml.example config/host.yaml
+# Edit config/host.yaml: set network.public_ip to this host's LAN IP
 
-# Configure host IP in setup.conf (if not already set)
-./script/setup.sh set environment.env_8 "PUBLIC_IP=<host-ip>"
-./script/setup.sh apply
+# One-command startup (Isaac + Isaac Sim + web-viewer)
+make -f Makefile.local run-stream
 
-# Start headless-stream
-make run -- -t headless-stream -d
-# Wait for "is loaded"...
-
-# Build + start web-viewer (reads PUBLIC_IP from .env)
-cd web_viewer
-./script/setup.sh set build.arg_4 "SIGNALING_SERVER=<host-ip>"
-./script/setup.sh apply
-make build
-make run -- -d
+# Watch Isaac Sim load (it pipes to docker logs via /proc/1/fd/1)
+docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-headless-stream")
 
 # Open Chrome -> http://<host-ip>:5173
 # Select "UI for any streaming app" -> Next
+
+# Stop everything
+make -f Makefile.local stop-stream
 ```
 
-For multi-instance, `run_instance.sh` automatically builds and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below).
+`config/host.yaml` is gitignored and per-machine. Its `network.public_ip` is mounted into both the Isaac container (read by `runheadless-host-config.sh` for the Kit `publicEndpointAddress` arg) and the web-viewer container (read by entrypoint for `SIGNALING_SERVER`).
+
+For multi-instance, `run_instance.sh` reads the same `config/host.yaml` and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below).
 
 Requirements: Chrome or Chromium (Firefox incompatible). One interactive client per Isaac Sim instance.
 
