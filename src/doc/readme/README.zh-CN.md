@@ -28,7 +28,7 @@ NVIDIA Isaac Sim workspace 内容(scripts、文档、USD/URDF 模型),搭配 [yc
 连 submodule 一起 clone:
 
 ```bash
-git clone --recurse-submodules https://github.com/ycpss91255/isaac.git
+git clone --recurse-submodules https://github.com/ycpss91255-research/isaac.git
 ```
 
 接着依 `docker/README.md` 启动 Isaac Sim 开发容器。容器跑起来后,本 repo 内容会挂到容器内的 `/home/yunchien/work/src/`。

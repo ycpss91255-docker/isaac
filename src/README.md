@@ -28,7 +28,7 @@ This repository holds the editable content (driver scripts, documentation, 3D mo
 Clone with the submodule:
 
 ```bash
-git clone --recurse-submodules https://github.com/ycpss91255/isaac.git
+git clone --recurse-submodules https://github.com/ycpss91255-research/isaac.git
 ```
 
 Then follow the setup steps in `docker/README.md` to bring up the Isaac Sim development container. Once the container is running, this repository's content is mounted into the container at `/home/yunchien/work/src/`.

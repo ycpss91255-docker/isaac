@@ -1,5 +1,7 @@
 # CI Architecture: Split Hosted + Self-Hosted by Test Bucket
 
+> **Note (2026-05-28)**: Runner topology (§Self-hosted) and the `ycpss91255` user-account tax item in §Consequences are revised per [ADR-0012](./0012-research-org-split-dual-org-runners.md). Current state is reflected inline below; ADR-0012 carries the rationale for the change (semantic split between `-docker` container-env org and `-research` code org).
+
 ADR-0010 introduces a 4-layer Isaac Dev Kit with Python tests (unit + smoke + integration). Isaac Sim requires NVIDIA GPU at runtime (Kit's CUDA/Vulkan init refuses to start without it), and GitHub-hosted runners do not provide a GPU. Existing `ci.yaml` only validates Python syntax via `py-compile`; pytest is never run in CI. We need a strategy that runs every test type in CI without paying for GPU hosted runners.
 
 **Decision**: Split tests into 4 buckets and route each to a different runner type. Use GitHub-hosted runners (free) for `Unit` and `Lint`, and a self-hosted runner on the maintainer's GPU machine for `Smoke` and `Integration`. Gate self-hosted execution on public PRs with the "All outside collaborators" approval setting.
@@ -28,23 +30,37 @@ Standard `runs-on: ubuntu-latest`. Existing `ci.yaml` extended with a `unit-test
 
 ### Self-hosted (Smoke + Integration)
 
-Two registrations on the maintainer's GPU machine:
+Two **org-level** registrations on the maintainer's GPU machine, one per org:
 
-1. **`ycpss91255-docker` org-level runner** — covers all repos in that org (`isaac`, `seggpt`, `base`, future repos)
-2. **`ycpss91255/isaac` repo-level runner** — required because `ycpss91255` is a *user account*, not an org; user accounts have no org-wide scope
+1. **`ycpss91255-docker` org-level runner** — covers `base`, `isaac` (container env), and future container-env repos
+2. **`ycpss91255-research` org-level runner** — covers `isaac` (workspace, migrated from `ycpss91255/isaac`), `runner-setup`, `canary`, and Phase-2 backend / ROS 2 repos
 
-Same machine, two `actions-runner` services. Both labeled `gpu` so workflows can target the right pool with `runs-on: [self-hosted, gpu]`.
+Same machine, two `actions-runner` services. Both labeled `gpu`. Org boundary itself routes jobs: workflows in `-research` repos pick up the `-research` runner; workflows in `-docker` repos pick up the `-docker` runner. Capability labels (e.g., `isaac-sim`, `cuda12`) are deferred until GPU machines diverge (see ADR-0012).
 
-If `ycpss91255` ever needs a second GPU-test repo, transfer that repo to `ycpss91255-docker` org instead of adding a third runner registration.
+Future GPU-test repos go into whichever org matches their nature (container env → `-docker`; application source → `-research`). No additional runner registration needed unless a single repo requires a distinct GPU profile, in which case it can register a repo-level runner under `~/github_runner/<owner>/<repo>/`.
+
+Registration is automated via the `ycpss91255-docker/github_runner` repo (see ADR-0012). Rebuild SOP after machine loss: `git clone runner-setup && ./init.sh && ./add-runner.sh org ycpss91255-docker && ./add-runner.sh org ycpss91255-research`.
 
 ## Public repo security
 
-All three repos (`ycpss91255/isaac`, `ycpss91255-docker/isaac`, `ycpss91255-docker/base`) are **public**. Self-hosted runners on public repos are a documented attack surface (fork + malicious PR can execute arbitrary code on the runner).
+All workspace + container-env repos are **public**. Self-hosted runners on public repos are a documented attack surface (fork + malicious PR can execute arbitrary code on the runner). Per ADR-0012, the repo set spans two orgs:
 
-**Required settings per repo:**
+| Org | Repos |
+|---|---|
+| `ycpss91255-research` | `isaac` (migrated from `ycpss91255/isaac`), `runner-setup`, `canary`, Phase-2 `seggpt` / `sam_manager` |
+| `ycpss91255-docker` | `base`, `isaac` (container env), `canary` |
+
+**Required settings:**
+
+Approval gate is set at the **org / user-account level**, not per repo:
+
+- `ycpss91255-research` org: Settings → Actions → General → "Require approval for all outside collaborators"
+- `ycpss91255-docker` org: same
+- `ycpss91255` user account: same (residual until all user-account repos are drained)
+
+Per-repo `main` branch protection:
 
 ```
-Settings -> Actions -> General -> "Approval for outside collaborators": All outside collaborators
 Settings -> Branches -> main protection:
   - Require pull request before merging
   - Require status checks to pass: [unit-test, lint, smoke-test]
@@ -75,11 +91,12 @@ Maintainer PRs use `gh pr merge --auto --squash` (after `unit-test` + `lint` + `
 - **Maintainer's machine must be online to merge non-trivial PRs** (self-hosted runner picks up the smoke job). Acceptable for solo-maintainer workflow; revisit if uptime becomes a bottleneck.
 - **GHA minutes are free for self-hosted jobs** (don't count against quota). Public repo hosted-runner minutes are also unlimited. Total CI cost: $0 + electricity.
 - **PR security tradeoff is explicit**: outside collaborator approval gate is mandatory for self-hosted to be safe on public repos. Documented in repo settings, not just in code.
-- **`ycpss91255` user account requires per-repo runner registration** as a tax — every new user-account repo that needs GPU CI adds a runner service to the maintainer's machine. The escape hatch is transferring those repos to `ycpss91255-docker` org.
+- **Semantic org split routes jobs without capability labels** (per ADR-0012). `-docker` org hosts container-env / template repos; `-research` org hosts workspace / backend / ROS 2 code. Both run their own org-level runner on the maintainer's machine. New GPU-CI repos pick the org that matches their nature; no per-repo or user-account runner needed.
 - **Reusable workflow deferred** -- when a third repo (beyond the workspace + docker env) needs GPU CI, extract a `python-gpu-test-worker.yaml` reusable into `ycpss91255-docker/base` following the existing `build-worker.yaml` pattern.
 
 ## Cross-references
 
+- **ADR-0012**: Research org split + dual org-level runners -- supersedes the runner topology (§Self-hosted) and the user-account tax item (§Consequences) of this ADR
 - **ADR-0006**: Per-sensor-type YAML camera config -- the kind of code these tests verify
 - **ADR-0009**: IsaacDriver base class lifecycle pattern -- target of future integration tests
 - **ADR-0010**: Isaac Dev Kit 4-layer standardized development environment -- introduces the tests that drove this decision
