@@ -11,6 +11,7 @@ mount:
     rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
 
 sensor:
+  category: camera
   type: realsense
   # Appended to Isaac Sim assets root (resolved via get_assets_root_path()).
   # Default Isaac Sim 5.1 root: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1

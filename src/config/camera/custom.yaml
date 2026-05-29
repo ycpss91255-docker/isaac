@@ -16,6 +16,7 @@ mount:
     rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
 
 sensor:
+  category: camera
   type: custom
 
 # List of independent optical sensors. Each entry produces one

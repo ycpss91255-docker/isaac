@@ -18,6 +18,7 @@ mount:
     rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
 
 sensor:
+  category: camera
   type: zed
   # The Stereolabs Isaac Sim extension exposes the ZED X USD asset under
   # the Isaac Assets tab after the extension is enabled. The exact USD

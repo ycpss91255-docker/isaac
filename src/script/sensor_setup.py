@@ -36,7 +36,10 @@ def load_config(path):
         cfg = yaml.safe_load(f)
     _validate_shared(cfg, source=str(p))
     category = cfg["sensor"]["category"]
-    if category == "lidar":
+    if category == "camera":
+        from camera_setup import validate_camera
+        validate_camera(cfg, source=str(p))
+    elif category == "lidar":
         _validate_lidar(cfg, source=str(p))
     elif category == "imu":
         _validate_imu(cfg, source=str(p))

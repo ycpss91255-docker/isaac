@@ -17,42 +17,71 @@ from pathlib import Path
 
 import yaml
 
-import omni.graph.core as og
-import omni.usd
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
-
-from isaacsim.core.utils.extensions import enable_extension
-from isaacsim.storage.native import get_assets_root_path
+# Kit-side modules (omni.* / pxr / isaacsim.*) are imported lazily inside the
+# functions that need them so the host-pure surface (load_config,
+# validate_camera, _role_to_helper_type, _fov_to_aperture) stays importable
+# without Isaac Sim — mirrors the deferred-import pattern in sensor_setup.py.
 
 _SUPPORTED_TYPES = {"realsense", "custom", "zed"}
 
+# sensors[] entry keys the custom path requires (host-validated up front).
+_CUSTOM_ENTRY_KEYS = ("role", "name", "pose", "resolution", "hfov", "vfov")
+
 
 def load_config(path):
-    """Load a single camera YAML config; raise on missing required keys."""
-    p = Path(path).expanduser().resolve()
-    with p.open() as f:
-        cfg = yaml.safe_load(f)
-    _validate(cfg, source=str(p))
-    cfg["_source"] = str(p)
-    return cfg
+    """Load a camera YAML config via the unified sensor_setup loader.
+
+    Delegates to sensor_setup.load_config so cameras share one canonical
+    validation path (shared mount/ros/category checks + the camera-specific
+    validate_camera below). Kept as a convenience entry point for callers
+    that only deal with cameras (e.g. forklift_blocky_driver_wip.py).
+    """
+    from sensor_setup import load_config as _load_config
+    return _load_config(path)
 
 
-def _validate(cfg, source):
-    for key in ("mount", "sensor", "ros"):
-        if key not in cfg:
-            raise ValueError(f"{source}: missing top-level key '{key}'")
-    if "parent_prim" not in cfg["mount"] or "pose" not in cfg["mount"]:
-        raise ValueError(f"{source}: mount needs 'parent_prim' and 'pose'")
-    if "xyz" not in cfg["mount"]["pose"] or "rpy" not in cfg["mount"]["pose"]:
-        raise ValueError(f"{source}: mount.pose needs 'xyz' and 'rpy'")
+def validate_camera(cfg, source):
+    """Validate camera-specific fields (host-pure; no Isaac Sim).
+
+    Assumes shared mount/ros/category checks already ran (sensor_setup.
+    _validate_shared). Raises ValueError on any camera schema violation.
+    """
     sensor_type = cfg["sensor"].get("type")
     if sensor_type not in _SUPPORTED_TYPES:
         raise ValueError(
             f"{source}: sensor.type='{sensor_type}' not in {sorted(_SUPPORTED_TYPES)}"
         )
-    for key in ("topic_prefix", "frame_id_prefix"):
-        if key not in cfg["ros"]:
-            raise ValueError(f"{source}: ros needs '{key}'")
+    if sensor_type == "realsense":
+        _validate_realsense(cfg, source)
+    elif sensor_type == "custom":
+        _validate_custom(cfg, source)
+    # zed: the Stereolabs preset shape is validated by the extension at
+    # setup time; no host-checkable required fields beyond sensor.type.
+
+
+def _validate_realsense(cfg, source):
+    streams = cfg.get("streams", {})
+    if not any(streams.get(s) for s in ("color", "depth", "ir_left", "ir_right")):
+        raise ValueError(
+            f"{source}: realsense streams must enable at least one of "
+            "color/depth/ir_left/ir_right"
+        )
+
+
+def _validate_custom(cfg, source):
+    sensors = cfg.get("sensors")
+    if not isinstance(sensors, list) or not sensors:
+        raise ValueError(f"{source}: custom sensors must be a non-empty list")
+    seen = set()
+    for entry in sensors:
+        for key in _CUSTOM_ENTRY_KEYS:
+            if key not in entry:
+                raise ValueError(f"{source}: custom sensors[] entry missing '{key}'")
+        name = entry["name"]
+        if name in seen:
+            raise ValueError(f"{source}: duplicate custom sensors[] name '{name}'")
+        seen.add(name)
+        _role_to_helper_type(entry["role"])  # raises on unsupported role
 
 
 def setup_camera(cfg, stage):
@@ -60,6 +89,11 @@ def setup_camera(cfg, stage):
 
     Returns the OmniGraph path created for the camera publish chain.
     """
+    from isaacsim.core.utils.extensions import enable_extension
+
+    # Single validation entry: guards direct callers that bypass load_config.
+    validate_camera(cfg, source=cfg.get("_source", "<cfg>"))
+
     sensor_type = cfg["sensor"]["type"]
     enable_extension("isaacsim.ros2.bridge")
 
@@ -83,6 +117,9 @@ def _setup_realsense(cfg, stage):
                          ├── Camera_OmniVision_OV9782_Left   → ir_left (optional)
                          └── Camera_OmniVision_OV9782_Right  → ir_right (optional)
     """
+    import omni.graph.core as og
+    from pxr import Usd, UsdPhysics
+
     parent_path = cfg["mount"]["parent_prim"]
     if not stage.GetPrimAtPath(parent_path).IsValid():
         raise ValueError(f"parent_prim does not exist: {parent_path}")
@@ -126,9 +163,8 @@ def _setup_realsense(cfg, stage):
         "ir_right": (f"{rsd455_root}/Camera_OmniVision_OV9782_Right", "rgb",   "ir_right_optical_frame"),
     }
 
+    # validate_camera (called from setup_camera) guarantees >= 1 enabled stream.
     enabled = [s for s, on in streams.items() if on and s in stream_map]
-    if not enabled:
-        raise ValueError("streams: at least one of color/depth/ir_left/ir_right must be true")
 
     graph_path = f"/World/CameraGraphs/{frame_id_prefix}_realsense"
     nodes, set_values, connects = _build_graph_topology(
@@ -161,13 +197,15 @@ def _setup_custom(cfg, stage):
                      ├── <sensors[1].name>          Camera with intrinsics
                      └── ...
     """
+    import omni.graph.core as og
+
     parent_path = cfg["mount"]["parent_prim"]
     if not stage.GetPrimAtPath(parent_path).IsValid():
         raise ValueError(f"parent_prim does not exist: {parent_path}")
 
-    sensors = cfg.get("sensors")
-    if not isinstance(sensors, list) or not sensors:
-        raise ValueError("custom: cfg.sensors must be a non-empty list")
+    # validate_camera (called from setup_camera) guarantees sensors is a
+    # non-empty list with required keys, unique names, and valid roles.
+    sensors = cfg["sensors"]
 
     frame_id_prefix = cfg["ros"]["frame_id_prefix"]
     topic_prefix = cfg["ros"]["topic_prefix"].rstrip("/")
@@ -178,15 +216,8 @@ def _setup_custom(cfg, stage):
 
     stream_map = {}
     overrides = {}
-    seen_names = set()
     for entry in sensors:
-        for key in ("role", "name", "pose", "resolution", "hfov", "vfov"):
-            if key not in entry:
-                raise ValueError(f"custom: sensors[] entry missing '{key}'")
         name = entry["name"]
-        if name in seen_names:
-            raise ValueError(f"custom: duplicate sensors[] name '{name}'")
-        seen_names.add(name)
         helper_type = _role_to_helper_type(entry["role"])
         camera_path = f"{mount_path}/{name}"
         cam_prim = stage.DefinePrim(camera_path, "Camera")
@@ -273,14 +304,19 @@ def _role_to_helper_type(role):
     raise ValueError(f"custom: unsupported sensors[].role '{role}'")
 
 
+def _fov_to_aperture(focal_mm, fov_deg):
+    """Pinhole aperture (mm) for a given focal length and field of view."""
+    return 2.0 * focal_mm * math.tan(math.radians(fov_deg) / 2.0)
+
+
 def _set_camera_intrinsics(prim, hfov_deg, vfov_deg, range_m=None, focal_mm=18.0):
     """Set focalLength + apertures from FOV; optional clipping range from range_m."""
+    from pxr import Gf, UsdGeom
+
     cam = UsdGeom.Camera(prim)
     cam.CreateFocalLengthAttr(float(focal_mm))
-    h_ap = 2.0 * focal_mm * math.tan(math.radians(hfov_deg) / 2.0)
-    v_ap = 2.0 * focal_mm * math.tan(math.radians(vfov_deg) / 2.0)
-    cam.CreateHorizontalApertureAttr(float(h_ap))
-    cam.CreateVerticalApertureAttr(float(v_ap))
+    cam.CreateHorizontalApertureAttr(float(_fov_to_aperture(focal_mm, hfov_deg)))
+    cam.CreateVerticalApertureAttr(float(_fov_to_aperture(focal_mm, vfov_deg)))
     if range_m and len(range_m) == 2:
         near, far = float(range_m[0]), float(range_m[1])
         cam.CreateClippingRangeAttr(Gf.Vec2f(near, far))
@@ -293,6 +329,8 @@ def _build_graph_topology(stream_map, enabled, overrides, topic_prefix, frame_id
     therefore different optical offsets in the rsd455 asset) drive their own
     publish chain.
     """
+    from pxr import Sdf
+
     nodes = [("OnTick", "omni.graph.action.OnPlaybackTick")]
     set_values = []
     connects = []
@@ -343,6 +381,8 @@ def _build_graph_topology(stream_map, enabled, overrides, topic_prefix, frame_id
 
 
 def _resolve_asset_url(suffix):
+    from isaacsim.storage.native import get_assets_root_path
+
     root = get_assets_root_path()
     if root is None:
         raise RuntimeError("get_assets_root_path() returned None — Isaac Sim assets not reachable")
@@ -351,6 +391,8 @@ def _resolve_asset_url(suffix):
 
 def _set_xform_pose(prim, pose):
     """Apply translate + rotateXYZ (degrees) to a USD prim."""
+    from pxr import Gf, UsdGeom
+
     xformable = UsdGeom.Xformable(prim)
     xformable.ClearXformOpOrder()
 
