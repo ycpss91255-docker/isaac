@@ -19,10 +19,13 @@
 - `setup.conf [environment]`: removed `env_8 = PUBLIC_IP=`. Aligns with ros1_bridge's separation: `setup.conf` = image-level defaults; per-host deployment = separate gitignored config.
 
 ### Added
+- `.github/workflows/main.yaml`: new `python-tests` job runs `pytest` inside the freshly built `devel-test` image on a self-hosted GPU runner (`runs-on: [self-hosted, gpu]`), parallel with `call-docker-build`. Skip-check inspects `test/<category>/pytest/` (Layout B from #64) so the job only runs once Python tests land; bats files under `test/smoke/bats/` are exercised by `call-docker-build`'s `RUN bats /smoke_test/`. Per `ycpss91255/isaac` ADR-0011 split (Unit + Lint on hosted; Smoke + Integration on self-hosted GPU). Refs #61, #62, #64.
+- `.github/actionlint.yaml`: declares custom `gpu` / `isaac-sim` self-hosted runner labels so actionlint stops warning on the new job's `runs-on`.
 - `devel-test` stage: pytest + pyyaml + pytest-cov installed into Isaac Sim's Python (`/isaac-sim/python.sh -m pip install`). Enables in-container Python unit / integration testing for consumer repos. Stage-scoped to avoid bloating the `devel` runtime image. Closes #59.
 - `Makefile.local`: `run-stream` / `stop-stream` targets — one-command Isaac headless-stream + web-viewer startup (closes #48). Extends base `Makefile` via `include`. Usage: `make -f Makefile.local run-stream`.
 
 ### Changed
+- `test/smoke/*.bats` → `test/smoke/bats/*.bats` (5 files: `docker_env`, `init_isaac_dirs_spec`, `isaac_ros_env_wrapper`, `isaac_smoke`, `python_testing`). Adopts Layout B convention from `ycpss91255-docker/base#473` so future Python smoke tests can land in `test/smoke/pytest/` without colliding with bats discovery. `Dockerfile`'s `COPY test/smoke/ /smoke_test/` updated to `COPY test/smoke/bats/ /smoke_test/`; `bats /smoke_test/` invocation unchanged. Closes #64.
 - `Makefile.local run-stream`: now also `docker exec` `runheadless.sh` to actually start Isaac Sim (closes #52). `headless-stream` stage's CMD is `sleep infinity` (idle pattern from #28), so the container alone is not enough — Kit args injected: `--/app/livestream/nvcf/quitOnSessionEnded=false`, `--/app/livestream/publicEndpointAddress=${PUBLIC_IP}`.
 - `Makefile.local`: web-viewer started via direct `docker run` (not compose). `serve` stage alone is not sufficient because base v0.38.0 compose.yaml injects `cap_add` / `devices` defaults that conflict with `privileged: false` (see base#466). Reads `PUBLIC_IP` env var for runtime `SIGNALING_SERVER`. Auto-builds image on first run.
 - `web_viewer` submodule pointer bumped to include `serve` stage and GUI-off fix (omniverse_web_viewer#7, #9).

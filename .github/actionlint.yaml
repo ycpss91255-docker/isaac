@@ -1,0 +1,8 @@
+# Declare custom self-hosted runner labels so actionlint stops warning
+# on `runs-on: [self-hosted, gpu]`. Per ycpss91255/isaac ADR-0011, the
+# `gpu` label tags the maintainer's GPU machine that runs Python tests
+# requiring Isaac Sim (Kit cannot boot without an NVIDIA GPU).
+self-hosted-runner:
+  labels:
+    - gpu
+    - isaac-sim
