@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Changed
+- **Per-instance state relocated + portable** (closes #67):
+  - `config/instances/<id>.env` → `config/docker/instances/<id>.env` (grouped under docker config)
+  - `${WS_PATH}/isaac-sim/instances/<id>/` → `<repo>/instance/<id>/` (top-level, gitignored, inside docker repo)
+  - `INSTANCE_CACHE_DIR` now accepts relative paths (resolved against the docker repo root) AND absolute paths. `init_instance.sh` writes the relative form for portability; users can edit to absolute (e.g. `/mnt/ssd/isaac-cache/<id>`) for custom locations.
+  - New `.dockerignore` + `.gitignore` entries exclude both per-instance dirs.
+- `config/host.yaml.example`: default `public_ip` changed from `""` to `"127.0.0.1"` — localhost-only sensible default.
 - **Per-host config moved from `setup.conf [environment]` to `config/host.yaml` (gitignored)** (closes #65). `PUBLIC_IP` previously baked in setup.conf forced every developer to edit a tracked file with their host-specific value, leaking app-level config into Docker-setup config. New layout:
   - `config/host.yaml.example` (committed) — template, copy to `host.yaml` and fill
   - `config/host.yaml` (gitignored, per-machine)
