@@ -28,6 +28,43 @@ jobs:
       # base repo's build_runtime default so CI doesn't try to target it.
       build_runtime: false
 
+  # Per ADR-0011 (ycpss91255/isaac): Python tests run on the
+  # self-hosted GPU runner because Isaac Sim Kit refuses to boot
+  # without an NVIDIA GPU runtime. This job runs in parallel with
+  # call-docker-build (which uses GHA hosted runner and covers
+  # Dockerfile build + bats smoke). Outside-collaborator PRs do NOT
+  # auto-trigger -- the org-level "Approval for outside collaborators"
+  # gate (All outside collaborators) holds them until maintainer
+  # approves.
+  python-tests:
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build test image (devel-test stage, cached if unchanged)
+        run: ./script/build.sh -t test
+
+      - name: Run pytest in test container
+        run: |
+          set -euo pipefail
+          # Skip cleanly until Python smoke / unit / integration tests land.
+          # Per isaac#64 the layout segregates tools under test/<cat>/<tool>/,
+          # so detection looks for test/<cat>/pytest/ directories rather than
+          # the legacy test/<cat>/ (which still hosts .bats files exercised by
+          # call-docker-build's RUN bats /smoke_test/).
+          if [ ! -d test/unit/pytest ] && \
+             [ ! -d test/smoke/pytest ] && \
+             [ ! -d test/integration/pytest ]; then
+            echo "no test/<category>/pytest/ directory -- skip"
+            exit 0
+          fi
+          # run.sh with trailing CMD = docker compose run --rm <service> <cmd>,
+          # then auto compose-down. No explicit stop step needed.
+          ./script/run.sh -t test -- \
+            /isaac-sim/python.sh -m pytest test/ -v --tb=short
+
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
