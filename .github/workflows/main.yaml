@@ -43,10 +43,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Build devel-test image (cached if unchanged)
-        run: ./script/build.sh -t devel-test
+      - name: Build test image (devel-test stage, cached if unchanged)
+        run: ./script/build.sh -t test
 
-      - name: Run pytest in devel-test container
+      - name: Run pytest in test container
         run: |
           set -euo pipefail
           # Skip cleanly until Python smoke / unit / integration tests land.
@@ -60,12 +60,10 @@ jobs:
             echo "no test/<category>/pytest/ directory -- skip"
             exit 0
           fi
-          ./script/exec.sh -t devel-test -T -- \
+          # run.sh with trailing CMD = docker compose run --rm <service> <cmd>,
+          # then auto compose-down. No explicit stop step needed.
+          ./script/run.sh -t test -- \
             /isaac-sim/python.sh -m pytest test/ -v --tb=short
-
-      - name: Stop container
-        if: always()
-        run: ./script/stop.sh -t devel-test || true
 
   call-release:
     needs: call-docker-build
