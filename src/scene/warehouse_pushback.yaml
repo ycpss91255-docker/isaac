@@ -1,0 +1,28 @@
+# Warehouse push-back scene — OpenBase + push-back fixture + pallets
+# See ADR-0010 Scene YAML section for schema documentation.
+
+robot:
+  model: "robot/openbase/openbase_l2.usda"
+  pose:
+    xyz: [0, 0, 0]
+    rpy: [0, 0, 0]
+
+objects:
+  - model: "object/push_back/push_back.usd"
+    pose:
+      xyz: [3.0, 0, 0]
+      rpy: [0, 0, 0]
+
+  - model: "object/pallet/pallet.usd"
+    pose:
+      xyz: [3.0, 0.5, 0.8]
+      rpy: [0, 0, 0]
+    variant:
+      color: "blue"
+    count: 3
+    spacing: [0, 0.2, 0]
+
+sensors:
+  - "config/camera/realsense.yaml"
+  - "config/lidar/ouster_os1.yaml"
+  - "config/imu/default.yaml"
