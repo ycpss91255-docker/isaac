@@ -67,7 +67,7 @@ make -f Makefile.local stop-stream
 
 `config/host.yaml` 是 gitignored、per-machine。它的 `network.public_ip` 會 mount 進兩個 container：Isaac 端由 `runheadless-host-config.sh` 讀取轉成 Kit `publicEndpointAddress` 參數；web-viewer 端由 entrypoint 讀取設成 `SIGNALING_SERVER`。
 
-Multi-instance 模式下，`run_instance.sh` 讀同一份 `config/host.yaml`，為每個 instance 啟動配對 web-viewer（見下方 [Multi-Instance](#multi-instance)）。
+Multi-instance 模式下，`run_instance.sh` 讀同一份 `config/host.yaml`，為每個 instance 啟動配對 web-viewer（見下方 [Multi-Instance](#multi-instance)）。同時也把 `network.public_ip` 當 `SIGNALING_SERVER` env 傳給 viewer container — defense in depth，當本機 cache 的 viewer image 早於 `omniverse_web_viewer#12`（讀 `/etc/host.yaml` 的 entrypoint）時還能拿到正確的 host IP。`web_viewer/` submodule pointer 升級後請手動 rebuild `owv:runtime` 拉取新 entrypoint。
 
 需求：Chrome 或 Chromium（Firefox 不相容）。每個 Isaac Sim instance 只能同時連一個互動 client。
 
