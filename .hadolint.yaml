@@ -1,1 +1,7 @@
-.base/.hadolint.yaml
+---
+ignored:
+  - DL3004  # Do not use sudo (dev container passwordless sudo is by design)
+  - DL3008  # Pin versions in apt get install (impractical for dev images on rolling base)
+  - DL3013  # Pin versions in pip install (downstream repo responsibility)
+  - DL3018  # Pin versions in apk add (aligned with DL3008 strategy)
+

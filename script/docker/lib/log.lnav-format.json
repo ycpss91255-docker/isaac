@@ -1,0 +1,52 @@
+{
+  "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+  "ycpss91255_otel_log": {
+    "title": "ycpss91255-docker OTel-aligned JSON log",
+    "description": "Structured JSON log format aligned with OTel Logs Data Model (#423)",
+    "json": true,
+    "file-pattern": ".*\\.jsonl$",
+    "timestamp-field": "timestamp",
+    "level-field": "severity_text",
+    "level": {
+      "debug": "DEBUG",
+      "info": "INFO",
+      "warning": "WARN",
+      "error": "ERROR",
+      "fatal": "FATAL"
+    },
+    "opid-field": "trace_id",
+    "body-field": "body",
+    "value": {
+      "trace_id": {
+        "kind": "string",
+        "identifier": true,
+        "description": "W3C trace ID (32 hex)"
+      },
+      "span_id": {
+        "kind": "string",
+        "identifier": true,
+        "description": "W3C span ID (16 hex)"
+      },
+      "severity_number": {
+        "kind": "integer",
+        "description": "OTel severity number"
+      },
+      "service_name": {
+        "kind": "string",
+        "identifier": true,
+        "path": "/attributes/service.name",
+        "description": "Short script identifier"
+      },
+      "code_filepath": {
+        "kind": "string",
+        "path": "/attributes/code.filepath",
+        "description": "Source file path"
+      },
+      "code_lineno": {
+        "kind": "integer",
+        "path": "/attributes/code.lineno",
+        "description": "Source line number"
+      }
+    }
+  }
+}
