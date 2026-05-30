@@ -14,6 +14,13 @@ include Makefile
 # wrapper reads network.public_ip → Kit publicEndpointAddress arg.
 # Web-viewer entrypoint reads the same field → SIGNALING_SERVER override
 # (omniverse_web_viewer#11). No host-side YAML parsing needed.
+#
+# docker logs redirect under pid=host (#75): the run-stream exec target
+# resolves the container PID 1's host-side PID via `docker inspect
+# --format '{{.State.Pid}}'` and writes to /proc/$$CONTAINER_PID1/fd/{1,2}.
+# The container's literal PID-1 procfs path would point at host systemd
+# in this PID namespace, get rejected with EPERM, and leave `docker
+# logs` / lazydocker empty.
 ISAAC_CONTAINER := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-$${IMAGE_NAME}-stream")
 WV_IMAGE := $(shell . ./.env 2>/dev/null && echo "$${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve")
 WV_NAME := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-omniverse_web_viewer-serve")
@@ -35,9 +42,10 @@ run-stream: ## Start Isaac stream + Isaac Sim + web-viewer
 	  echo "[run-stream] Isaac Sim already running in '$(ISAAC_CONTAINER)', skipping exec."; \
 	else \
 	  echo "[run-stream] Starting Isaac Sim in '$(ISAAC_CONTAINER)'..."; \
+	  CONTAINER_PID1="$$(docker inspect '$(ISAAC_CONTAINER)' --format '{{.State.Pid}}')"; \
 	  docker exec -d "$(ISAAC_CONTAINER)" sh -c \
-	    '/usr/local/bin/runheadless-host-config.sh \
-	     > /proc/1/fd/1 2>/proc/1/fd/2'; \
+	    "/usr/local/bin/runheadless-host-config.sh \
+	     > /proc/$${CONTAINER_PID1}/fd/1 2>/proc/$${CONTAINER_PID1}/fd/2"; \
 	fi
 	@if ! docker image inspect "$(WV_IMAGE)" >/dev/null 2>&1; then \
 	  echo "[run-stream] Building web-viewer image (one-time)..."; \
