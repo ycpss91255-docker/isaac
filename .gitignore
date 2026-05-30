@@ -20,7 +20,3 @@ config/host.yaml
 /instance/
 
 runtime.env
-
-# Python bytecode caches from pytest / py_compile runs.
-__pycache__/
-*.py[cod]

@@ -306,21 +306,17 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 # under test/smoke/pytest/ do not collide with bats discovery.
 COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/bats/ /smoke_test/
+# [isaac #75] Bake Makefile.local alongside the smoke specs so
+# makefile_local_spec.bats can grep its content at build time
+# (the docker-logs FD redirect regression guard). Makefile.local
+# itself is a developer-facing wrapper; copying it into /smoke_test/
+# is solely for the regression check.
+COPY Makefile.local /smoke_test/Makefile.local
 
 ARG USER
 USER "${USER}"
 
 RUN bats /smoke_test/
-
-# [isaac] Override CMD inherited from `devel` (`["bash"]`). The CI
-# python-tests job uses base v0.40.0's `./script/run.sh -t test --
-# <cmd>` flow, which is `compose up -d test` + `compose exec test
-# <cmd>`. With CMD bash, the container's PID 1 has no stdin and
-# exits immediately, so the subsequent `exec` fires against a dead
-# container ("Error response from daemon: container ... is not
-# running"). Match the headless / headless-stream idle pattern so
-# the container stays alive for the exec'd command (closes #75).
-CMD ["sleep", "infinity"]
 
 ############################## headless ##############################
 # [isaac] Pure simulation, no streaming. Idles on startup; driver
