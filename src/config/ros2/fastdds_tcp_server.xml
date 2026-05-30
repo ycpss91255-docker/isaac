@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS TCPv4 SERVER profile for the Isaac side (publisher).
+  Reliable transport for large images across a routed/subnet boundary where
+  UDP fragmentation drops big messages (see ros2_cross_network.md).
+  The server listens on TCP 42100; remote subscribers (nb) connect to it.
+  Apply via: FASTRTPS_DEFAULT_PROFILES_FILE=<this file> before the driver.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>tcp_server</transport_id>
+      <type>TCPv4</type>
+      <listening_ports>
+        <port>42100</port>
+      </listening_ports>
+      <calculate_crc>false</calculate_crc>
+      <check_crc>false</check_crc>
+      <enable_tcp_nodelay>true</enable_tcp_nodelay>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="default_xml_profile" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>tcp_server</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>
