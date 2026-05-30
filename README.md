@@ -68,7 +68,7 @@ make -f Makefile.local stop-stream
 
 `config/host.yaml` is gitignored and per-machine. Its `network.public_ip` is mounted into both the Isaac container (read by `runheadless-host-config.sh` for the Kit `publicEndpointAddress` arg) and the web-viewer container (read by entrypoint for `SIGNALING_SERVER`).
 
-For multi-instance, `run_instance.sh` reads the same `config/host.yaml` and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below).
+For multi-instance, `run_instance.sh` reads the same `config/host.yaml` and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below). It also passes `network.public_ip` to the viewer container as `SIGNALING_SERVER` env -- defense in depth so the viewer still gets the right host IP if its locally cached image was built before `omniverse_web_viewer#12` (the entrypoint that reads `/etc/host.yaml`). Rebuild `owv:runtime` after the `web_viewer/` submodule pointer bumps to pick up newer entrypoint changes.
 
 Requirements: Chrome or Chromium (Firefox incompatible). One interactive client per Isaac Sim instance.
 

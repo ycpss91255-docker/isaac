@@ -67,7 +67,7 @@ make -f Makefile.local stop-stream
 
 `config/host.yaml` は gitignored・per-machine。`network.public_ip` が両方の container にマウントされ、Isaac 側は `runheadless-host-config.sh` が読んで Kit `publicEndpointAddress` 引数に注入、web-viewer 側は entrypoint が読んで `SIGNALING_SERVER` に設定する。
 
-マルチインスタンス時、`run_instance.sh` は同じ `config/host.yaml` を読み、インスタンスごとにペアの web-viewer を起動する（後述の [Multi-Instance](#multi-instance) を参照）。
+マルチインスタンス時、`run_instance.sh` は同じ `config/host.yaml` を読み、インスタンスごとにペアの web-viewer を起動する（後述の [Multi-Instance](#multi-instance) を参照）。さらに `network.public_ip` を `SIGNALING_SERVER` env として viewer container に渡す — defense in depth として、ローカルキャッシュの viewer image が `omniverse_web_viewer#12`（`/etc/host.yaml` を読む entrypoint）より古い場合でも正しい host IP を取得できる。`web_viewer/` submodule pointer 更新後は `owv:runtime` を手動 rebuild して新しい entrypoint を取り込むこと。
 
 要件：Chrome または Chromium（Firefox 非互換）。Isaac Sim インスタンスごとに 1 つのインタラクティブ client のみ接続可能。
 

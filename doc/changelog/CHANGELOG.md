@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
+- `script/run_instance.sh`: two compounding bugs that produced a working-looking output ("Container started", "Web-viewer started") while the Isaac container had already died with `exitCode=2 / execDuration=0` and the browser showed a white screen (closes #81).
+  - **Bug A**: `kit_args` array used to start with `-v`. The image entrypoint is `exec "$@"`, so the bash exec builtin treated `-v` as its own verbose flag and the container died before Isaac was invoked. Fix: prepend `/isaac-sim/runheadless.sh` to `kit_args`, mirroring what `Makefile.local`'s `run-stream` exec does from the other direction.
+  - **Bug B**: `_start_web_viewer` did not pass `-e SIGNALING_SERVER=${public_ip}` to the viewer container. With a stale locally cached `owv:runtime` image (built before `omniverse_web_viewer#12`, the entrypoint that reads `/etc/host.yaml`), the viewer JS bundle silently fell back to `SIGNALING_SERVER=127.0.0.1`. Fix: pass `SIGNALING_SERVER` as defense in depth; the post-`#12` entrypoint still prefers `/etc/host.yaml`, so this is a backward-compatible fallback.
+  - Regression guarded by `test/smoke/bats/run_instance_spec.bats`, with `script/run_instance.sh` baked into `/smoke_test/` at devel-test build time (same pattern as `makefile_local_spec.bats` under #75).
+  - Stale viewer image auto-rebuild is tracked as a separate follow-up; current docs note that `owv:runtime` must be rebuilt by hand after the `web_viewer/` submodule pointer bumps.
 - `Makefile.local run-stream`: docker-logs FD redirect now targets the container PID 1's host-side PID resolved via `docker inspect --format '{{.State.Pid}}'`, instead of the literal `/proc/1/fd/{1,2}`. The container runs `pid: ${PID_MODE}` with `PID_MODE=host`, so `/proc/1/...` from inside the container resolves to host systemd; writes get rejected with EPERM and `docker logs <isaac>` / lazydocker stayed empty while Isaac Sim was actually running. With the corrected target, Kit output streams into `docker logs` natively (closes #75). Regression guarded by `test/smoke/bats/makefile_local_spec.bats`, with `Makefile.local` baked into `/smoke_test/` at devel-test build time.
 
 ### Changed
