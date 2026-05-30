@@ -268,13 +268,12 @@ COPY script/*.sh /lint/script/
 # Issue base#104: removing these used to be compensated by inline
 # `_detect_lang` fallbacks in every script — now the canonical
 # definition lives once in i18n.sh.
-COPY .base/script/docker/_lib.sh \
-     .base/script/docker/i18n.sh \
-     .base/script/docker/_tui_conf.sh \
-     /lint/
-# _lib.sh post-base#284 is an umbrella that sources lib/*.sh sub-libs.
-# Preserve the lib/ subdirectory in /lint/ so the source paths inside
-# _lib.sh resolve identically to the normal .base/ layout.
+# Post-base#406 (v0.39.0+): wrapper scripts moved to script/docker/wrapper/
+# and all libs consolidated under script/docker/lib/. _lib.sh, i18n.sh,
+# _tui_conf.sh are now under lib/. Preserve the lib/ subdirectory in
+# /lint/ so the source paths inside _lib.sh resolve identically to the
+# normal .base/ layout. The `COPY .base/script/docker/lib /lint/lib`
+# below brings ALL of these in one shot.
 COPY .base/script/docker/lib /lint/lib
 # Lint coverage for repo-local Dockerfile-internal build helpers
 # (base #275). Uncomment if your repo has any <repo>/script/docker/*.sh
