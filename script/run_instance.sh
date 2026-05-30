@@ -84,6 +84,7 @@ if [[ -f "${host_yaml}" ]]; then
 fi
 
 kit_args=(
+  /isaac-sim/runheadless.sh
   -v
   "--/app/livestream/nvcf/quitOnSessionEnded=false"
   "--/app/livestream/port=${ISAAC_SIGNAL_PORT}"
@@ -143,10 +144,21 @@ _start_web_viewer() {
     docker build -t "${WV_IMAGE}" "${WV_DIR}"
   fi
 
+  # Defense in depth (#81 bug B): pass SIGNALING_SERVER explicitly
+  # so the viewer JS bundle gets the right host IP even when the
+  # owv:runtime image was built before omniverse_web_viewer#12 (the
+  # entrypoint that reads /etc/host.yaml). When both are present the
+  # entrypoint prefers /etc/host.yaml -- env stays a no-op fallback.
+  local signaling_server_env=()
+  if [[ -n "${public_ip}" ]]; then
+    signaling_server_env=(-e "SIGNALING_SERVER=${public_ip}")
+  fi
+
   docker run --rm -d \
     --name "${WV_CONTAINER}" \
     --network=host \
     "${host_yaml_mount[@]}" \
+    "${signaling_server_env[@]}" \
     -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
     -e "SERVE_PORT=${VIEWER_PORT}" \
     "${WV_IMAGE}" >/dev/null
