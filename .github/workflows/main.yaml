@@ -67,8 +67,19 @@ jobs:
             echo "no test/<category>/pytest/ directory -- skip"
             exit 0
           fi
-          # run.sh with trailing CMD = docker compose run --rm <service> <cmd>,
-          # then auto compose-down. No explicit stop step needed.
+          # base v0.40.0 detect_ws_path falls back to `dirname` when the
+          # checkout dir is not named *_ws or docker_*; on this org-level
+          # self-hosted runner that picks _work/isaac (the parent of
+          # $GITHUB_WORKSPACE = _work/isaac/isaac), so the workspace mount
+          # lands one level too high and pytest cannot find test/ at the
+          # expected path. Pin WS_PATH explicitly post-build. .env hash
+          # markers are unrelated to WS_PATH, so this edit does not
+          # trigger run.sh's drift-regen path.
+          sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env
+          # run.sh -t test -- <cmd> = `compose up -d test` + `compose exec test <cmd>`.
+          # devel-test stage CMD = sleep infinity keeps the container alive
+          # for the exec'd pytest invocation. compose-down handled by run.sh
+          # auto-cleanup.
           ./script/run.sh -t test -- \
             /isaac-sim/python.sh -m pytest test/ -v --tb=short
 
