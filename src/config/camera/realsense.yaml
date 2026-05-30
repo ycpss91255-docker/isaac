@@ -16,6 +16,11 @@ sensor:
   # Appended to Isaac Sim assets root (resolved via get_assets_root_path()).
   # Default Isaac Sim 5.1 root: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1
   asset_suffix: "Isaac/Sensors/Intel/RealSense/rsd455.usd"
+  # D455 depth valid range (metres). Clips the pseudo-depth camera so values
+  # nearer than min / beyond max are not reported as real. Out-of-range and
+  # no-surface pixels remain inf (no-data); downstream mask x depth -> 3D
+  # filters inf/0. Real D455 ideal range ~0.4-6 m (usable to ~20 m, degraded).
+  depth_range_m: [0.4, 6.0]
 
 # Which stream OUTPUTS to publish. One Action Graph helper chain per
 # enabled stream. Minimal CoreSAM + app-layer need = color + depth.

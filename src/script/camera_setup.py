@@ -118,7 +118,7 @@ def _setup_realsense(cfg, stage):
                          └── Camera_OmniVision_OV9782_Right  → ir_right (optional)
     """
     import omni.graph.core as og
-    from pxr import Usd, UsdPhysics
+    from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
     parent_path = cfg["mount"]["parent_prim"]
     if not stage.GetPrimAtPath(parent_path).IsValid():
@@ -143,12 +143,28 @@ def _setup_realsense(cfg, stage):
     # standalone physical-prop usage). Nested under our kinematic carriage
     # this triggers a "nested rigid body" PhysX error and breaks the
     # forklift's own rigid body registration. Override RigidBodyAPI off
-    # in our local layer so PhysX sees only carriage's body.
+    # in our local layer so PhysX sees only carriage's body, and reset the
+    # xform stack at RSD455 so PhysX no longer flags it as a nested rigid
+    # body missing an xform reset (the residual warning that survived the
+    # RigidBodyAPI disable alone).
     rsd_prim = stage.GetPrimAtPath(rsd455_root)
     if rsd_prim.IsValid():
+        UsdGeom.Xformable(rsd_prim).SetResetXformStack(True)
         for p in Usd.PrimRange(rsd_prim):
             if p.HasAPI(UsdPhysics.RigidBodyAPI):
                 UsdPhysics.RigidBodyAPI(p).CreateRigidBodyEnabledAttr().Set(False)
+
+    # D455 depth fidelity: clip the pseudo-depth camera to the sensor's valid
+    # range (sensor.depth_range_m). Pixels closer than min or beyond max are
+    # not reported as real depth. Out-of-range / no-surface pixels stay inf as
+    # the no-data marker (real D455 reports invalid as 0); downstream
+    # mask x depth -> 3D filters inf/0 alike. See ADR-0015 + ros2_cross_network.md.
+    depth_range = cfg["sensor"].get("depth_range_m")
+    if depth_range and len(depth_range) == 2:
+        depth_cam = stage.GetPrimAtPath(f"{rsd455_root}/Camera_Pseudo_Depth")
+        if depth_cam.IsValid():
+            near, far = float(depth_range[0]), float(depth_range[1])
+            UsdGeom.Camera(depth_cam).CreateClippingRangeAttr(Gf.Vec2f(near, far))
 
     streams = cfg.get("streams", {})
     overrides = cfg.get("overrides", {})
