@@ -39,7 +39,7 @@ make run                      # devel コンテナで対話シェル
 Isaac Sim 5.1 は NVCF（`omni.services.livestream.nvcf`）livestream プロトコルを使用。デスクトップ client またはブラウザベースのビューアで接続：
 
 1. [NVIDIA ドキュメント — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) から **Isaac Sim WebRTC Streaming Client (1.1.5)** をダウンロード。1.1.5 は 5.1 の最新版です。
-2. `headless-stream` 実行中、client を起動し Server: `<server-ip>` を入力（同一マシン: `localhost`、リモート: server の LAN IP）。**`:8011` などの port サフィックスを付けないこと** — client が signaling / data port を内部で管理しており、port を付けると誤った経路に入って黒画面になります。
+2. `stream` 実行中、client を起動し Server: `<server-ip>` を入力（同一マシン: `localhost`、リモート: server の LAN IP）。**`:8011` などの port サフィックスを付けないこと** — client が signaling / data port を内部で管理しており、port を付けると誤った経路に入って黒画面になります。
 3. Connect をクリック。初回 shader compile に 1–3 分かかってから viewport が描画されます。
 
 ### Browser-based viewer (omniverse_web_viewer)
@@ -56,7 +56,7 @@ cp config/host.yaml.example config/host.yaml
 make -f Makefile.local run-stream
 
 # Isaac Sim のロードを確認（runheadless 出力は /proc/1/fd/1 にリダイレクト済み）
-docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-headless-stream")
+docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # Chrome -> http://<host-ip>:5173 を開く
 # "UI for any streaming app" を選択 -> Next

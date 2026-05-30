@@ -39,7 +39,7 @@ make run                      # 进 devel 容器互动 shell
 Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议。可以用桌面 client 或浏览器 viewer 连接：
 
 1. 从 [NVIDIA 文档 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) 下载 **Isaac Sim WebRTC Streaming Client (1.1.5)**。1.1.5 是 5.1 的最新版。
-2. `headless-stream` 运行时，启动 client，输入 Server: `<server-ip>`（同机用 `localhost`，远端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 后缀** — client 自己会选 signaling / data port；加 port 后缀会走错 path、看到黑画面。
+2. `stream` 运行时，启动 client，输入 Server: `<server-ip>`（同机用 `localhost`，远端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 后缀** — client 自己会选 signaling / data port；加 port 后缀会走错 path、看到黑画面。
 3. 按 Connect。首次 shader compile 需 1–3 分钟 viewport 才会出画面。
 
 ### Browser-based viewer (omniverse_web_viewer)
@@ -56,7 +56,7 @@ cp config/host.yaml.example config/host.yaml
 make -f Makefile.local run-stream
 
 # 看 Isaac Sim 载入（runheadless 输出已重定向到 /proc/1/fd/1）
-docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-headless-stream")
+docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # 打开 Chrome -> http://<host-ip>:5173
 # 选 "UI for any streaming app" -> Next

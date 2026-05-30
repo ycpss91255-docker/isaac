@@ -5,7 +5,7 @@
 # Usage: ./script/run_instance.sh <instance_id> [stage] [extra kit args...]
 #
 #   instance_id   Must match an existing config/instances/<id>.env
-#   stage         headless (default) or headless-stream
+#   stage         headless (default) or stream
 #   extra args    Forwarded to Isaac Sim Kit (e.g. scene USD path)
 #
 # Reads per-instance ports + cache dir from config/instances/<id>.env,
@@ -24,10 +24,10 @@ _usage() {
 Usage: ./script/run_instance.sh <instance_id> [stage] [extra kit args...]
 
   instance_id   Existing instance (created by init_instance.sh)
-  stage         headless | headless-stream (default: headless-stream)
+  stage         headless | stream (default: stream)
 
 Example:
-  ./script/run_instance.sh warehouse headless-stream
+  ./script/run_instance.sh warehouse stream
   ./script/run_instance.sh factory headless
 EOF
   exit 1
@@ -37,8 +37,8 @@ id="${1:-}"
 [[ -z "${id}" ]] && _usage
 shift
 
-stage="${1:-headless-stream}"
-if [[ "${stage}" == "headless" || "${stage}" == "headless-stream" ]]; then
+stage="${1:-stream}"
+if [[ "${stage}" == "headless" || "${stage}" == "stream" ]]; then
   shift
 fi
 

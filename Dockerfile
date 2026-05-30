@@ -13,8 +13,8 @@
 #   devel         - Application-specific tools + entrypoint
 #                   (+ fastdds.xml, ROS_DISTRO bake, env-wrapper shim)
 #   devel-test    - Lint + bats smoke test (ephemeral, discarded after build)
-#   headless      - Isaac Sim WebRTC streaming entrypoint (FROM devel)
-#   gui           - Isaac Sim X11 entrypoint (FROM devel)
+#   headless      - Isaac Sim, no streaming (ISAAC_LIVESTREAM=0; pure inference / batch)
+#   stream        - Isaac Sim + WebRTC streaming (ISAAC_LIVESTREAM=2; devel observation)
 #   runtime-base  - Minimal runtime base (sudo + tini + ldd-driven libs), optional
 #   runtime       - Minimal runtime image (COPY --from=builder install trees), optional
 #   runtime-test  - Runtime install-check smoke (ephemeral, optional)
@@ -26,7 +26,7 @@
 # overrides only build.target / image / container_name / stdin_open /
 # tty / profiles. Stage names must match `^[a-z][a-z0-9_-]*$` and must
 # not collide with `latest` / `v[0-9]*` (reserved release tag
-# namespace). `headless` / `gui` below are the two repo-side entrypoint
+# namespace). `headless` / `stream` below are the two repo-side entrypoint
 # variants emitted via this mechanism. No setup.conf change needed; run
 # any wrapper to regenerate compose.yaml, then `./run.sh -t <stage>`.
 #
@@ -176,23 +176,23 @@ COPY --chmod=0644 apps/*.kit /isaac-sim/apps/
 
 # [isaac] ROS distro is a build-time choice — set via
 # setup.conf [build] arg_N=ROS_DISTRO=<value> (default humble). Bake
-# the value into a const file consumed by the headless / gui ENTRYPOINT
+# the value into a const file consumed by the headless / stream ENTRYPOINT
 # shim, so runtime `-e ROS_DISTRO=...` flags are ignored. Rebuild
 # (./build.sh) to switch distros.
 ARG ROS_DISTRO=humble
 RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
 
-# [isaac] Soft bake for devel stage (interactive shell). headless / gui
+# [isaac] Soft bake for devel stage (interactive shell). headless / stream
 # stages additionally run the wrapper shim below — that re-exports from
 # /etc/isaac/ros-distro at every container start, hard-baking against
 # runtime override.
 ENV ROS_DISTRO=${ROS_DISTRO} \
     LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib
 
-# [isaac] ENTRYPOINT shim for headless / gui stages: re-reads
+# [isaac] ENTRYPOINT shim for headless / stream stages: re-reads
 # /etc/isaac/ros-distro and unconditionally exports ROS_DISTRO +
 # LD_LIBRARY_PATH before exec'ing the wrapped binary. Lives in /usr/local/bin/
-# so the headless / gui stages can name it absolutely in ENTRYPOINT.
+# so the headless / stream stages can name it absolutely in ENTRYPOINT.
 COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-wrapper.sh
 
 # [isaac] runheadless wrapper that reads per-host config from
@@ -334,19 +334,19 @@ FROM devel AS headless
 ENV ISAAC_LIVESTREAM=0
 CMD ["sleep", "infinity"]
 
-############################## headless-stream ##############################
+############################## stream ##############################
 # [isaac] Simulation + WebRTC streaming server. Same idle pattern as
 # headless; driver scripts read ISAAC_LIVESTREAM=2 to enable streaming.
 #
 # Usage:
-#   make run -- -t headless-stream -d
-#   make exec -- -t headless-stream /isaac-sim/python.sh <driver.py>
+#   make run -- -t stream -d
+#   make exec -- -t stream /isaac-sim/python.sh <driver.py>
 #   # -> browser connects via web-viewer at :5173
 #
 # For one-off headless streaming without a driver script:
-#   make exec -- -t headless-stream /isaac-sim/runheadless.sh -v \
+#   make exec -- -t stream /isaac-sim/runheadless.sh -v \
 #     --/app/livestream/nvcf/quitOnSessionEnded=false
-FROM devel AS headless-stream
+FROM devel AS stream
 
 ENV ISAAC_LIVESTREAM=2
 CMD ["sleep", "infinity"]

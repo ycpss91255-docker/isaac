@@ -1,8 +1,8 @@
 include Makefile
 
-# headless-stream stage (#28) idles on start (CMD = sleep infinity) —
+# stream stage (#28) idles on start (CMD = sleep infinity) —
 # Isaac Sim must be exec'd in. run-stream wraps both steps. Container
-# name follows compose convention: ${USER_NAME}-${IMAGE_NAME}-headless-stream.
+# name follows compose convention: ${USER_NAME}-${IMAGE_NAME}-stream.
 #
 # Web-viewer is started via `docker run` (not `make -C web_viewer run`)
 # because base v0.38.0 compose.yaml injects cap_add/devices defaults
@@ -21,7 +21,7 @@ include Makefile
 # The container's literal PID-1 procfs path would point at host systemd
 # in this PID namespace, get rejected with EPERM, and leave `docker
 # logs` / lazydocker empty.
-ISAAC_CONTAINER := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-$${IMAGE_NAME}-headless-stream")
+ISAAC_CONTAINER := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-$${IMAGE_NAME}-stream")
 WV_IMAGE := $(shell . ./.env 2>/dev/null && echo "$${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve")
 WV_NAME := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-omniverse_web_viewer-serve")
 HOST_YAML := config/host.yaml
@@ -29,8 +29,8 @@ WV_MOUNT_HOST_YAML := $(if $(wildcard $(HOST_YAML)),-v $(abspath $(HOST_YAML)):/
 
 .PHONY: run-stream stop-stream
 
-run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
-	./script/run.sh -t headless-stream -d
+run-stream: ## Start Isaac stream + Isaac Sim + web-viewer
+	./script/run.sh -t stream -d
 	@if [ -f "$(HOST_YAML)" ]; then \
 	  docker cp "$(HOST_YAML)" "$(ISAAC_CONTAINER):/etc/host.yaml"; \
 	  echo "[run-stream] Copied $(HOST_YAML) -> $(ISAAC_CONTAINER):/etc/host.yaml"; \
@@ -60,7 +60,7 @@ run-stream: ## Start Isaac headless-stream + Isaac Sim + web-viewer
 	@echo "[run-stream] Web-viewer started on port 5173."
 	@echo "[run-stream] Wait for 'is loaded' (docker logs -f $(ISAAC_CONTAINER))"
 
-stop-stream: ## Stop web-viewer + Isaac headless-stream
+stop-stream: ## Stop web-viewer + Isaac stream
 	-docker stop "$(WV_NAME)" 2>/dev/null
 	-@docker exec "$(ISAAC_CONTAINER)" pkill -f /isaac-sim/kit/kit >/dev/null 2>&1 || true
 	./script/stop.sh
