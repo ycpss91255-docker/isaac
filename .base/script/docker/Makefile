@@ -4,7 +4,7 @@
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
-.PHONY: build run exec stop prune setup setup-tui upgrade upgrade-check help
+.PHONY: build run start exec stop prune setup setup-tui upgrade upgrade-check help
 
 # Default goal: bare `make` prints help instead of building. Discoverability
 # beats implicit build for a user-facing entry. RFC #330.
@@ -40,9 +40,14 @@ run: ## Run container interactively (e.g. make run  |  make run -- -d)
 	$(_check_overrides)
 	./script/run.sh $(filter-out $@,$(MAKECMDGOALS))
 
-exec: ## Exec into running container (e.g. make exec -- -t bats-src bash)
+start: ## Build + run in one step (e.g. make start  |  make start -- --no-cache)
 	$(_check_overrides)
-	./script/exec.sh $(filter-out $@,$(MAKECMDGOALS))
+	./script/build.sh $(filter-out $@,$(MAKECMDGOALS))
+	./script/run.sh
+
+exec: ## Exec into running container (e.g. make exec -- -t bats-src bash; EXEC_ARGS='--/app/k=v' make exec for Kit-style args, #469)
+	$(_check_overrides)
+	./script/exec.sh $(filter-out $@,$(MAKECMDGOALS)) $(EXEC_ARGS)
 
 stop: ## Stop and remove containers
 	$(_check_overrides)

@@ -22,7 +22,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   # Reset per-test global state. The arrays are declared at module load
   # time (setup_tui.sh declare -gA / declare -ga); zero them out so

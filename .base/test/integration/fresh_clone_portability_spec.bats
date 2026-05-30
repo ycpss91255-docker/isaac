@@ -23,6 +23,7 @@
 # Level-1 (file generation only) — docker is not invoked.
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   REPO_NAME="myapp_test"
@@ -35,7 +36,7 @@ setup() {
   # present (so init.sh's existing-repo path fires), build.sh is
   # symlinked exactly as init.sh would have produced it.
   touch "${REPO_DIR}/Dockerfile"
-  ln -s .base/script/docker/build.sh "${REPO_DIR}/build.sh"
+  ln -s .base/script/docker/wrapper/build.sh "${REPO_DIR}/build.sh"
 
   cd "${REPO_DIR}"
 }

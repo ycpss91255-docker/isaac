@@ -65,3 +65,53 @@ _compose_project() {
     --env-file "${FILE_PATH}/.env" \
     "$@"
 }
+
+# _validate_instance_name <name>
+#
+# Strict validator for `run.sh --instance NAME` and the overlay path
+# convention `config/instances/<name>.{yaml,env}` it derives. Rule
+# `^[a-z0-9][a-z0-9_-]*$` matches the char class the project uses
+# elsewhere (stage names, [logging.<svc>] sections, etc.).
+#
+# Stdout: silent on success. Stderr-style message printed to stderr
+# AND stdout on failure so bats `assert_output --partial "instance
+# name"` can pick it up either way; callers should redirect 2>&1 if
+# they only consume stdout.
+#
+# Exit: 0 on accept, 1 on reject.
+_validate_instance_name() {
+  local _name="${1:-}"
+  if [[ ! "${_name}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    printf 'instance name %q is invalid (must match ^[a-z0-9][a-z0-9_-]*$)\n' "${_name}" >&2
+    return 1
+  fi
+  return 0
+}
+
+# _compose_project_with_overlay <yaml-or-empty> <env-or-empty> -- <verb> <args>
+#
+# Same as _compose_project, but prepends extra -f / --env-file flags
+# for per-instance overlays (#465). Either or both overlay slots may
+# be empty; missing files are silently skipped so a caller can pass
+# both candidate paths without pre-checking file existence.
+#
+# Compose merge rules:
+#   -f         later -f files deep-merge over earlier ones
+#   --env-file later --env-file values win on conflicting keys
+# Both follow "base then overlay" -- compose.yaml / .env first, then
+# the instance-specific files.
+_compose_project_with_overlay() {
+  local _yaml="${1:-}"
+  local _env="${2:-}"
+  shift 2
+  [[ "${1:-}" == "--" ]] && shift
+
+  local -a _extra=()
+  if [[ -n "${_yaml}" && -f "${_yaml}" ]]; then
+    _extra+=(-f "${_yaml}")
+  fi
+  if [[ -n "${_env}" && -f "${_env}" ]]; then
+    _extra+=(--env-file "${_env}")
+  fi
+  _compose_project "${_extra[@]}" "$@"
+}

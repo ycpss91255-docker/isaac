@@ -340,3 +340,47 @@ setup() {
   run grep -F 'echo "code_changed=true"' "${WF}"
   assert_success
 }
+
+# ── #470: opt-in free_disk_space for large BASE_IMAGE repos ───────────
+
+@test "build-worker.yaml: declares free_disk_space input as boolean default false (#470)" {
+  # Opt-in step that pre-clears ~30 GB of pre-installed runner tooling
+  # (Android SDK, .NET, GHC, ...) so repos whose BASE_IMAGE doesn't fit
+  # in ubuntu-latest's ~14 GB (Isaac Sim ~15 GB extracted) stop hitting
+  # `no space left on device` during BuildKit COPY. Default false so
+  # the ~30 s cleanup overhead doesn't tax existing small-image callers.
+  run grep -A 3 '^      free_disk_space:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: boolean'
+  assert_output --partial 'default: false'
+}
+
+@test "build-worker.yaml: Free disk space step gated on inputs.free_disk_space (#470)" {
+  # The step is opt-in; without the gate every existing caller would
+  # pay the cleanup time even when they don't need it.
+  run grep -E "^[[:space:]]+if: \\\$\{\{ inputs\\.free_disk_space \\}\}$" "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: Free disk space step uses jlumbroso/free-disk-space (#470)" {
+  # The community action removes Android SDK / .NET / GHC / tool-cache
+  # without touching docker daemon state, which is what we need before
+  # buildx starts pulling the BASE_IMAGE.
+  run grep -E '^[[:space:]]+uses: jlumbroso/free-disk-space@' "${WF}"
+  assert_success
+}
+
+@test "build-worker.yaml: Free disk space step runs before Set up Docker Buildx (#470)" {
+  # Order matters — buildx allocates its overlayfs snapshot dir before
+  # the first COPY, so disk must be freed earlier in the job.
+  local _free _buildx
+  _free="$(grep -n '^      - name: Free disk space$' "${WF}" | cut -d: -f1)"
+  _buildx="$(grep -n '^      - name: Set up Docker Buildx$' "${WF}" | cut -d: -f1)"
+  [[ -n "${_free}" ]] || { echo "Free disk space step missing"; return 1; }
+  [[ -n "${_buildx}" ]] || { echo "Set up Docker Buildx step missing"; return 1; }
+  [[ "${_free}" -lt "${_buildx}" ]] || {
+    echo "expected Free disk space (line ${_free}) before Set up Docker Buildx (line ${_buildx})"
+    return 1
+  }
+}

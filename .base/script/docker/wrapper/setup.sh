@@ -20,19 +20,13 @@
 # template directory regardless of how the script was invoked.
 _SETUP_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 _SETUP_SCRIPT_DIR="$(cd -- "$(dirname -- "${_SETUP_SELF}")" && pwd -P)"
+_SETUP_LIB_DIR="$(cd -- "${_SETUP_SCRIPT_DIR}/../lib" && pwd -P)"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/i18n.sh"
+source "${_SETUP_LIB_DIR}/i18n.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_tui_conf.sh"
-# _lib.sh provides _log_err / _log_warn / _log_info (#278). Sourcing
-# here makes them available throughout setup.sh's emission paths after
-# the #290 refactor that routes user-facing output through the
-# log-helper family instead of raw `printf "[setup] LEVEL: ..."` lines.
-# _lib.sh is idempotent (guarded by _DOCKER_LIB_SOURCED); its
-# transitive i18n.sh source is a no-op redefinition since we already
-# sourced i18n.sh above.
+source "${_SETUP_LIB_DIR}/_tui_conf.sh"
 # shellcheck disable=SC1091
-source "${_SETUP_SCRIPT_DIR}/_lib.sh"
+source "${_SETUP_LIB_DIR}/_lib.sh"
 
 # i18n message table, split per category and routed through _log_*
 # (closes #290). Renamed from a monolithic `_msg` to `_setup_msg`
@@ -422,7 +416,7 @@ _is_ssh_x11() {
 _setup_ssh_x11_cookie() {
   local _file_path="${1:?_setup_ssh_x11_cookie requires <file_path>}"
   if ! command -v xauth >/dev/null 2>&1; then
-    _log_warn setup "SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
+    _log_warn setup ssh_x11_no_xauth "display=SSH X11 forwarding detected but 'xauth' is not in PATH; skipping cookie rewrite. Install xauth (apt: x11-xauth-utils) and re-run setup."
     return 1
   fi
   local _out="${_file_path}/.docker.xauth"
@@ -439,7 +433,7 @@ _setup_ssh_x11_cookie() {
   xauth -i nlist "${DISPLAY}" 2>/dev/null \
     | sed -e 's/^..../ffff/' \
     | xauth -i -f "${_out}" nmerge - >/dev/null 2>&1 || {
-        _log_warn setup "xauth cookie rewrite failed; XAUTHORITY left at host value."
+        _log_warn setup xauth_rewrite_failed "display=xauth cookie rewrite failed; XAUTHORITY left at host value."
         return 1
       }
   # Defensive: verify the rewrite actually produced content. The pipe
@@ -450,7 +444,7 @@ _setup_ssh_x11_cookie() {
   # cookie path into .env (which then makes the container mount a
   # 0-byte cookie and fail X11 auth silently).
   if [[ ! -s "${_out}" ]]; then
-    _log_warn setup "xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
+    _log_warn setup xauth_empty_cookie "display=xauth cookie rewrite produced an empty cookie file; XAUTHORITY left at host value."
     return 1
   fi
   printf '%s\n' "${_out}"
@@ -458,55 +452,12 @@ _setup_ssh_x11_cookie() {
 
 # ════════════════════════════════════════════════════════════════════
 # INI parser for setup.conf
-# ════════════════════════════════════════════════════════════════════
-
-# _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
 #
-# Reads one section [<section>] from <file> into parallel arrays.
-# Skips comments (#) and empty lines. Trims key/value whitespace.
-# If a key is defined both in <base_path>/setup.conf and in .base/setup.conf,
-# caller should use _load_setup_conf which handles the merge (replace strategy).
-_parse_ini_section() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
-  local -n _pis_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
-  local -n _pis_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
-
-  _pis_keys=()
-  _pis_values=()
-  [[ -f "${_file}" ]] || return 0
-
-  local __pis_line __pis_current="" __pis_k __pis_v
-  while IFS= read -r __pis_line || [[ -n "${__pis_line}" ]]; do
-    [[ -z "${__pis_line}" || "${__pis_line}" =~ ^[[:space:]]*# ]] && continue
-
-    # Trim
-    __pis_line="${__pis_line#"${__pis_line%%[![:space:]]*}"}"
-    __pis_line="${__pis_line%"${__pis_line##*[![:space:]]}"}"
-    [[ -z "${__pis_line}" ]] && continue
-
-    # Section header
-    if [[ "${__pis_line}" =~ ^\[(.+)\]$ ]]; then
-      __pis_current="${BASH_REMATCH[1]}"
-      continue
-    fi
-
-    # Only collect entries for the requested section
-    [[ "${__pis_current}" == "${_section}" ]] || continue
-
-    # Require key = value
-    [[ "${__pis_line}" != *=* ]] && continue
-    __pis_k="${__pis_line%%=*}"
-    __pis_v="${__pis_line#*=}"
-    __pis_k="${__pis_k#"${__pis_k%%[![:space:]]*}"}"
-    __pis_k="${__pis_k%"${__pis_k##*[![:space:]]}"}"
-    __pis_v="${__pis_v#"${__pis_v%%[![:space:]]*}"}"
-    __pis_v="${__pis_v%"${__pis_v##*[![:space:]]}"}"
-
-    _pis_keys+=("${__pis_k}")
-    _pis_values+=("${__pis_v}")
-  done < "${_file}"
-}
+# _parse_ini_section moved to lib/conf.sh in #402 (PR-B) so init.sh
+# can reach it via _lib.sh without sourcing setup.sh. The function
+# stays callable from this file via the same name (_lib.sh sources
+# conf.sh in the umbrella loader near setup.sh's top).
+# ════════════════════════════════════════════════════════════════════
 
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
@@ -531,7 +482,7 @@ _load_setup_conf() {
   fi
 
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Try per-repo setup.conf first; if the section exists there, use it.
@@ -771,7 +722,7 @@ detect_image_name() {
         _found="$(_rule_basename "${_path}")"
       elif [[ "${_rule}" == @default:* ]]; then
         _found="${_rule#@default:}"
-        printf "[setup] INFO: IMAGE_NAME using @default:%s\n" "${_found}" >&2
+        _log_info setup conf_image_name_default "display=IMAGE_NAME using @default:${_found}" "default=${_found}"
       fi
 
       [[ -n "${_found}" ]] && break
@@ -779,7 +730,7 @@ detect_image_name() {
   fi
 
   if [[ -z "${_found}" ]]; then
-    printf "[setup] WARNING: IMAGE_NAME could not be detected. Using 'unknown'.\n" >&2
+    _log_warn setup conf_image_name_unknown "display=IMAGE_NAME could not be detected. Using 'unknown'."
     _found="unknown"
   fi
   # Lowercase + sanitize: docker compose project names (and image tags)
@@ -949,7 +900,7 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local _self_dir="${_SETUP_SCRIPT_DIR}"
-  local _template_conf="${_self_dir}/../../config/docker/setup.conf"
+  local _template_conf="${_self_dir}/../../../config/docker/setup.conf"
   local _repo_conf="${_base}/config/docker/setup.conf"
 
   # Use command substitution (not pipe-into-block) so the nameref
@@ -1277,223 +1228,18 @@ _resolve_stage_list() {
   fi
 }
 
-# _parse_logging_svc_sections <file> <out_array>
-#
-# Emit each service name that has a `[logging.<svc>]` section in <file>
-# (in the order they appear). Mirrors `_parse_stage_sections` but for
-# the per-service logging override namespace (#310).
-_parse_logging_svc_sections() {
-  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
-  local -n _plss_out="${2:?"${FUNCNAME[0]}: missing out array"}"
-  _plss_out=()
-  [[ -f "${_file}" ]] || return 0
-  local _line
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^\[logging\.([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
-      _plss_out+=("${BASH_REMATCH[1]}")
-    fi
-  done < "${_file}"
-}
+# _parse_logging_svc_sections / _collect_logging moved to
+# lib/conf_logging.sh in #402 (PR-A) so both setup.sh and the
+# upcoming PR-B gitignore sync (lib/gitignore.sh) can share them
+# without circular sourcing. _lib.sh now pulls conf_logging.sh in
+# automatically, so callers below still resolve the same names.
 
-# _collect_logging <base_path> <global_out> <per_svc_out>
-#
-# Resolve [logging] + [logging.<svc>] for the compose generator. Output
-# layout:
-#
-#   global_out   newline-separated KEY=VALUE for the effective global
-#                [logging] section. Resolution rule mirrors [security]
-#                (line 3328 area): if the per-repo setup.conf has a
-#                [logging] section, that section fully replaces the
-#                template default (per CLAUDE.md "section-level
-#                replace, no key-level merge inside a section"). If
-#                the per-repo file omits the section, template
-#                defaults apply.
-#
-#   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
-#                [logging.<svc>] sections in the per-repo setup.conf.
-#                Key-level merge against global_out happens in
-#                `_emit_logging_block` at compose-emit time — only
-#                keys present in [logging.<svc>] override the
-#                corresponding global key; absent keys fall through.
-#                Template setup.conf does not ship per-svc sections;
-#                if one ever appears there it is honored too (parsed
-#                only from the per-repo file in practice, since the
-#                template loader path uses _SETUP_SCRIPT_DIR).
-# _sync_logging_local_paths_gitignore <base_path> <global_str> <per_svc_str>
-#
-# After `apply` resolves [logging] / [logging.<svc>] for compose
-# emit, ensure the per-repo .gitignore covers each relative
-# local_path so users don't accidentally commit container logs.
-# Absolute paths and `~/...` are skipped — gitignore patterns apply
-# only inside the repo.
-#
-# Entries live inside a managed block introduced by a stable marker
-# comment. The block scope is the marker line plus any immediately-
-# following lines that look like a gitignore dir entry (`/<path>/`);
-# the first non-matching line (blank line, comment, non-anchored
-# entry, etc.) ends the block. On each apply we rewrite the block to
-# exactly the current desired entries, which prunes stale entries
-# left over from prior `local_path` values (#390). The marker
-# comment itself is dropped when the block ends up empty so an
-# `apply` with no logging local_path leaves no trace. Lines outside
-# the managed block are user-owned and never touched.
-_sync_logging_local_paths_gitignore() {
-  local _base="${1:?}"
-  local _global="${2:-}"
-  local _per_svc="${3:-}"
-  local _gitignore="${_base%/}/.gitignore"
-  local _marker='# managed by template: [logging] local_path (do not remove)'
-
-  local -a _candidates=()
-  local _line _k _v
-  if [[ -n "${_global}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      _k="${_line%%=*}"
-      _v="${_line#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_global}"
-  fi
-  if [[ -n "${_per_svc}" ]]; then
-    while IFS= read -r _line; do
-      [[ -z "${_line}" ]] && continue
-      # per_svc entry shape: "<svc>:KEY=VALUE"
-      local _kv="${_line#*:}"
-      _k="${_kv%%=*}"
-      _v="${_kv#*=}"
-      [[ "${_k}" == "local_path" && -n "${_v}" ]] && _candidates+=("${_v}")
-    done <<< "${_per_svc}"
-  fi
-
-  # Filter: keep only relative paths; strip leading `./`, trailing `/`.
-  local -a _entries=()
-  local _p
-  for _p in "${_candidates[@]}"; do
-    # Skip absolute + ~ -- those live outside the repo.
-    [[ "${_p}" == /* ]] && continue
-    [[ "${_p}" == "~"* ]] && continue
-    # Normalise: drop leading `./` and trailing `/`.
-    _p="${_p#./}"
-    while [[ "${_p}" == */ ]]; do
-      _p="${_p%/}"
-    done
-    [[ -z "${_p}" ]] && continue
-    # gitignore: leading `/` anchors to repo root (matches our path
-    # semantics: relative paths are repo-root-relative). Trailing `/`
-    # marks it as a directory so it matches the dir + its contents.
-    _entries+=("/${_p}/")
-  done
-
-  # Dedup.
-  local -A _seen=()
-  local -a _desired=()
-  for _p in "${_entries[@]}"; do
-    [[ -n "${_seen[${_p}]:-}" ]] && continue
-    _seen[${_p}]=1
-    _desired+=("${_p}")
-  done
-
-  # If file doesn't exist and nothing desired, leave it absent.
-  if [[ ! -f "${_gitignore}" ]]; then
-    (( ${#_desired[@]} == 0 )) && return 0
-    : > "${_gitignore}"
-  fi
-
-  # Split existing content into pre-marker / post-marker, dropping
-  # the marker block itself (re-emitted below from _desired). When
-  # no marker exists, every line lands in _pre and the block is
-  # appended at the end if anything is desired.
-  local -a _pre=() _post=()
-  local _in_block=0 _seen_marker=0
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_seen_marker}" -eq 0 && "${_line}" == "${_marker}" ]]; then
-      _seen_marker=1
-      _in_block=1
-      continue
-    fi
-    if [[ "${_in_block}" -eq 1 ]]; then
-      # Consume only gitignore dir-entry shape; anything else ends
-      # the managed block and is preserved as post-block content.
-      if [[ "${_line}" =~ ^/.+/$ ]]; then
-        continue
-      fi
-      _in_block=0
-      _post+=("${_line}")
-      continue
-    fi
-    if [[ "${_seen_marker}" -eq 1 ]]; then
-      _post+=("${_line}")
-    else
-      _pre+=("${_line}")
-    fi
-  done < "${_gitignore}"
-
-  # Compose output: pre / marker+desired (if any) / post. When there
-  # is nothing desired and no prior marker existed, return early to
-  # keep the file byte-identical to the input (preserves idempotency
-  # and avoids touching unrelated files).
-  if (( ${#_desired[@]} == 0 && _seen_marker == 0 )); then
-    return 0
-  fi
-
-  {
-    if (( ${#_pre[@]} > 0 )); then
-      printf '%s\n' "${_pre[@]}"
-    fi
-    if (( ${#_desired[@]} > 0 )); then
-      printf '%s\n' "${_marker}"
-      printf '%s\n' "${_desired[@]}"
-    fi
-    if (( ${#_post[@]} > 0 )); then
-      printf '%s\n' "${_post[@]}"
-    fi
-  } > "${_gitignore}"
-}
-
-_collect_logging() {
-  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
-  local -n _cl_global="${2:?"${FUNCNAME[0]}: missing global outvar"}"
-  local -n _cl_per_svc="${3:?"${FUNCNAME[0]}: missing per_svc outvar"}"
-  _cl_global=""
-  _cl_per_svc=""
-
-  local _conf
-  if [[ -n "${SETUP_CONF:-}" ]]; then
-    _conf="${SETUP_CONF}"
-  else
-    _conf="${_base}/config/docker/setup.conf"
-  fi
-
-  # Global [logging] — per-repo first, fall back to template if absent.
-  local -a _g_keys=() _g_vals=()
-  [[ -f "${_conf}" ]] && _parse_ini_section "${_conf}" "logging" _g_keys _g_vals
-  if (( ${#_g_keys[@]} == 0 )); then
-    local _tpl="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
-    [[ -f "${_tpl}" ]] && _parse_ini_section "${_tpl}" "logging" _g_keys _g_vals
-  fi
-  local i
-  local -a _g_lines=()
-  for (( i = 0; i < ${#_g_keys[@]}; i++ )); do
-    _g_lines+=("${_g_keys[i]}=${_g_vals[i]}")
-  done
-  (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
-
-  # Per-service [logging.<svc>] sections (per-repo only).
-  [[ -f "${_conf}" ]] || return 0
-  local -a _svcs=()
-  _parse_logging_svc_sections "${_conf}" _svcs
-  local _svc
-  local -a _ps_lines=()
-  for _svc in "${_svcs[@]}"; do
-    local -a _sk=() _sv=()
-    _parse_ini_section "${_conf}" "logging.${_svc}" _sk _sv
-    for (( i = 0; i < ${#_sk[@]}; i++ )); do
-      _ps_lines+=("${_svc}:${_sk[i]}=${_sv[i]}")
-    done
-  done
-  (( ${#_ps_lines[@]} > 0 )) && _cl_per_svc="$(printf '%s\n' "${_ps_lines[@]}")"
-  return 0
-}
+# _sync_logging_local_paths_gitignore moved to lib/gitignore.sh in
+# #402 (PR-B) and renamed _sync_logging_gitignore (now takes only
+# <base_path>, calls _collect_logging itself). Sync runs at
+# init.sh / upgrade.sh time instead of every setup.sh apply, so
+# the file stays in step across template versions even when no
+# wrapper has fired since the last setup.conf edit.
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>
@@ -1550,6 +1296,66 @@ _expand_env_cross_refs() {
     _seen["${_k}"]="${_expanded}"
     _expand_out_arr+=("${_k}=${_expanded}")
   done <<< "${_input}"
+}
+
+# _write_runtime_env <out_file> <env_str>
+#
+# Mirror compose.yaml's resolved [environment] entries into runtime.env
+# so standalone scripts (docker run wrappers, host-side helpers like
+# isaac/script/run_instance.sh) can `source runtime.env` to see the
+# same values compose injects. Reuses _expand_env_cross_refs so both
+# files agree on cross-ref resolution (#236 + #462).
+#
+# Always (re)creates the file, even when <env_str> is empty -- callers
+# can test `[[ -s runtime.env ]]` to distinguish "no env declared" from
+# "file missing because apply never ran".
+_write_runtime_env() {
+  local _out_file="${1:?}"
+  local _env_str="${2:-}"
+  : > "${_out_file}"
+  if [[ -n "${_env_str}" ]]; then
+    # NB: outer array MUST NOT be named `_expanded` -- callee
+    # _expand_env_cross_refs declares its own `local _expanded` loop
+    # var, which collides with the nameref and silently masks writes.
+    local -a _runtime_env_arr=()
+    _expand_env_cross_refs "${_env_str}" _runtime_env_arr
+    local _entry
+    for _entry in "${_runtime_env_arr[@]}"; do
+      [[ -z "${_entry}" ]] && continue
+      printf '%s\n' "${_entry}" >> "${_out_file}"
+    done
+  fi
+}
+
+_device_has_propagation() {
+  local _entry="${1}"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  (( ${#_parts[@]} == 3 )) || return 1
+  [[ "${_parts[2]}" =~ (rslave|rshared|rprivate|slave|shared|private) ]]
+}
+
+_emit_device_as_volume() {
+  local _entry="${1}" _indent="${2:-    }"
+  local -a _parts=()
+  IFS=':' read -ra _parts <<< "${_entry}"
+  local _src="${_parts[0]}" _tgt="${_parts[1]}" _opts="${_parts[2]}"
+  local _propagation="" _read_only=""
+  local _o
+  IFS=',' read -ra _oarr <<< "${_opts}"
+  for _o in "${_oarr[@]}"; do
+    case "${_o}" in
+      ro) _read_only="true" ;;
+      rw) _read_only="false" ;;
+      rslave|rshared|rprivate|slave|shared|private) _propagation="${_o}" ;;
+    esac
+  done
+  echo "${_indent}  - type: bind"
+  echo "${_indent}    source: ${_src}"
+  echo "${_indent}    target: ${_tgt}"
+  [[ -n "${_read_only}" ]] && echo "${_indent}    read_only: ${_read_only}"
+  echo "${_indent}    bind:"
+  echo "${_indent}      propagation: ${_propagation}"
 }
 
 generate_compose_yaml() {
@@ -1786,9 +1592,9 @@ generate_compose_yaml() {
     _validate_stage_name "${_stage}" || _vrc=$?
     case "${_vrc}" in
       0) _emit_stages+=("${_stage}") ;;
-      1) _log_warn setup "$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" ;;
-      2) _log_err setup "$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")"; return 1 ;;
-      3) _log_err setup "$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")"; return 1 ;;
+      1) _log_warn setup stage_invalid_format "display=$(_setup_msg stage invalid_format): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")" ;;
+      2) _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
+      3) _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): $(printf '%q' "${_stage}")" "stage=$(printf '%q' "${_stage}")"; return 1 ;;
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
 
@@ -1809,15 +1615,15 @@ generate_compose_yaml() {
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
       sys|base|test)
-        _log_err setup "$(_setup_msg stage baseline_collision): [stage:${_cs}]"
+        _log_err setup stage_baseline_collision "display=$(_setup_msg stage baseline_collision): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       latest|v[0-9]*)
-        _log_err setup "$(_setup_msg stage reserved_tag): [stage:${_cs}]"
+        _log_err setup stage_reserved_tag "display=$(_setup_msg stage reserved_tag): [stage:${_cs}]" "stage=${_cs}"
         return 1
         ;;
       devel)
-        _log_warn setup "[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
+        _log_warn setup stage_devel_reserved "display=[stage:devel] is reserved; not applied in v1 (#220). Edit top-level sections to tune devel."
         continue
         ;;
     esac
@@ -1827,7 +1633,7 @@ generate_compose_yaml() {
       [[ "${_es}" == "${_cs}" ]] && _is_emitted=1 && break
     done
     if (( ! _is_emitted )); then
-      _log_warn setup "$(_setup_msg stage unknown_referenced): [stage:${_cs}]"
+      _log_warn setup stage_unknown_referenced "display=$(_setup_msg stage unknown_referenced): [stage:${_cs}]" "stage=${_cs}"
     fi
   done
 
@@ -1988,7 +1794,15 @@ YAML
     # the [logging] local_path bind mount when the per-service
     # resolution yields a non-empty host path -- _devel_llp was resolved
     # earlier (above the env block) so it could share with LOG_FILE_PATH.
-    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]]; then
+    local _any_prop_device=false
+    if [[ -n "${_devices_str}" ]]; then
+      local _chk
+      while IFS= read -r _chk; do
+        [[ -z "${_chk}" ]] && continue
+        if _device_has_propagation "${_chk}"; then _any_prop_device=true; break; fi
+      done <<< "${_devices_str}"
+    fi
+    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
       echo "    volumes:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -2002,13 +1816,25 @@ YAML
         echo "      - ${_m}"
       done
       [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
+      # #450: device entries with propagation redirect to volumes: long-form
+      if [[ -n "${_devices_str}" ]]; then
+        local _d
+        while IFS= read -r _d; do
+          [[ -z "${_d}" ]] && continue
+          _device_has_propagation "${_d}" && _emit_device_as_volume "${_d}" "    "
+        done <<< "${_devices_str}"
+      fi
     fi
-    # devices: + device_cgroup_rules: from [devices] section
+    # devices: from [devices] section (plain entries only, no propagation)
     if [[ -n "${_devices_str}" ]]; then
-      echo "    devices:"
-      local _d
+      local _has_plain=false _d
       while IFS= read -r _d; do
         [[ -z "${_d}" ]] && continue
+        _device_has_propagation "${_d}" && continue
+        if [[ "${_has_plain}" != true ]]; then
+          echo "    devices:"
+          _has_plain=true
+        fi
         echo "      - ${_d}"
       done <<< "${_devices_str}"
     fi
@@ -2089,7 +1915,7 @@ YAML
           _so_filtered_keys+=("${_so_keys[_ki]}")
           _so_filtered_values+=("${_so_values[_ki]}")
         else
-          _log_warn setup "$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})"
+          _log_warn setup stage_override_key_not_allowed "display=$(_setup_msg stage override_key_not_allowed): $(printf '%q' "${_so_keys[_ki]}") (stage=${_emit_stage})" "key=$(printf '%q' "${_so_keys[_ki]}")" "stage=${_emit_stage}"
         fi
       done
       local _has_overrides=0
@@ -2338,7 +2164,7 @@ YAML
       # volumes: GUI baseline (effective gui) + effective volume list
       # + #328 [logging] local_path per-stage bind mount. _stage_llp
       # was resolved above the env block; reuse it here.
-      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]]; then
+      if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_volumes}" ]] || [[ -n "${_stage_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
         echo "    volumes:"
         if [[ "${_eff_gui}" == "true" ]]; then
           cat <<'YAML'
@@ -2355,13 +2181,25 @@ YAML
           done <<< "${_eff_volumes}"
         fi
         [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
+        # #450: device entries with propagation redirect to volumes: long-form
+        if [[ -n "${_devices_str}" ]]; then
+          local _sd
+          while IFS= read -r _sd; do
+            [[ -z "${_sd}" ]] && continue
+            _device_has_propagation "${_sd}" && _emit_device_as_volume "${_sd}" "    "
+          done <<< "${_devices_str}"
+        fi
       fi
-      # devices: + cgroup_rules: from top-level (not yet per-stage).
+      # devices: from top-level (plain entries only, no propagation).
       if [[ -n "${_devices_str}" ]]; then
-        echo "    devices:"
-        local _sd
+        local _has_plain_sd=false _sd
         while IFS= read -r _sd; do
           [[ -z "${_sd}" ]] && continue
+          _device_has_propagation "${_sd}" && continue
+          if [[ "${_has_plain_sd}" != true ]]; then
+            echo "    devices:"
+            _has_plain_sd=true
+          fi
           echo "      - ${_sd}"
         done <<< "${_devices_str}"
       fi
@@ -2662,9 +2500,9 @@ _check_setup_drift() {
 
   if (( ${#_drift[@]} > 0 )); then
     local _d
-    printf "[setup] drift detected since last setup.sh run:\n" >&2
+    _log_warn setup env_drift_detected "display=drift detected since last setup.sh run:"
     for _d in "${_drift[@]}"; do
-      printf "[setup]   - %s\n" "${_d}" >&2
+      _log_warn setup env_drift_detail "display=  - ${_d}" "detail=${_d}"
     done
     return 1
   fi
@@ -2703,14 +2541,14 @@ _setup_check_drift() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -2735,9 +2573,9 @@ _announce_template_default_fallback() {
   # source of truth post-#201.
   local _repo_conf="${_base}/config/docker/setup.conf"
   if [[ ! -f "${_repo_conf}" ]]; then
-    _log_warn setup "$(_setup_msg warnings no_repo_conf)"
+    _log_warn setup conf_no_repo_conf "display=$(_setup_msg warnings no_repo_conf)"
   elif ! grep -qE '^[[:space:]]*\[[^]]+\]' "${_repo_conf}"; then
-    _log_warn setup "$(_setup_msg warnings empty_repo_conf)"
+    _log_warn setup conf_empty_repo_conf "display=$(_setup_msg warnings empty_repo_conf)"
   fi
 }
 
@@ -2929,7 +2767,7 @@ _setup_set() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -2938,7 +2776,7 @@ _setup_set() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -2973,17 +2811,17 @@ _setup_set() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}" "section=${_section}" "key=${_key}" "value=${_value}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # Writes target the per-repo override file (setup.conf). Bootstrap
@@ -2999,7 +2837,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3037,14 +2875,14 @@ _setup_show() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3072,19 +2910,19 @@ _setup_show() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # show reads the merged view (template baseline ← repo override).
   # This is what `apply` would produce, so users see effective values
   # without having to re-run apply after every set/add/remove.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ss_sections=() _ss_keys=() _ss_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ss_sections _ss_keys _ss_values
@@ -3097,7 +2935,7 @@ _setup_show() {
         return 0
       fi
     done
-    _log_err setup "$(_setup_msg errors key_not_found): ${_ns_key}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_ns_key}" "key=${_ns_key}"
     return 1
   fi
 
@@ -3110,7 +2948,7 @@ _setup_show() {
     fi
   done
   if (( _printed == 0 )); then
-    _log_err setup "$(_setup_msg errors section_not_found): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors section_not_found): ${_section}" "section=${_section}"
     return 1
   fi
   return 0
@@ -3145,14 +2983,14 @@ _setup_list() {
         shift 2
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
         if [[ -z "${_spec}" ]]; then
           _spec="$1"
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3173,13 +3011,13 @@ _setup_list() {
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # list reads the merged view (template ← repo override) — same
   # rationale as `show`. Reflects what `apply` would materialize.
   local _repo_conf="${_base_path}/config/docker/setup.conf"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_load_merged_full "${_tpl_conf}" "${_repo_conf}" \
       _ll_sections _ll_keys _ll_values
@@ -3266,7 +3104,7 @@ _setup_add() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -3275,7 +3113,7 @@ _setup_add() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3300,12 +3138,12 @@ _setup_add() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # Writes target the per-repo override (setup.conf); bootstrap as
   # empty when missing — `add` records only the user's intent.
@@ -3322,7 +3160,7 @@ _setup_add() {
   # lands past any inherited template slot the user hasn't yet bumped.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
@@ -3367,7 +3205,7 @@ _setup_add() {
   local _new_key="${_list}_${_new_idx}"
 
   if ! _setup_validate_kv "${_section}" "${_new_key}" "${_value}"; then
-    _log_err setup "$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}"
+    _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}" "section=${_section}" "key=${_new_key}" "value=${_value}"
     return 2
   fi
 
@@ -3376,7 +3214,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3442,7 +3280,7 @@ _setup_remove() {
         fi
         ;;
       -*)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
       *)
@@ -3451,7 +3289,7 @@ _setup_remove() {
         elif [[ "${_have_value}" -eq 0 ]]; then
           _value="$1"; _have_value=1
         else
-          _log_err setup "$(_setup_msg errors unknown_arg): $1"
+          _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
           return 1
         fi
         shift
@@ -3477,19 +3315,19 @@ _setup_remove() {
   fi
 
   if ! _setup_known_section "${_section}"; then
-    _log_err setup "$(_setup_msg errors unknown_section): ${_section}"
+    _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
   # remove only operates on the per-repo override. If setup.conf
   # doesn't exist, there's nothing to remove (template baseline isn't
   # a removable input).
   local _conf="${_base_path}/config/docker/setup.conf"
   if [[ ! -f "${_conf}" ]]; then
-    _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+    _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
     return 1
   fi
 
@@ -3507,7 +3345,7 @@ _setup_remove() {
       fi
     done
     if [[ -z "${_target_key}" ]]; then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_section}.${_rest} = ${_value}" "key=${_section}.${_rest}" "value=${_value}"
       return 1
     fi
   else
@@ -3520,7 +3358,7 @@ _setup_remove() {
       fi
     done
     if (( ! _found )); then
-      _log_err setup "$(_setup_msg errors key_not_found): ${_spec}"
+      _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
       return 1
     fi
     _target_key="${_rest}"
@@ -3540,7 +3378,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3592,14 +3430,14 @@ _setup_reset() {
         shift 2
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   # reset clears the per-repo override (setup.conf) so the next `apply`
@@ -3608,15 +3446,15 @@ _setup_reset() {
   # path on the next apply.
   local _conf="${_base_path}/config/docker/setup.conf"
   local _env="${_base_path}/.env"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   if [[ ! -f "${_tpl_conf}" ]]; then
-    printf "[setup] template setup.conf not found at %s\n" "${_tpl_conf}" >&2
+    _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
   fi
 
   if (( ! _yes )); then
     if [[ ! -t 0 ]]; then
-      _log_err setup "$(_setup_msg reset needs_yes)"
+      _log_err setup conf_reset_needs_yes "display=$(_setup_msg reset needs_yes)"
       return 1
     fi
     printf "[setup] %s [y/N]: " "$(_setup_msg reset confirm)"
@@ -3625,7 +3463,7 @@ _setup_reset() {
     case "${_ans}" in
       y|Y|yes|YES) ;;
       *)
-        _log_warn setup "$(_setup_msg reset aborted)"
+        _log_warn setup conf_reset_aborted "display=$(_setup_msg reset aborted)"
         return 1
         ;;
     esac
@@ -3641,9 +3479,9 @@ _setup_reset() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg reset "done")"
+    _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run './setup.sh apply' to regenerate .env + compose.yaml\n"
+    printf "[setup] next: run 'make build' (auto-applies) or './setup.sh apply' to regenerate .env + compose.yaml\n"
   fi
 }
 
@@ -3702,7 +3540,7 @@ _setup_apply() {
         shift
         ;;
       *)
-        _log_err setup "$(_setup_msg errors unknown_arg): $1"
+        _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
@@ -3714,14 +3552,14 @@ _setup_apply() {
     case "${_gui_override}" in
       auto|force|off) ;;
       *)
-        _log_err setup "$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)"
+        _log_err setup gui_override_invalid "display=$(_setup_msg errors invalid_value): --gui = ${_gui_override} (expected auto|force|off)" "value=${_gui_override}"
         return 2
         ;;
     esac
   fi
 
   if [[ -z "${_base_path}" ]]; then
-    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../.." && pwd -P)"
+    _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../.." && pwd -P)"
   fi
 
   _announce_template_default_fallback "${_base_path}"
@@ -3888,7 +3726,7 @@ _setup_apply() {
     fi
     [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
     if [[ -f "${_tpl_conf}" ]]; then
       # Ensure config/docker/ parent dir exists before cp (post-#262
       # path; first-time bootstrap on a fresh repo will not have it).
@@ -3922,12 +3760,7 @@ _setup_apply() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      printf "[setup] WARNING: [volumes] mount_1 host path '%s' does not exist on this machine.\n" \
-        "${_mount_1_host}" >&2
-      printf "[setup]          This is usually a stale absolute path committed from\n" >&2
-      printf "[setup]          a different machine. Rewriting mount_1 to the portable\n" >&2
-      printf "[setup]          '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting\n" >&2
-      printf "[setup]          WS_PATH locally. Commit the updated setup.conf to share.\n" >&2
+      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
       ws_path=""
       detect_ws_path ws_path "${_base_path}"
       [[ -d "${ws_path}" ]] && ws_path="$(cd "${ws_path}" && pwd -P)"
@@ -3966,6 +3799,48 @@ _setup_apply() {
     _cgroup_rule_str="$(printf '%s\n' "${_cgroup_rule_arr[@]}")"
   fi
 
+  # ── #450 P2: propagation + privileged guard ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _has_prop=false _d_check
+    while IFS= read -r _d_check; do
+      [[ -z "${_d_check}" ]] && continue
+      if _device_has_propagation "${_d_check}"; then
+        _has_prop=true
+        break
+      fi
+    done <<< "${_devices_str}"
+    if [[ "${_has_prop}" == true ]]; then
+      local _priv_val=""
+      _get_conf_value _sec_k _sec_v "privileged" "" _priv_val
+      if [[ "${_priv_val}" != "true" ]]; then
+        _log_warn setup conf_invalid_value \
+          "display=device entry uses mount propagation but [security] privileged is not true. Device I/O may be blocked by cgroup."
+      fi
+    fi
+  fi
+
+  # ── #450 P4: duplicate device/volume target path detection ──
+  if [[ -n "${_devices_str}" ]]; then
+    local _d_dup
+    while IFS= read -r _d_dup; do
+      [[ -z "${_d_dup}" ]] && continue
+      _device_has_propagation "${_d_dup}" || continue
+      local -a _dup_parts=()
+      IFS=':' read -ra _dup_parts <<< "${_d_dup}"
+      local _dup_target="${_dup_parts[1]}"
+      local _ev
+      for _ev in "${extra_volumes[@]}"; do
+        local -a _ev_parts=()
+        IFS=':' read -ra _ev_parts <<< "${_ev}"
+        if [[ "${_ev_parts[1]}" == "${_dup_target}" ]]; then
+          _log_warn setup conf_invalid_value \
+            "display=duplicate target path '${_dup_target}': appears in both [devices] (with propagation) and [volumes]. The [devices] entry with propagation takes precedence."
+          break
+        fi
+      done
+    done <<< "${_devices_str}"
+  fi
+
   # ── Collect [environment] env_*, [tmpfs] tmpfs_*, [network] port_* ──
   local -a _env_arr=() _tmpfs_arr=() _ports_arr=()
   _get_conf_list_sorted _env_k _env_v "env_"    _env_arr
@@ -3988,7 +3863,7 @@ _setup_apply() {
   # down default — avoids surprising the user with "my container lost
   # SYS_ADMIN / unconfined seccomp after I cleared the list".
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../config/docker/setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../config/docker/setup.conf"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
@@ -4095,7 +3970,7 @@ _setup_apply() {
       && (( _no_x11_cookie == 0 )); then
     _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
-      _log_warn setup "SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321."
+      _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321." "mode=${net_mode}"
     fi
   fi
 
@@ -4139,15 +4014,14 @@ _setup_apply() {
     "${_logging_per_svc_str}" \
     || return $?
 
-  # #328: ensure repo .gitignore covers every relative [logging]
-  # local_path so the user doesn't accidentally commit container logs
-  # on the next `git add -A`. Absolute paths and `~/...` are skipped
-  # (gitignore patterns only apply inside the repo). Idempotent.
-  _sync_logging_local_paths_gitignore "${_base_path}" \
-    "${_logging_global_str}" "${_logging_per_svc_str}"
+  # #462: emit runtime.env mirroring [environment] entries so standalone
+  # scripts (docker run wrappers, host-side helpers) can source the same
+  # values that compose.yaml injects. Same cross-ref expansion as compose
+  # so both files see identical resolved values.
+  _write_runtime_env "${_base_path}/runtime.env" "${_env_str}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    _log_info setup "$(_setup_msg env "done")"
+    _log_info setup env_regenerated "display=$(_setup_msg env "done")"
     printf "[setup] USER=%s (%s:%s)  GPU=%s/%s  GUI=%s/%s  IMAGE=%s  WS=%s\n" \
       "${user_name}" "${user_uid}" "${user_gid}" \
       "${gpu_enabled_eff}" "${gpu_mode}" \
@@ -4190,10 +4064,15 @@ main() {
       shift
       ;;
     *)
-      _log_err setup "$(_setup_msg errors unknown_subcmd): $1"
+      _log_err setup conf_unknown_subcmd "display=$(_setup_msg errors unknown_subcmd): $1" "subcmd=$1"
       return 1
       ;;
   esac
+
+  # #440: pre-setup hook fires before any subcommand runs. Skipped
+  # under --dry-run. Captured here (not per-subcommand) so all
+  # subcommands get uniform pre/post coverage.
+  _run_pre_hook setup "$@" || exit $?
 
   case "${_subcmd}" in
     apply)        _setup_apply       "$@" ;;
@@ -4205,6 +4084,11 @@ main() {
     remove)       _setup_remove      "$@" ;;
     reset)        _setup_reset       "$@" ;;
   esac
+  local _rc=$?
+
+  # #440: post-setup hook fires after the subcommand returns.
+  _run_post_hook setup "$@" || exit $?
+  return "${_rc}"
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

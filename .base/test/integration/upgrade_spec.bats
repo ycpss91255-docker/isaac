@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
   UPGRADE="/source/upgrade.sh"
 
@@ -26,10 +27,10 @@ setup() {
 # _seed_template_remote
 #   Build a tiny template layout matching what upgrade.sh's post-flight
 #   checks look for (markers: .base/.version, .base/init.sh,
-#   .base/script/docker/setup.sh), wrap two tagged versions around it,
+#   .base/script/docker/wrapper/setup.sh), wrap two tagged versions around it,
 #   and push to a bare repo we can treat as TEMPLATE_REMOTE.
 _seed_template_remote() {
-  mkdir -p "${TMPL_WORK}/script/docker"
+  mkdir -p "${TMPL_WORK}/script/docker/wrapper"
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t
   git -C "${TMPL_WORK}" config user.name t
@@ -39,16 +40,16 @@ _seed_template_remote() {
   # same code these tests validate.
   echo "v0.9.5" > "${TMPL_WORK}/.version"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/init.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/wrapper/setup.sh"
   cp "${UPGRADE}" "${TMPL_WORK}/upgrade.sh"
   # upgrade.sh sources _lib.sh on load (#278: _log / _error wrap _log_*).
   # _lib.sh itself sources i18n.sh + lib/*.sh sub-libs (#284), so copy
   # all three surfaces into the fake remote.
   mkdir -p "${TMPL_WORK}/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
-  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/setup.sh" "${TMPL_WORK}/upgrade.sh"
+  cp /source/script/docker/lib/_lib.sh "${TMPL_WORK}/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${TMPL_WORK}/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
+  chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/script/docker/wrapper/setup.sh" "${TMPL_WORK}/upgrade.sh"
   git -C "${TMPL_WORK}" add -A
   git -C "${TMPL_WORK}" commit -q -m "v0.9.5"
   git -C "${TMPL_WORK}" tag v0.9.5
@@ -187,7 +188,7 @@ EOF
 @test "upgrade.sh patches Dockerfile COPY *.sh /lint/ → script/*.sh /lint/ (#399)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/build.sh script/build.sh
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/*.sh /lint/
@@ -209,7 +210,7 @@ EOF
 @test "upgrade.sh is idempotent when Dockerfile already has COPY script/*.sh /lint/ (#399)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/build.sh script/build.sh
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/*.sh /lint/
@@ -231,7 +232,7 @@ EOF
 @test "upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)" {
   cd "${DOWN_DIR}"
   mkdir -p script
-  ln -sf ../.base/script/docker/build.sh script/build.sh
+  ln -sf ../.base/script/docker/wrapper/build.sh script/build.sh
   cat > Dockerfile <<'EOF'
 FROM busybox AS lint
 COPY *.sh /lint/
@@ -407,6 +408,6 @@ STUB
   [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
   [ -f ".base/.version" ]
   [ "$(cat .base/.version)" = "v0.9.5" ]
-  [ -f ".base/script/docker/setup.sh" ]
+  [ -f ".base/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
 }

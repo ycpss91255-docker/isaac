@@ -29,6 +29,8 @@ if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
   FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
 else
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 fi
@@ -57,21 +59,21 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lives at .base/script/docker/_lib.sh in normal consumer
+# _lib.sh lives at .base/script/docker/lib/_lib.sh in normal consumer
 # repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
 # scripts + helpers into /lint/. Issue #104 deduplicated the previously
 # inlined fallback `_detect_lang`; we now always have i18n.sh via
 # _lib.sh's sibling load.
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
-elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
+  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
+elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/_lib.sh"
+  source "${FILE_PATH}/lib/_lib.sh"
 else
   printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
   exit 1
 fi
 
@@ -455,7 +457,7 @@ main() {
     RUN_SETUP=true
   fi
 
-  local _setup="${FILE_PATH}/.base/script/docker/setup.sh"
+  local _setup="${FILE_PATH}/.base/script/docker/wrapper/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
@@ -494,7 +496,7 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info build "$(_msg bootstrap info)"
+    _log_info build build_bootstrap "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift-check path. When setup.conf / GPU / GUI / USER_UID changed
@@ -510,7 +512,7 @@ main() {
     # build.sh's _msg() and silently blank out drift_regen / err_no_env
     # status lines.
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info build "$(_msg drift regen)"
+      _log_info build build_drift_regen "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
@@ -519,8 +521,8 @@ main() {
   # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
   # a useful error instead of letting _load_env fail on a missing file.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    _log_err  build "$(_msg errors no_env)"
-    _log_info build "$(_msg errors rerun_setup)"
+    _log_err  build build_no_env "display=$(_msg errors no_env)"
+    _log_info build build_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
@@ -601,6 +603,10 @@ main() {
       "${_full_tag}" 2>/dev/null || true)"
   fi
 
+  # #440: pre-build hook fires after env prep, before docker build.
+  # Skipped under --dry-run.
+  _run_pre_hook build "$@" || exit $?
+
   _compose_project build "${_compose_args[@]}" "${TARGET}"
 
   if [[ "${NO_PRUNE}" != true && "${DRY_RUN}" != true \
@@ -612,6 +618,9 @@ main() {
     # available without a daemon round-trip).
     printf '[dry-run] docker rmi <old-id-of %s if displaced>\n' "${_full_tag}"
   fi
+
+  # #440: post-build hook fires at end of successful build path.
+  _run_post_hook build "$@"
 }
 
 # _prune_predecessor removes the displaced predecessor image after a
@@ -643,10 +652,10 @@ _prune_predecessor() {
     --filter "reference=${_pre_build_id}" 2>/dev/null \
     | grep -v '^<none>:<none>$' || true)"
   if [[ -n "${_other_tags}" ]]; then
-    _log_info build "skip prune: predecessor still tagged (${_other_tags})"
+    _log_info build build_prune_skip_tagged "display=skip prune: predecessor still tagged (${_other_tags})" "tags=${_other_tags}"
     return 0
   fi
-  _log_info build "pruning displaced predecessor ${_pre_build_id:7:12}"
+  _log_info build build_prune_displaced "display=pruning displaced predecessor ${_pre_build_id:7:12}" "image_id=${_pre_build_id:7:12}"
   docker rmi "${_pre_build_id}" >/dev/null 2>&1 || true
 }
 

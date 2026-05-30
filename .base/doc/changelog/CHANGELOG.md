@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.40.0] - 2026-05-30
+
+### Added
+- **`EXEC_ARGS` env var passthrough for `make exec`** — Kit-style args containing `=` (e.g. `--/app/livestream/port=49100`) historically tripped the #414 `MAKEOVERRIDES` guard, forcing users to call `./script/exec.sh` directly. Setting `EXEC_ARGS='--/app/k=v ...'` in the env now forwards those tokens to `exec.sh` via `$(EXEC_ARGS)`, bypassing make's variable-override interception. Existing `make exec -- -t target cmd` invocations are unaffected; EXEC_ARGS is appended after the `--`-forwarded args. Documented in README + zh-TW/zh-CN/ja translations. Closes #469.
+- **Per-instance compose overlay for `run.sh --instance NAME`** — `run.sh --instance NAME` now also auto-detects `config/instances/<NAME>.yaml` (compose `-f` overlay) and `config/instances/<NAME>.env` (compose `--env-file` overlay) on top of the existing `INSTANCE_SUFFIX`-only behaviour. Either file may exist alone; missing files are silently skipped. Yaml handles structural overrides (per-instance ports, volumes, cache dirs); env handles pure `${VAR}` overrides shared with `compose.yaml`. `NAME` is validated against `^[a-z0-9][a-z0-9_-]*$` (lowercase alphanumeric + `_-`) for path safety -- `--instance ../etc/passwd` and similar are rejected up front. New `lib/compose.sh::_compose_project_with_overlay` wraps the underlying invocation; `lib/compose.sh::_validate_instance_name` enforces the rule. README + 3 translations updated. Closes #465.
+- **Per-wrapper `pre`/`post` hooks for downstream host-side customisation** — every wrapper (`run` / `build` / `exec` / `stop` / `prune` / `setup` / `setup_tui`) now sources `lib/hook.sh` via `lib/_lib.sh` and calls `_run_pre_hook <name>` after env validation and `_run_post_hook <name>` at the end of main (run.sh's renamed `_app_cleanup` EXIT trap covers Ctrl-C too). Hooks live at `script/hooks/{pre,post}/<wrapper>.sh`; `init.sh` creates 14 executable stubs on new-repo (idempotent on existing-repo / upgrade so pre-#440 templates pick up scaffolding). Pre-hook non-zero exit aborts the wrapper; post-hook non-zero overrides the wrapper exit code but `compose down` still runs (strict + cleanup). `--dry-run` skips both hooks per the no-side-effects contract. Non-executable hook files hard-fail with a clear `chmod +x` hint. Solves `jetson_sdk_manager`'s need to register `qemu-aarch64` binfmt on the host before run.sh launches the ARM64 container, without breaking the upstream-symlink upgrade chain. Closes #440.
+- **`build-worker.yaml` `free_disk_space` opt-in input** — pre-build cleanup step that runs `jlumbroso/free-disk-space@main` to remove ~30 GB of pre-installed runner tooling (Android SDK, .NET, GHC, tool-cache) so repos whose `BASE_IMAGE` exceeds ubuntu-latest's ~14 GB free disk (Isaac Sim ~15 GB extracted) stop deterministically hitting `no space left on device` during the BuildKit COPY phase. Default `false` preserves zero behavior change for existing small-image callers; downstream opts in with `with: free_disk_space: true`. Step is positioned before `Set up Docker Buildx` so the overlayfs snapshot dir lands on the freed space. Closes #470.
+- **`runtime.env` emitted by `setup.sh apply`** — `[environment] env_*` entries land in a new `runtime.env` file alongside `.env` / `compose.yaml`, with the same cross-ref expansion as compose. Standalone scripts that bypass compose (e.g. `docker run` wrappers, host-side helpers like `isaac/script/run_instance.sh`) can now `source runtime.env` and see the same values compose injects, instead of getting empty `PUBLIC_IP` (WebRTC ICE fell back to 127.0.0.1). Backwards compatible: `.env` and `compose.yaml` unchanged; opt-in for callers that need it. Added to `_canonical_gitignore_entries` so downstream repos pick it up via the next `make upgrade`. Closes #462.
+- **TUI mount mode picker for `[devices]`/`[volumes]`** — new `_prompt_mount_with_picker` walks the user through host path, container path, access mode (`ro`/`rw`/none), and propagation mode (`rslave`/`rshared`/`rprivate`/`slave`/`shared`/`private`/none) via separate radiolist prompts. Pure `_assemble_mount_value` helper builds the final `host:container[:mode]` string. Lets users discover propagation modes from #450 without reading docs. Closes #461.
+- **`runtime/smoke.sh` ldd-based missing-dep check** — new helper script scans `.so` files under given roots (default `/usr/local/lib` + `/opt/ros/*/lib`) and fails if any has a "not found" dependency. Default `RUNTIME_SMOKE_CMD` in `Dockerfile.example` now invokes it, catching missing shared-library installs that the old `whoami && bash --version` default silently passed (e.g. `libboost_regex.so` absent in ros1_bridge#123). Downstream repos that uncomment the runtime-test stage get the stronger check automatically. Closes #430.
+
+### Changed
+- **`[logging] local_path` gitignore sync moved to init/upgrade lifecycle** — previously fired on every `setup.sh apply` (so the `.gitignore` managed block was only refreshed when a wrapper ran). New `lib/gitignore.sh::_sync_logging_gitignore` is called from `init.sh` (both new-repo and existing-repo paths), and `upgrade.sh` re-runs `init.sh`, so the file stays in step across template versions even when no wrapper has fired since the last `setup.conf` edit. Behaviour-equivalent: same marker block, same prune logic. `_parse_ini_section` also relocates from `setup.sh` to `lib/conf.sh` so `init.sh` can reach the parser without sourcing `setup.sh`. Closes #402.
+- **`[logging]` parsers extracted to `lib/conf_logging.sh`** — `_parse_logging_svc_sections` and `_collect_logging` moved out of `script/docker/wrapper/setup.sh` into a new shared lib, wired via `lib/_lib.sh`. Internal refactor only; no behaviour change. Sets up PR-B (#402) where `lib/gitignore.sh` will reuse the same parsers to take over the `[logging] local_path` gitignore sync from `setup.sh apply`. Refs #402.
+
+### Fixed
+- **`run.sh` non-devel stages now use `compose up`** — previously used `compose run --rm` which generated random hash container names (e.g. `user-repo-runtime-run-63e8313ab536`), bypassing the `container_name:` directive emitted by `setup.sh` (#215, #322, #335). Empty CMD → foreground `compose up`; CMD passed → `compose up -d` + `compose exec`. Container names now consistent across all stages. Closes #458.
+
+## [v0.39.0] - 2026-05-28
+
+### Added
+- **`[devices]` mount propagation support** — device entries like `device_1 = /dev:/dev:rslave` are auto-redirected from compose `devices:` to `volumes:` long-form bind mount (compose `devices:` does not support propagation). Plain devices without propagation emit to `devices:` as before. Validator (`_validate_mount`) extended to accept `rslave|rshared|rprivate|slave|shared|private` modes, combinable with `ro|rw` (e.g. `rw,rslave`). Warns when propagation is used without `[security] privileged = true` (P2, #453). Warns on duplicate target paths between `[devices]` and `[volumes]` (P4, #455). Per-stage emit supports propagation (P3, #454). Closes #450, closes #453, closes #454, closes #455.
+
+### Changed
+- **`run.sh` CMD separator `--` + positional stop** — first positional arg now stops run.sh flag parsing so CMD flags like `--target` no longer collide with run.sh's own `-t/--target`. Explicit `--` separator documented in usage (4 languages). Closes #448.
+- **`script/docker/` reorganized into role-based subdirectories** — wrappers move to `wrapper/`, all libs consolidate into `lib/`, container-side helpers move to `runtime/`. `_entrypoint_logging.sh` renamed to `runtime/logging.sh` (container path `/usr/local/lib/base/logging.sh`). New `runtime/entrypoint.sh` template replaces init.sh heredoc. Breaking: downstream symlink paths change; `make upgrade` handles migration automatically. Closes #406.
+
+## [v0.38.0] - 2026-05-27
+
+### Added
+- **`build-worker.yaml` `submodules` input** — optional checkout mode (`true` / `recursive`) for repos whose Dockerfile source lives in a git submodule. Default empty string preserves existing behavior (no submodule checkout). Only the `build` job checkout is affected; `path-filter` stays `submodules: false`. Closes #444.
+
+## [v0.37.0] - 2026-05-27
+
+### Added
+- **`make start` combined build+run target** — runs `./script/build.sh` then `./script/run.sh` in one step, reducing friction for new repo onboarding. Args after `--` are forwarded to build.sh only; run.sh runs with defaults. Closes #428.
+
+### Changed
+- **`run.sh` first-run auto-build gate** — when the target image is missing locally, `run.sh` now delegates to `./build.sh <target>` instead of letting Compose auto-build (which silently skips the test stage). Makes `make run` on a fresh clone equivalent to `make build && make run`. Build failure aborts the run. The `--build` flag (explicit `./build.sh test` with lint+smoke) is unchanged. Closes #429.
+- **`lib/log.sh` single-sink tty-detect + strict body + microsecond UTC** (#438). (1) Dispatch switches on `test -t <fd>`: TTY emits text, pipe/redirect emits JSON; `LOG_FORMAT=auto|text|json` overrides. `LOG_JSON_FILE` dual-sink removed. (2) Unregistered body is a fatal error by default; all callers migrated to registered event names with `display=` attribute for i18n text. (3) Timestamps now ISO 8601 UTC with microsecond precision (`%6NZ`) in both text and JSON. (4) `_log_plain` removed; `config_summary.sh` uses local `_summary_print` helper. Breaking changes: `LOG_JSON_FILE` env dropped, `LOG_STRICT_BODY` env dropped (strict is now default). Closes #438.
+
+## [v0.36.0] - 2026-05-27
+
+### Changed
+- **`lib/log.sh` rewritten as OTel-aligned 5-level JSON logger** (P1 of #423). 5 functions (`_log_debug` / `_log_info` / `_log_warn` / `_log_err` / `_log_fatal`) with `(service, body, [attr=val]...)` API. Registered body emits JSON per OTel Logs Data Model; unregistered body falls back to legacy text for backward compat. W3C TRACEPARENT propagation via `_log_with_trace` / `_log_with_span` scoped wrappers. Ships `lib/log-events.txt` (body enum registry) and `lib/log.lnav-format.json`. Closes #423.
+- **`lib/log.sh` dual output + text format upgrade** (P2). Terminal always receives text with ISO 8601 timestamp + 5-char aligned level (`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`). `LOG_JSON_FILE` env enables parallel structured JSON output to file. `attr=val` args are filtered from text display but included in JSON. `WARNING` label shortened to `WARN` for alignment. i18n messages preserved in text mode only.
+- **P3+P4: bare stderr migration + lint enforcement**. Converted remaining bare `printf >&2` in `setup.sh`, `run.sh`, `ci.sh` to `_log_*` helpers. Added `script/ci/lint_bare_stderr.sh` to flag bare stderr output outside `_log_*` / `_die` / allowlisted patterns.
+
 ## [v0.35.0] - 2026-05-27
 
 ### Added

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _entrypoint_logging.sh -- host-side log tee helper for #328 local_path.
+# logging.sh -- host-side log tee helper for #328 local_path.
 #
 # Source this from a repo's `script/entrypoint.sh` so container stdout/
 # stderr is duplicated to the host-side file mounted via the [logging]
@@ -40,7 +40,7 @@
 #   #!/usr/bin/env bash
 #   set -euo pipefail
 #   # shellcheck source=/dev/null
-#   . /usr/local/lib/base/_entrypoint_logging.sh
+#   . /usr/local/lib/base/logging.sh
 #   exec "$@"
 #
 # Why the in-image path (#368, supersedes the PR #356 example that

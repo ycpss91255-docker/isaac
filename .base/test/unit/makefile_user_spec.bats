@@ -74,10 +74,10 @@ teardown() {
   refute_line --regexp '^build( |$)'
 }
 
-@test "\`make help\` lists the 10 user-facing targets" {
+@test "\`make help\` lists the 11 user-facing targets" {
   run make help
   assert_success
-  for _target in build run exec stop prune setup setup-tui upgrade upgrade-check help; do
+  for _target in build run start exec stop prune setup setup-tui upgrade upgrade-check help; do
     assert_line --partial "${_target}"
   done
 }
@@ -234,6 +234,42 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# `make start` — combined build + run (#428)
+# ════════════════════════════════════════════════════════════════════
+
+@test "\`make start\` invokes ./script/build.sh then ./script/run.sh" {
+  run make start
+  assert_success
+  assert_line "build"
+  assert_line "run"
+}
+
+@test "\`make start\` runs build before run (line order)" {
+  run make start
+  assert_success
+  local build_line=-1 run_line=-1 i=0
+  while IFS= read -r line; do
+    [[ "${line}" == "build"* ]] && build_line=$i
+    [[ "${line}" == "run"* ]] && run_line=$i
+    i=$(( i + 1 ))
+  done <<< "${output}"
+  (( build_line >= 0 && run_line >= 0 && build_line < run_line ))
+}
+
+@test "\`make start -- --no-cache\` forwards args to build.sh only" {
+  run make start -- --no-cache
+  assert_success
+  assert_line "build --no-cache"
+  assert_line "run"
+}
+
+@test "\`make start\` appears in help" {
+  run make help
+  assert_success
+  assert_line --partial "start"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # VAR=VALUE guard (#414 case 1)
 # ════════════════════════════════════════════════════════════════════
 
@@ -272,4 +308,37 @@ teardown() {
   run make exec -- /root/demo/ros1_server.sh arg1
   assert_success
   assert_line "exec /root/demo/ros1_server.sh arg1"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# EXEC_ARGS env-var passthrough (#469: Kit-style `=` args)
+# ════════════════════════════════════════════════════════════════════
+
+@test "EXEC_ARGS env var forwards single =-bearing arg to exec.sh (#469)" {
+  # Isaac Sim Kit args use `--/path/to/key=value`. Inline `make exec`
+  # would trip the #414 guard via MAKEOVERRIDES; the env-var path
+  # bypasses it because the token never enters MAKECMDGOALS.
+  EXEC_ARGS='--/app/livestream/port=49100' run make exec
+  assert_success
+  assert_line "exec --/app/livestream/port=49100"
+}
+
+@test "EXEC_ARGS env var forwards multiple Kit-style args (#469)" {
+  EXEC_ARGS='--/app/livestream/port=49100 --/app/livestream/publicEndpointAddress=10.2.23.83' run make exec
+  assert_success
+  assert_line "exec --/app/livestream/port=49100 --/app/livestream/publicEndpointAddress=10.2.23.83"
+}
+
+@test "unset EXEC_ARGS leaves \`make exec\` unchanged (back-compat #469)" {
+  # No regression for callers who don't use the new env var.
+  unset EXEC_ARGS
+  run make exec
+  assert_success
+  assert_line "exec"
+}
+
+@test "EXEC_ARGS combines with \`--\`-prefixed positional args (#469)" {
+  EXEC_ARGS='--/app/livestream/port=49100' run make exec -- -t bats-src /run.sh
+  assert_success
+  assert_line "exec -t bats-src /run.sh --/app/livestream/port=49100"
 }

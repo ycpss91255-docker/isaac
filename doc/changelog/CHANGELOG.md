@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Changed
+- **`.base/` subtree bumped v0.35.0 → v0.40.0** + main CI workflow refs (`call-docker-build` + `call-release`) repinned `@v0.35.0` → `@v0.40.0`. Picks up:
+  - `free_disk_space: true` opt-in for `build-worker.yaml` (base#470 / #483) — removes ~30 GB of pre-installed runner tooling so Isaac Sim BASE_IMAGE (~15 GB extracted) stops deterministically hitting `no space left on device` during BuildKit COPY. Already saw the symptom on PR #68 attempt 1 (passed on attempt 2 by timing luck).
+  - `EXEC_ARGS` env passthrough for Kit `--/app/...=val` args (base#469 / #474) — future opportunity to simplify `Makefile.local` exec calls; not opted in yet.
+  - `runtime.env` emission from `[environment]` block (base#462 / #471) — future opportunity to replace host-side awk parsing of `host.yaml`; not opted in yet because `host.yaml` is by-design out-of-band from Docker setup.
+  - Per-instance compose overlay via `config/instances/NAME.{yaml,env}` (base#465 / #487) — future opportunity to replace `script/run_instance.sh`'s direct `docker run` path; deferred until isaac#70 (compose bypass tracker) unblocks.
+  - `runtime/smoke.sh` ldd-based missing-`.so` check (base#430 / #467) — only relevant if isaac uncomments the runtime stage (currently disabled per `build_runtime: false`).
+  - Per-wrapper pre/post hook scaffolding (base#440 / #484) — `script/hooks/{pre,post}/*.sh` no-op templates added; populate as needed.
+  - `script/docker/` reorganized into `wrapper/` + `lib/` + `runtime/` subdirs (base#406): root symlinks repointed by `./.base/init.sh`. Dockerfile `COPY .base/script/docker/{_lib,i18n,_tui_conf}.sh /lint/` collapsed into single `COPY .base/script/docker/lib /lint/lib` (all three now live under `lib/`).
+- `.gitignore`: `runtime.env` added (managed-by-template entry from base#471).
 - **Per-instance state relocated + portable** (closes #67):
   - `config/instances/<id>.env` → `config/docker/instances/<id>.env` (grouped under docker config)
   - `${WS_PATH}/isaac-sim/instances/<id>/` → `<repo>/instance/<id>/` (top-level, gitignored, inside docker repo)

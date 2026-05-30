@@ -4,7 +4,7 @@
 # at .base/script/docker/ must locate _lib.sh through the .base/ subtree
 # prefix on fresh clones of post-v0.25.0 downstream repos.
 #
-# Pre-fix the wrappers hard-coded ${FILE_PATH}/template/script/docker/_lib.sh,
+# Pre-fix the wrappers hard-coded ${FILE_PATH}/template/script/docker/lib/_lib.sh,
 # which broke fresh-clone local development on every downstream repo that
 # had migrated its subtree from template/ to .base/ (#263). CI stayed green
 # because Makefile.ci paths reference .base/... directly; only the
@@ -15,7 +15,7 @@
 #   * Symlink each wrapper (build.sh / run.sh / exec.sh / stop.sh) into the
 #     sandbox root, mimicking what init.sh's _create_symlinks produces.
 #   * Run each wrapper's --help; the wrapper must succeed in sourcing
-#     _lib.sh from .base/script/docker/_lib.sh and print usage. The lookup
+#     _lib.sh from .base/script/docker/lib/_lib.sh and print usage. The lookup
 #     bug surfaces as the "cannot find _lib.sh" error path.
 
 bats_require_minimum_version 1.5.0
@@ -27,13 +27,13 @@ setup() {
   export SANDBOX
 
   mkdir -p "${SANDBOX}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${SANDBOX}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${SANDBOX}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/_lib.sh "${SANDBOX}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${SANDBOX}/.base/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
 
   for _w in build.sh run.sh exec.sh stop.sh; do
-    ln -s "/source/script/docker/${_w}" "${SANDBOX}/${_w}"
+    ln -s "/source/script/docker/wrapper/${_w}" "${SANDBOX}/${_w}"
   done
 }
 
@@ -70,9 +70,9 @@ teardown() {
 # ── Missing _lib.sh: wrapper surfaces the documented error ───────────
 
 @test "build.sh: errors clearly when neither .base/ nor sibling _lib.sh exists (#282)" {
-  rm -f "${SANDBOX}/.base/script/docker/_lib.sh"
+  rm -f "${SANDBOX}/.base/script/docker/lib/_lib.sh"
   run "${SANDBOX}/build.sh" --help
   assert_failure
   assert_output --partial "cannot find _lib.sh"
-  assert_output --partial ".base/script/docker/_lib.sh"
+  assert_output --partial ".base/script/docker/lib/_lib.sh"
 }

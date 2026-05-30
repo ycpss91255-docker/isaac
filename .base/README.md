@@ -1,6 +1,6 @@
 # template
 
-[![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
+[![CI](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
 [![codecov](https://codecov.io/gh/ycpss91255-docker/base/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/base)
 
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
@@ -223,6 +223,11 @@ make build                            # regenerates compose.yaml, builds all sta
 make run -- -t headless               # runs the headless variant
 make run -- -t gui                    # runs the gui variant
 make exec -- -t headless bash         # exec into running headless container
+
+# Kit-style args (containing `=`) trip the #414 guard inline. Pass them
+# via the EXEC_ARGS env var instead (#469):
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
 
 # Equivalent direct .sh invocation:
 ./script/build.sh
@@ -519,6 +524,45 @@ configuration. Both files are regenerated on every `make upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
+### Per-wrapper hooks (#440)
+
+Every wrapper (`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`) checks for an optional repo-local script at:
+
+```
+script/hooks/pre/<wrapper>.sh    # runs after env prep, before main work
+script/hooks/post/<wrapper>.sh   # runs after main work (or in EXIT trap for run.sh)
+```
+
+`init.sh` ships 14 executable stubs (`exit 0` by default), so the
+hook framework is ready out of the box. Replace `exit 0` with your
+own host-side steps (e.g. `multiarch/qemu-user-static` binfmt
+registration, mount-point dir creation, hardware preflight). Stubs
+are idempotent across upgrades — pre-#440 templates pick up the
+scaffolding on the next `make upgrade`.
+
+**Contract:**
+
+| Aspect | Behavior |
+|---|---|
+| Args | Same `"$@"` the wrapper received |
+| Where | Host-side (NOT inside the container) |
+| `pre` non-zero | Aborts the wrapper |
+| `post` non-zero | Overrides wrapper exit code; cleanup still runs (run.sh) |
+| Not executable | Hard fail with `chmod +x` hint |
+| `--dry-run` | Both hooks silently skipped |
+
+**Example — jetson_sdk_manager binfmt setup:**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### Naming scheme: three namespaces, two user identities
 
 `setup.sh` emits three names in `.env` / `compose.yaml`. They look
@@ -564,6 +608,21 @@ parallel containers (e.g. two branches side by side): set
 `INSTANCE_SUFFIX=2` and you get `alice-<repo>-2` /
 `alice-<repo>-2`-named project. Empty by default; bumped by the
 `-n / --instance` flag on the wrappers when applicable.
+
+**Per-instance overlays (#465).** When `run.sh --instance NAME` is
+given, `run.sh` also picks up these two optional files as compose
+overlays:
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+Either file may exist alone; missing files are silently skipped. Use
+the yaml for structural overrides (per-instance ports, volumes,
+cache dirs) and the env for pure `${VAR}` overrides shared with
+`compose.yaml`. `NAME` is validated as `^[a-z0-9][a-z0-9_-]*$` for
+path safety.
 
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 `claude_code`, default `INSTANCE_SUFFIX` empty:

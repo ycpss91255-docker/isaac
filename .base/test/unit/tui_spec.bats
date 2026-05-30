@@ -11,7 +11,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/_tui_conf.sh
+  source /source/script/docker/lib/_tui_conf.sh
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
@@ -61,6 +61,48 @@ teardown() {
 
 @test "_validate_mount rejects too many colons" {
   run _validate_mount "/a:/b:/c:/d"
+  [ "${status}" -ne 0 ]
+}
+
+# ── #450 mount propagation modes ──────────────────────────────────
+
+@test "_validate_mount accepts propagation mode rslave (#450)" {
+  _validate_mount "/dev:/dev:rslave"
+}
+
+@test "_validate_mount accepts propagation mode rshared (#450)" {
+  _validate_mount "/mnt:/mnt:rshared"
+}
+
+@test "_validate_mount accepts propagation mode rprivate (#450)" {
+  _validate_mount "/data:/data:rprivate"
+}
+
+@test "_validate_mount accepts combined rw,rslave (#450)" {
+  _validate_mount "/dev:/dev:rw,rslave"
+}
+
+@test "_validate_mount accepts combined ro,rshared (#450)" {
+  _validate_mount "/data:/data:ro,rshared"
+}
+
+@test "_validate_mount accepts non-recursive variants (#450)" {
+  _validate_mount "/dev:/dev:slave"
+  _validate_mount "/dev:/dev:shared"
+  _validate_mount "/dev:/dev:private"
+}
+
+@test "_validate_mount accepts combined rw,slave non-recursive (#450)" {
+  _validate_mount "/dev:/dev:rw,slave"
+}
+
+@test "_validate_mount rejects invalid propagation mode (#450)" {
+  run _validate_mount "/dev:/dev:bogus"
+  [ "${status}" -ne 0 ]
+}
+
+@test "_validate_mount rejects rw,bogus combo (#450)" {
+  run _validate_mount "/dev:/dev:rw,bogus"
   [ "${status}" -ne 0 ]
 }
 
@@ -434,7 +476,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected opens a msgbox when given a bad input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'title=%s\nbody=%s\n---\n' "$1" "$2" > "${_log}"
@@ -449,7 +491,7 @@ teardown() {
 
 @test "_warn_if_lang_rejected is a no-op on empty input" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   local _log="${TEMP_DIR}/msgbox.log"
   _tui_msgbox() {
     printf 'CALLED\n' >> "${_log}"
@@ -878,7 +920,7 @@ EOF
 _b5_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
 
   # Reset session state between tests
@@ -1078,7 +1120,7 @@ fi'
   # BASH_SOURCE guard at the bottom of setup_tui.sh prevents main() from
   # running on source.
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   # Stub the interactive backend wrappers. _edit_section_deploy calls
   # _tui_select (mode), _tui_inputbox (count), _tui_checklist (caps),
@@ -1120,7 +1162,7 @@ fi'
 
 @test "_edit_section_deploy skips MIG msgbox when MIG disabled" {
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
 
   TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"
   : > "${TUI_MSGBOX_LOG}"
@@ -1158,7 +1200,7 @@ esac'
 _b6_setup_tui() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1260,7 +1302,7 @@ _b6_setup_tui() {
 _b_swap_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
@@ -1315,7 +1357,7 @@ _b_swap_setup() {
 _b_remove_setup() {
   export _LANG="en"
   # shellcheck disable=SC1091
-  source /source/script/docker/setup_tui.sh
+  source /source/script/docker/wrapper/setup_tui.sh
   _tui_init_lang
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()

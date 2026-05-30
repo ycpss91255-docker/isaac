@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
 
   TMP_ROOT="$(mktemp -d)"
@@ -27,10 +28,10 @@ teardown() {
 # init.sh new-repo path: .gitignore is created via lib (single source)
 # ════════════════════════════════════════════════════════════════════
 
-@test "init.sh new-repo: .gitignore contains all 7 canonical entries" {
+@test "init.sh new-repo: .gitignore contains all canonical entries (#462: + runtime.env)" {
   bash .base/init.sh
   local _entry
-  for _entry in .env .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.bak runtime.env compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
@@ -164,17 +165,19 @@ _seed_upgrade_fixture() {
   # init.sh / upgrade.sh source _lib.sh on load (#278: route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
   # sub-libs (#284), so copy all three surfaces.
-  cp /source/script/docker/_lib.sh "${TMPL_WORK}/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${TMPL_WORK}/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${TMPL_WORK}/script/docker/lib/"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/setup.sh"
+  cp /source/script/docker/lib/_lib.sh "${TMPL_WORK}/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${TMPL_WORK}/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${TMPL_WORK}/script/docker/lib/"
+  mkdir -p "${TMPL_WORK}/script/docker/wrapper"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/script/docker/wrapper/setup.sh"
   # _create_symlinks references these paths; empty stubs keep ln -sf happy.
-  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh Makefile; do
-    : > "${TMPL_WORK}/script/docker/${_f}"
+  for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh; do
+    : > "${TMPL_WORK}/script/docker/wrapper/${_f}"
   done
+  : > "${TMPL_WORK}/script/docker/Makefile"
   : > "${TMPL_WORK}/.hadolint.yaml"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/upgrade.sh" \
-           "${TMPL_WORK}/script/docker/setup.sh"
+           "${TMPL_WORK}/script/docker/wrapper/setup.sh"
 
   git -C "${TMPL_WORK}" init -q -b main
   git -C "${TMPL_WORK}" config user.email t@t

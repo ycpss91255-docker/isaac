@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Tests for generate_compose_yaml() in script/docker/setup.sh.
+# Tests for generate_compose_yaml() in script/docker/wrapper/setup.sh.
 # Verifies conditional emission of GPU deploy block, GUI env/volumes,
 # extra volumes list, and baseline structural elements.
 
@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/setup.sh
+  source /source/script/docker/wrapper/setup.sh
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
@@ -114,6 +114,80 @@ teardown() {
   assert_success
   run grep -F -- '- /dev:/dev' "${COMPOSE_OUT}"
   assert_success
+}
+
+# ── #450 device propagation → volumes long-form ──────────────────────
+
+@test "generate_compose_yaml: device with propagation emits to volumes long-form (#450 P1)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -F 'propagation: rslave' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'source: /dev' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'target: /dev' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: device without propagation stays in devices: (#450 P1)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev/video0:/dev/video0"
+  run grep -E '^    devices:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- /dev/video0:/dev/video0' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'propagation:' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml: mixed devices split correctly (#450 P1)" {
+  local _extras=()
+  local _devices
+  printf -v _devices '%s\n%s' "/dev/video0:/dev/video0" "/dev:/dev:rslave"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "${_devices}"
+  run grep -F -- '- /dev/video0:/dev/video0' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'propagation: rslave' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: device rw,rslave emits combined propagation (#450 P1)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rw,rslave"
+  run grep -F 'propagation: rslave' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'read_only: false' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/data:/data:ro,rshared"
+  run grep -F 'propagation: rshared' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F 'read_only: true' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -E '^    volumes:$' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml: all devices have propagation → no devices: section (#450)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -E '^    devices:$' "${COMPOSE_OUT}"
+  assert_failure
 }
 
 @test "generate_compose_yaml emits environment block from env_ list" {
@@ -720,4 +794,23 @@ DOCK
   # "runtime-base" doesn't count as the runtime stage (strict match).
   run grep -cE '^  runtime:' "${COMPOSE_OUT}"
   assert_output "0"
+}
+
+# ── #450 P3: per-stage device propagation redirect ───────────────
+
+@test "generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM ubuntu:24.04 AS devel
+CMD ["bash"]
+
+FROM devel AS runtime
+CMD ["/app"]
+DOCK
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "/dev:/dev:rslave"
+  run grep -c 'propagation: rslave' "${COMPOSE_OUT}"
+  [[ "${output}" -ge 1 ]]
+  run grep -E '^  runtime:' "${COMPOSE_OUT}"
+  assert_success
 }

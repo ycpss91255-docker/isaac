@@ -38,7 +38,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly REPO_ROOT
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../docker/_lib.sh"
+source "${SCRIPT_DIR}/../docker/lib/_lib.sh"
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ EOF
 
 # ── CI container setup ───────────────────────────────────────────────────────
 
-_die() { _log_err ci "$*"; exit 1; }
+_die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; exit 1; }
 
 _install_deps() {
   command -v bats >/dev/null 2>&1 && return 0
@@ -114,7 +114,7 @@ _install_deps() {
   fi
 
   apt-get update -qq \
-    || _die "apt-get update failed. Check network / apt mirror reachability."
+    || _die ci_apt_update_failed "apt-get update failed. Check network / apt mirror reachability."
 
   # `make` is needed by integration tests that exercise the downstream
   # Makefile recipes (#175 / #182). The kcov image's apt repo doesn't
@@ -126,24 +126,22 @@ _install_deps() {
       bats bats-support bats-assert \
       shellcheck git ca-certificates \
       parallel make \
-    || _die "apt-get install failed for bats/shellcheck deps."
+    || _die ci_apt_install_failed "apt-get install failed for bats/shellcheck deps."
 
   # bats-mock is distro-packaged on newer distros but missing on bookworm,
   # so we always pin to upstream v1.2.5 for reproducibility.
   git clone --depth 1 -b v1.2.5 \
       https://github.com/jasonkarns/bats-mock /usr/lib/bats/bats-mock \
-    || _die "git clone bats-mock failed. Check network / GitHub access."
+    || _die ci_bats_mock_clone_failed "git clone bats-mock failed. Check network / GitHub access."
 }
 
 # ── ShellCheck ───────────────────────────────────────────────────────────────
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/script/docker" -maxdepth 1 -name "*.sh" -print0 | xargs -0 shellcheck -x
-  # #284: sub-libs under script/docker/lib/ also need linting; gitignore.sh
-  # has lived there unlinted since #172, this picks up both that file and
-  # the post-#284 sub-libs (log / env / conf / compose / config_summary).
+  find "${REPO_ROOT}/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  find "${REPO_ROOT}/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
@@ -211,20 +209,20 @@ _run_unit_shard() {
   # the current 30-ish unit spec scale.
   local _spec="${1:?BUG: _run_unit_shard expects <n>/<total>}"
   if [[ "${_spec}" != */* ]]; then
-    _die "Invalid shard spec '${_spec}'. Expected <n>/<total> (e.g. 1/2)."
+    _die ci_invalid_shard "Invalid shard spec '${_spec}'. Expected <n>/<total> (e.g. 1/2)."
   fi
   local _shard="${_spec%/*}"
   local _total="${_spec#*/}"
   if ! [[ "${_shard}" =~ ^[0-9]+$ && "${_total}" =~ ^[0-9]+$ ]] \
        || (( _shard < 1 || _shard > _total )); then
-    _die "Invalid shard spec '${_spec}'. Need 1<=n<=total."
+    _die ci_invalid_shard "Invalid shard spec '${_spec}'. Need 1<=n<=total."
   fi
   local _files
   _files=$(find "${REPO_ROOT}/test/unit" -maxdepth 1 -name '*_spec.bats' -print \
              | sort \
              | awk -v s="${_shard}" -v t="${_total}" 'NR % t == (s - 1) % t')
   if [[ -z "${_files}" ]]; then
-    _die "No spec files matched shard ${_spec}. Empty test/unit/ ?"
+    _die ci_empty_shard "No spec files matched shard ${_spec}. Empty test/unit/ ?"
   fi
   local -a _bats_args
   local _label
@@ -314,9 +312,9 @@ readonly _BEHAVIOURAL_BUILDER="template-behavioural"
 
 _behavioural_setup() {
   [[ -S /var/run/docker.sock ]] \
-    || _die "behavioural mode requires /var/run/docker.sock; run via 'make test-behavioural' (ci-behavioural service)."
+    || _die ci_no_docker_socket "behavioural mode requires /var/run/docker.sock; run via 'make test-behavioural' (ci-behavioural service)."
   command -v docker >/dev/null 2>&1 \
-    || _die "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
+    || _die ci_no_docker_cli "behavioural mode requires docker CLI in the test-tools image (test-tools < v0.23.2 lacks it)."
 
   # Dedicated buildx builder isolates the cache from the host's default
   # context, so prune at the end only touches our cache (not the user's
@@ -370,7 +368,7 @@ main() {
       --bats-integration) bats_integration=1; shift ;;
       --coverage) mode="coverage"; shift ;;
       --behavioural) behavioural=1; shift ;;
-      *) echo "Unknown option: $1" >&2; exit 1 ;;
+      *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/exec.sh argument handling, i18n log lines,
+# Unit tests for script/docker/wrapper/exec.sh argument handling, i18n log lines,
 # and the "container not running" guard. Mirrors the sandbox/mock strategy
 # from build_sh_spec.bats / run_sh_spec.bats: a sandbox tree with symlinked
 # exec.sh, real _lib.sh / i18n.sh, and a PATH-shimmed `docker` stub whose
@@ -10,6 +10,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -19,11 +20,11 @@ setup() {
   SANDBOX="${TEMP_DIR}/repo"
   mkdir -p "${SANDBOX}/.base/script/docker/lib"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/exec.sh "${SANDBOX}/exec.sh"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
+  ln -s /source/script/docker/wrapper/exec.sh "${SANDBOX}/exec.sh"
 
   # Seed .env so _load_env / _compute_project_name succeed without bootstrap.
   {
@@ -238,11 +239,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -252,11 +251,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -266,11 +263,9 @@ teardown() {
 @test "exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/exec.sh "${_tmp}/exec.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/exec.sh "${_tmp}/exec.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/exec.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -287,9 +282,9 @@ teardown() {
   # the alt IMAGE_NAME, proving FILE_PATH was redirected.
   local ALT="${TEMP_DIR}/alt"
   mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
@@ -311,9 +306,9 @@ teardown() {
 @test "exec.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
   mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"

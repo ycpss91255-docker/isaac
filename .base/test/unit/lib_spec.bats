@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# lib_spec.bats - Execution tests for script/docker/_lib.sh helpers.
+# lib_spec.bats - Execution tests for script/docker/lib/_lib.sh helpers.
 #
 # These tests source _lib.sh in a fresh subshell and call each helper so
 # the bash branches actually run (kcov can then attribute coverage).
@@ -9,7 +9,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  LIB="/source/script/docker/_lib.sh"
+  LIB="/source/script/docker/lib/_lib.sh"
 }
 
 # ── _detect_lang / _LANG ────────────────────────────────────────────────────

@@ -24,6 +24,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -32,19 +33,20 @@ setup() {
 
   SANDBOX="${TEMP_DIR}/repo"
   mkdir -p "${SANDBOX}/.base/script/docker/lib" \
+           "${SANDBOX}/.base/script/docker/wrapper" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
-  ln -s /source/script/docker/build.sh "${SANDBOX}/build.sh"
+  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
+  ln -s /source/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
   # Mock setup.sh — seeds .env so _load_env succeeds and DOCKER_HUB_USER
   # / IMAGE_NAME are present for the _full_tag computation in build.sh.
-  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -73,7 +75,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
