@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/docker/run.sh argument handling and control flow.
+# Unit tests for script/docker/wrapper/run.sh argument handling and control flow.
 # See build_sh_spec.bats for the sandbox/mock strategy — this file mirrors it
 # and focuses on run.sh-specific branches: --detach, --instance, TARGET
 # routing (devel vs non-devel), already-running guard, and bootstrap/drift.
@@ -8,6 +8,7 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC2154
@@ -16,19 +17,20 @@ setup() {
 
   SANDBOX="${TEMP_DIR}/repo"
   mkdir -p "${SANDBOX}/.base/script/docker/lib" \
+           "${SANDBOX}/.base/script/docker/wrapper" \
            "${SANDBOX}/config/docker"
 
-  cp /source/script/docker/_lib.sh  "${SANDBOX}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh  "${SANDBOX}/.base/script/docker/i18n.sh"
+  cp /source/script/docker/lib/_lib.sh  "${SANDBOX}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh  "${SANDBOX}/.base/script/docker/lib/i18n.sh"
   # _lib.sh post-#284 is an umbrella that sources lib/*.sh sub-libs.
-  cp /source/script/docker/lib/*.sh "${SANDBOX}/.base/script/docker/lib/"
-  # Symlink (not copy) so kcov attributes coverage to /source/script/docker/run.sh.
-  ln -s /source/script/docker/run.sh "${SANDBOX}/run.sh"
+  cp /source/script/docker/lib/* "${SANDBOX}/.base/script/docker/lib/"
+  # Symlink (not copy) so kcov attributes coverage to /source/script/docker/wrapper/run.sh.
+  ln -s /source/script/docker/wrapper/run.sh "${SANDBOX}/run.sh"
 
   MOCK_SETUP_LOG="${TEMP_DIR}/setup.log"
   export MOCK_SETUP_LOG
 
-  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 # Mock setup.sh (subprocess-only after #49 Phase B-1):
 #   - `check-drift` subcommand → exit 0 (no drift baseline)
@@ -60,7 +62,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -154,7 +156,7 @@ teardown() {
   } > "${SANDBOX}/.env"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
-  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 _subcmd="apply"
@@ -186,7 +188,7 @@ case "${_subcmd}" in
     ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "regenerating"
@@ -255,11 +257,11 @@ EOS
 }
 
 @test "run.sh fails with clear error if setup.sh produced no .env" {
-  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 exit 0
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_failure
   assert_output --partial ".env"
@@ -279,12 +281,27 @@ EOS
   assert_output --partial "exec"
 }
 
-@test "run.sh non-devel target routes to 'compose run --rm'" {
-  # -t is now the explicit target flag; positional would be treated as CMD.
+@test "run.sh non-devel target without CMD uses 'compose up' foreground (#458)" {
+  # #458: non-devel stages used to use 'compose run --rm' which bypassed
+  # container_name. Now unified to 'compose up' so container_name from
+  # #322 / #335 takes effect.
   run bash "${SANDBOX}/run.sh" --dry-run -t test
   assert_success
-  assert_output --partial "run"
-  assert_output --partial "--rm"
+  refute_output --partial "run --rm test"
+  refute_output --partial "run --rm 'test'"
+  # foreground compose up for the target (no -d, no run --rm)
+  assert_output --partial "compose"
+  assert_output --partial "up test"
+}
+
+@test "run.sh non-devel target WITH CMD uses 'up -d' + 'exec' (#458)" {
+  # #458: when CMD passed, use up -d + exec so container_name is preserved
+  # AND the user's CMD overrides Dockerfile CMD.
+  run bash "${SANDBOX}/run.sh" --dry-run -t test bash
+  assert_success
+  refute_output --partial "run --rm"
+  assert_output --partial "up -d test"
+  assert_output --partial "exec test bash"
 }
 
 @test "run.sh positional args after options become CMD passthrough (devel)" {
@@ -296,13 +313,38 @@ EOS
   assert_output --partial "ls /tmp"
 }
 
-@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD" {
+@test "run.sh -t runtime with CMD overrides Dockerfile runtime CMD (#458 up -d + exec)" {
+  # #458: non-devel + CMD now uses `up -d` + `exec` instead of `run --rm`
+  # so container_name is preserved.
   run bash "${SANDBOX}/run.sh" --dry-run -t runtime bash
   assert_success
-  assert_output --partial "run"
-  assert_output --partial "--rm"
-  assert_output --partial "runtime"
-  assert_output --partial "bash"
+  refute_output --partial "run --rm"
+  assert_output --partial "up -d runtime"
+  assert_output --partial "exec runtime bash"
+}
+
+# ── #448: -- CMD separator ────────────────────────────────────────────────
+
+@test "run.sh -- separates CMD from run.sh flags (#448)" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t cli -- sdkmanager --target JETSON
+  assert_success
+  assert_output --partial "sdkmanager"
+  assert_output --partial "--target"
+  assert_output --partial "JETSON"
+  refute_output --partial "service name"
+}
+
+@test "run.sh positional CMD stops flag parsing — --target in CMD is not consumed (#448)" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t cli sdkmanager --target JETSON
+  assert_success
+  assert_output --partial "sdkmanager"
+  assert_output --partial "--target"
+  assert_output --partial "JETSON"
+}
+
+@test "run.sh --help mentions -- CMD separator (#448)" {
+  run bash "${SANDBOX}/run.sh" --help
+  assert_output --partial "--"
 }
 
 # ── #386: foreground exit auto compose-down ────────────────────────────────
@@ -414,11 +456,9 @@ EOS
 @test "run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -428,11 +468,9 @@ EOS
 @test "run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "用法"
@@ -442,11 +480,9 @@ EOS
 @test "run.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
   local _tmp
   _tmp="$(mktemp -d)"
-  ln -s /source/script/docker/run.sh "${_tmp}/run.sh"
-  cp /source/script/docker/_lib.sh "${_tmp}/_lib.sh"
-  cp /source/script/docker/i18n.sh "${_tmp}/i18n.sh"
+  ln -s /source/script/docker/wrapper/run.sh "${_tmp}/run.sh"
   mkdir -p "${_tmp}/lib"
-  cp /source/script/docker/lib/*.sh "${_tmp}/lib/"
+  cp /source/script/docker/lib/* "${_tmp}/lib/"
   LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
   assert_output --partial "使用法"
@@ -508,10 +544,10 @@ EOS
 }
 
 # ════════════════════════════════════════════════════════════════════
-# #216 — soft guard for the auto-build path that bypasses lint+smoke
+# #216 / #429 — auto-build gate (first-run auto-delegate to build.sh)
 # ════════════════════════════════════════════════════════════════════
 
-@test "run.sh: image present → no auto-build INFO printed" {
+@test "run.sh: image present → no build.sh invoked, no INFO printed" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -522,11 +558,12 @@ EOS
   export DOCKER_IMAGE_PRESENT=true
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
-  refute_output --partial "Compose will auto-build"
-  refute_output --partial "skips ShellCheck"
+  refute_output --partial "not found locally"
+  run cat "${BUILD_SH_LOG}"
+  assert_output ""
 }
 
-@test "run.sh: image absent + TTY → INFO message printed before compose up" {
+@test "run.sh: image absent → auto-delegates to build.sh (#429)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -535,17 +572,15 @@ EOS
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
-  # Force TTY check to true via env var so the test does not need a
-  # real PTY (run.sh respects RUN_FORCE_TTY=1 for testing).
-  export RUN_FORCE_TTY=1
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
   assert_output --partial "not found locally"
-  assert_output --partial "auto-build"
-  assert_output --partial "ShellCheck"
+  assert_output --partial "Delegating to ./build.sh"
+  run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
+  assert_output --partial "devel"
 }
 
-@test "run.sh: image absent + no TTY → silent (no INFO message)" {
+@test "run.sh: image absent + non-devel target → build.sh receives target (#429)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -554,12 +589,29 @@ EOS
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
   export DOCKER_IMAGE_PRESENT=false
-  unset RUN_FORCE_TTY
-  # Without RUN_FORCE_TTY and with bats's piped stderr, the TTY check
-  # naturally returns false → no INFO.
-  run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
+  run bash "${SANDBOX}/run.sh" --detach -t runtime
   assert_success
-  refute_output --partial "Compose will auto-build"
+  run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
+  assert_output --partial "runtime"
+}
+
+@test "run.sh: image absent + build.sh fails → run.sh aborts (#429)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
+  export DOCKER_IMAGE_PRESENT=false
+  cat > "${SANDBOX}/build.sh" <<'EOS'
+#!/usr/bin/env bash
+printf 'build.sh invoked: %s\n' "$*" >> "${BUILD_SH_LOG}"
+exit 1
+EOS
+  chmod +x "${SANDBOX}/build.sh"
+  run bash "${SANDBOX}/run.sh" --detach
+  assert_failure
 }
 
 @test "run.sh: image-inspect uses per-target tag (-t headless inspects :headless)" {
@@ -570,8 +622,6 @@ EOS
   } > "${SANDBOX}/.env"
   echo "# mock" > "${SANDBOX}/compose.yaml"
   echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
-  # docker stub logs every invocation to a temp file so we can assert
-  # the inspect arg.
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
 {
@@ -589,9 +639,7 @@ fi
 exit 0
 EOS
   chmod +x "${BIN_DIR}/docker"
-  export RUN_FORCE_TTY=1
   run bash "${SANDBOX}/run.sh" --detach -t headless
-  # Image inspect must target ${IMAGE_NAME}:headless, not :devel.
   run grep -F "image inspect" "${TEMP_DIR}/docker.log"
   assert_output --partial ":headless"
 }
@@ -607,14 +655,11 @@ EOS
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
-  # build.sh was called with `test` so lint + smoke runs.
   run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
   assert_output --partial "test"
 }
 
-@test "run.sh --build: skips when image present too (explicit opt-in always builds)" {
-  # User who passes --build wants a fresh lint+smoke pass even if the
-  # image is cached. Defensive: cached image may be stale wrt source.
+@test "run.sh --build: always builds even if image cached (explicit opt-in)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -626,26 +671,7 @@ EOS
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
   run wc -l < "${BUILD_SH_LOG}"
-  # exactly one build.sh invocation
   [[ "${output}" -eq 1 ]] || { echo "expected 1 build.sh call, got ${output}"; return 1; }
-}
-
-@test "run.sh: no --build, image absent → does NOT invoke build.sh (Option 4 rejected)" {
-  # Default behavior is INFO-only; build.sh is opt-in only.
-  {
-    echo "USER_NAME=tester"
-    echo "IMAGE_NAME=mockimg"
-    echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
-  echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/config/docker/setup.conf"
-  export DOCKER_IMAGE_PRESENT=false
-  export RUN_FORCE_TTY=1
-  run bash "${SANDBOX}/run.sh" --detach
-  assert_success
-  # build.sh log should be empty.
-  run cat "${BUILD_SH_LOG}"
-  assert_output ""
 }
 
 @test "run.sh --build: runs after check-drift (build sees regenerated state)" {
@@ -664,14 +690,14 @@ EOS
   # Replace mock setup.sh with one that logs to a shared timeline.
   EVENT_LOG="${TEMP_DIR}/timeline.log"
   export EVENT_LOG
-  cat > "${SANDBOX}/.base/script/docker/setup.sh" <<'EOS'
+  cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
 case "${1:-}" in
   check-drift) printf '%s\n' "setup-check-drift" >> "${EVENT_LOG}"; exit 0 ;;
   apply)       printf '%s\n' "setup-apply"       >> "${EVENT_LOG}"; exit 0 ;;
 esac
 EOS
-  chmod +x "${SANDBOX}/.base/script/docker/setup.sh"
+  chmod +x "${SANDBOX}/.base/script/docker/wrapper/setup.sh"
 
   cat > "${SANDBOX}/build.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -699,12 +725,12 @@ EOS
 
 @test "run.sh -C <dir> redirects FILE_PATH to <dir>" {
   local ALT="${TEMP_DIR}/alt"
-  mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
-  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
-  chmod +x "${ALT}/.base/script/docker/setup.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/script/docker/wrapper"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
+  cp "${SANDBOX}/.base/script/docker/wrapper/setup.sh" "${ALT}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/wrapper/setup.sh"
 
   run bash "${SANDBOX}/run.sh" -C "${ALT}" --dry-run --detach
   assert_success
@@ -715,12 +741,12 @@ EOS
 
 @test "run.sh --chdir <dir> long form is equivalent to -C" {
   local ALT="${TEMP_DIR}/alt2"
-  mkdir -p "${ALT}/.base/script/docker/lib"
-  cp /source/script/docker/_lib.sh "${ALT}/.base/script/docker/_lib.sh"
-  cp /source/script/docker/i18n.sh "${ALT}/.base/script/docker/i18n.sh"
-  cp /source/script/docker/lib/*.sh "${ALT}/.base/script/docker/lib/"
-  cp "${SANDBOX}/.base/script/docker/setup.sh" "${ALT}/.base/script/docker/setup.sh"
-  chmod +x "${ALT}/.base/script/docker/setup.sh"
+  mkdir -p "${ALT}/.base/script/docker/lib" "${ALT}/.base/script/docker/wrapper"
+  cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
+  cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
+  cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
+  cp "${SANDBOX}/.base/script/docker/wrapper/setup.sh" "${ALT}/.base/script/docker/wrapper/setup.sh"
+  chmod +x "${ALT}/.base/script/docker/wrapper/setup.sh"
 
   run bash "${SANDBOX}/run.sh" --chdir "${ALT}" --dry-run --detach
   assert_success
@@ -773,4 +799,51 @@ EOS
   run --separate-stderr bash "${SANDBOX}/run.sh" -vv --dry-run
   assert_success
   [[ "${stderr}" == *"+ "* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #465 — per-instance compose overlay
+# ════════════════════════════════════════════════════════════════════
+
+@test "run.sh --instance NAME with config/instances/NAME.yaml adds overlay -f (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.yaml"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
+}
+
+@test "run.sh --instance NAME with config/instances/NAME.env adds overlay --env-file (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.env"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
+}
+
+@test "run.sh --instance NAME with BOTH yaml + env attaches both overlays (#465)" {
+  mkdir -p "${SANDBOX}/config/instances"
+  : > "${SANDBOX}/config/instances/dev1.yaml"
+  : > "${SANDBOX}/config/instances/dev1.env"
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  assert_output --partial "-f ${SANDBOX}/config/instances/dev1.yaml"
+  assert_output --partial "--env-file ${SANDBOX}/config/instances/dev1.env"
+}
+
+@test "run.sh --instance NAME with NO overlay files behaves like plain (#465)" {
+  # No config/instances/ dir at all -- run.sh must not error out, just
+  # fall back to the existing _compose_project flow.
+  run bash "${SANDBOX}/run.sh" --instance dev1 --dry-run
+  assert_success
+  refute_output --partial "config/instances/dev1.yaml"
+  refute_output --partial "config/instances/dev1.env"
+}
+
+@test "run.sh --instance rejects invalid name (uppercase) before compose call (#465)" {
+  run bash "${SANDBOX}/run.sh" --instance Foo --dry-run
+  assert_failure
+  assert_output --partial "instance name"
+  # Did not proceed to compose invocation
+  refute_output --partial "[dry-run] docker compose"
 }

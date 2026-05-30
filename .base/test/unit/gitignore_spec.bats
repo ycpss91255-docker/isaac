@@ -16,10 +16,22 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
+  # _sync_logging_gitignore (added in #402 PR-B) reads setup.conf via
+  # _collect_logging -> _parse_ini_section, both shared libs. Source
+  # them up front so every test gets the full surface.
+  # shellcheck disable=SC1091
+  source /source/script/docker/lib/conf.sh
+  # shellcheck disable=SC1091
+  source /source/script/docker/lib/conf_logging.sh
   # shellcheck disable=SC1091
   source /source/script/docker/lib/gitignore.sh
 
   TMP_DIR="$(mktemp -d)"
+  # _collect_logging falls back to the template setup.conf when the
+  # per-repo one omits [logging]. Point template lookup at a directory
+  # that has no setup.conf so tests stay deterministic and don't pick
+  # up the real template defaults.
+  _SETUP_SCRIPT_DIR="${TMP_DIR}/no-template/docker"
 }
 
 teardown() {
@@ -30,12 +42,13 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 8 canonical lines" {
+@test "_canonical_gitignore_entries: emits exactly the 9 canonical lines (#462)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
 .env
 .env.bak
+runtime.env
 compose.yaml
 setup.conf.bak
 setup.conf.local
@@ -88,6 +101,7 @@ EXPECTED
   cat > "${_f}" <<'EOF'
 .env
 .env.bak
+runtime.env
 compose.yaml
 setup.conf.bak
 setup.conf.local
@@ -256,4 +270,189 @@ _init_repo_with_tracked() {
   assert_success
   run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak setup.conf.bak
   assert_output ""
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _sync_logging_gitignore (#402 PR-B)
+#
+# Same managed-block behaviour as the old setup.sh-time
+# _sync_logging_local_paths_gitignore, but now reads setup.conf
+# itself so init.sh / upgrade.sh can call it without ferrying the
+# parsed strings through.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)" {
+  mkdir -p "${TMP_DIR}/config/docker"
+  cat > "${TMP_DIR}/config/docker/setup.conf" <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  run _sync_logging_gitignore "${TMP_DIR}"
+  assert_success
+  run grep -F '/logs/' "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _sync_logging_gitignore: relative path appending + filter (#402, ex-#328)
+#
+# Migrated from compose_logging_spec.bats when the implementation
+# moved out of setup.sh in #402 (PR-B). Each test stages setup.conf
+# instead of passing the resolved strings, exercising the full
+# _collect_logging -> sync flow.
+# ════════════════════════════════════════════════════════════════════
+
+_stage_logging_conf() {
+  mkdir -p "${TMP_DIR}/config/docker"
+  cat > "${TMP_DIR}/config/docker/setup.conf"
+}
+
+@test "_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore skips absolute paths (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = /srv/logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -F "/srv/logs" "${TMP_DIR}/.gitignore"
+  assert_failure
+}
+
+@test "_sync_logging_gitignore skips ~ paths (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ~/logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -F "~/logs" "${TMP_DIR}/.gitignore"
+  assert_failure
+}
+
+@test "_sync_logging_gitignore is idempotent (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  local _first
+  _first="$(cat "${TMP_DIR}/.gitignore")"
+  _sync_logging_gitignore "${TMP_DIR}"
+  [[ "$(cat "${TMP_DIR}/.gitignore")" == "${_first}" ]]
+}
+
+@test "_sync_logging_gitignore collects from both global + per-svc (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./global-logs/
+
+[logging.devel]
+local_path = ./devel-logs/
+
+[logging.test]
+local_path = ./test-logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/global-logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/devel-logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/test-logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore is no-op when no local_path keys (#402, ex-#328)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+driver = json-file
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  [[ ! -s "${TMP_DIR}/.gitignore" ]]
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Prune behaviour (#402, ex-#390): managed-block re-emit + isolation
+# ────────────────────────────────────────────────────────────────────
+
+@test "_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  # Rename: /logs/ pruned, /log/ added.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_failure
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_success
+}
+
+@test "_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)" {
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./logs/
+CONF
+  : > "${TMP_DIR}/.gitignore"
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  # Feature turned off: marker + entries removed.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path =
+CONF
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_failure
+  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${TMP_DIR}/.gitignore"
+  assert_failure
+}
+
+@test "_sync_logging_gitignore preserves user entries outside managed block (#402, ex-#390)" {
+  # User-owned /logs/ above the managed block (e.g. legacy entry kept
+  # for the host directory after a rename migration).
+  printf '%s\n' "# user ignores" "/logs/" "" > "${TMP_DIR}/.gitignore"
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path = ./log/
+CONF
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_success
+  # Turning the feature off prunes managed /log/ but leaves user /logs/.
+  _stage_logging_conf <<'CONF'
+[logging]
+local_path =
+CONF
+  _sync_logging_gitignore "${TMP_DIR}"
+  run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
+  assert_success
+  run grep -xF "/log/" "${TMP_DIR}/.gitignore"
+  assert_failure
 }

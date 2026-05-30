@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# Tests for script/docker/_entrypoint_logging.sh -- the helper sourced
+# Tests for script/docker/runtime/logging.sh -- the helper sourced
 # from repo entrypoints to tee container stdout/stderr to the host
 # bind-mounted log file when [logging] local_path is set (#328).
 
@@ -24,7 +24,7 @@ teardown() {
   # and not crash. After sourcing, plain echo should not produce a file.
   run bash -c '
     unset LOG_FILE_PATH
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo "ok"
   '
   assert_success
@@ -35,7 +35,7 @@ teardown() {
   local _log="${TEMP_DIR}/devel.log"
   run bash -c "
     export LOG_FILE_PATH='${_log}'
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo 'hello from entrypoint'
     # sync so the tee subprocess flushes before we read.
     sleep 0.2
@@ -53,7 +53,7 @@ teardown() {
   echo "stale content from prior run" > "${_log}"
   run bash -c "
     export LOG_FILE_PATH='${_log}'
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo 'fresh run'
     sleep 0.2
   "
@@ -71,7 +71,7 @@ teardown() {
   [[ ! -d "${TEMP_DIR}/nested" ]]
   run bash -c "
     export LOG_FILE_PATH='${_log}'
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo 'parent-created'
     sleep 0.2
   "
@@ -90,7 +90,7 @@ teardown() {
   mkdir -p "${_log}"
   run bash -c "
     export LOG_FILE_PATH='${_log}'
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo 'should still print'
   " 2>&1
   assert_success
@@ -104,7 +104,7 @@ teardown() {
   local _log="${TEMP_DIR}/devel.log"
   run bash -c "
     export LOG_FILE_PATH='${_log}'
-    . /source/script/docker/_entrypoint_logging.sh
+    . /source/script/docker/runtime/logging.sh
     echo 'on-stdout'
     echo 'on-stderr' >&2
     sleep 0.2

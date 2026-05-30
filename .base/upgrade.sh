@@ -28,12 +28,12 @@ VERSION_FILE="${REPO_ROOT}/${TEMPLATE_REL}/.version"
 readonly VERSION_FILE
 
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/script/docker/_lib.sh"
+source "${SCRIPT_DIR}/script/docker/lib/_lib.sh"
 
 cd "${REPO_ROOT}"
 
-_log() { _log_info upgrade "$*"; }
-_error() { _log_err upgrade "$*"; exit 1; }
+_log() { _log_info upgrade upgrade_started "display=$*"; }
+_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -87,14 +87,14 @@ _verify_subtree_intact() {
   local _markers=(
     "${TEMPLATE_REL}/.version"
     "${TEMPLATE_REL}/init.sh"
-    "${TEMPLATE_REL}/script/docker/setup.sh"
+    "${TEMPLATE_REL}/script/docker/wrapper/setup.sh"
   )
   local _marker
   for _marker in "${_markers[@]}"; do
     if [[ ! -f "${_marker}" ]]; then
-      _log_err upgrade "post-pull integrity check failed — '${_marker}' missing."
-      _log_err upgrade "Likely cause: git-subtree fast-forwarded destructively."
-      _log_info upgrade "Rolling back to ${_pre_head:0:12} ..."
+      _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${_marker}' missing." "marker=${_marker}"
+      _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively."
+      _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
       git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
       _error "upgrade aborted; repo restored to pre-upgrade state"
     fi

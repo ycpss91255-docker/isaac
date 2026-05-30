@@ -13,6 +13,8 @@ if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
   FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
 else
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 fi
@@ -41,18 +43,18 @@ while (( _chdir_i <= $# )); do
 done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
-# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/lib/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
-elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
+  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
+elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/_lib.sh"
+  source "${FILE_PATH}/lib/_lib.sh"
 else
   printf "[run] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
   exit 1
 fi
 
@@ -110,7 +112,7 @@ _msg_hints() {
   esac
 }
 
-# #216 --build flow + auto-build soft-guard messages.
+# #216 --build flow + #429 first-run auto-delegate messages.
 _msg_build() {
   case "${_LANG}:${1:?}" in
     zh-TW:invoking)      echo "正在執行 ./build.sh test（lint + smoke）..." ;;
@@ -121,14 +123,10 @@ _msg_build() {
     zh-CN:image_missing) echo "本机尚无此 image" ;;
     ja:image_missing)    echo "ローカルに image なし" ;;
     *:image_missing)     echo "Image not found locally" ;;
-    zh-TW:skips_lint)    echo "Compose 即將 auto-build 此 image — 但**不會**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    zh-CN:skips_lint)    echo "Compose 即将 auto-build 此 image — 但**不会**跑 ShellCheck / Hadolint / Bats smoke。" ;;
-    ja:skips_lint)       echo "Compose が auto-build しますが、ShellCheck / Hadolint / Bats smoke は**実行されません**。" ;;
-    *:skips_lint)        echo "Compose will auto-build this image — but it will skip ShellCheck / Hadolint / Bats smoke." ;;
-    zh-TW:full_hint)     echo "完整驗證請執行: ./build.sh test   (或 ./run.sh --build 由本指令呼叫)" ;;
-    zh-CN:full_hint)     echo "完整验证请执行: ./build.sh test   (或 ./run.sh --build 由本指令调用)" ;;
-    ja:full_hint)        echo "完全な検証は: ./build.sh test を実行してください（または ./run.sh --build で本コマンド経由）" ;;
-    *:full_hint)         echo "For full verification: ./build.sh test  (or ./run.sh --build to do it now)" ;;
+    zh-TW:delegating)    echo "委派給 ./build.sh 建置..." ;;
+    zh-CN:delegating)    echo "委派给 ./build.sh 构建..." ;;
+    ja:delegating)       echo "./build.sh にビルドを委譲中..." ;;
+    *:delegating)        echo "Delegating to ./build.sh..." ;;
   esac
 }
 
@@ -176,6 +174,9 @@ usage() {
 CMD: 啟動容器後要執行的指令，對齊 `docker run <image> [cmd]` 語意：
   無 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
   有 CMD  → 覆蓋 Dockerfile CMD（例: ./run.sh -t runtime bash 進 runtime shell）
+  --      → 分隔 run.sh 旗標與 CMD；-- 之後的全部參數視為 CMD，不再由 run.sh 解析。
+            當 CMD 本身有 --target 等與 run.sh 衝突的旗標時必須使用。
+            例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     zh-CN)
@@ -213,6 +214,9 @@ EOF
 CMD: 启动容器后要执行的指令，对齐 `docker run <image> [cmd]` 语义:
   无 CMD  → 跑 Dockerfile 的 CMD（例: devel=bash, runtime=auto-run service）
   有 CMD  → 覆盖 Dockerfile CMD（例: ./run.sh -t runtime bash 进 runtime shell）
+  --      → 分隔 run.sh 旗标与 CMD；-- 之后的全部参数视为 CMD，不再由 run.sh 解析。
+            当 CMD 本身有 --target 等与 run.sh 冲突的旗标时必须使用。
+            例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     ja)
@@ -256,6 +260,9 @@ EOF
 CMD: コンテナ起動後に実行するコマンド。`docker run <image> [cmd]` セマンティクス:
   CMD 無し → Dockerfile の CMD を実行（例: devel=bash, runtime=auto-run service）
   CMD あり → Dockerfile CMD を上書き（例: ./run.sh -t runtime bash で runtime shell）
+  --      → run.sh フラグと CMD を分離。-- 以降の全引数は CMD として扱い、run.sh は
+            解析しません。CMD 自体に --target 等 run.sh と衝突するフラグがある場合に
+            使用。例: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
     *)
@@ -299,13 +306,17 @@ Options:
 CMD: Command to run after the container starts; mirrors `docker run <image> [cmd]`:
   no CMD  → run the Dockerfile CMD (e.g. devel=bash, runtime=auto-run service)
   with CMD → override the Dockerfile CMD (e.g. ./run.sh -t runtime bash to shell in)
+  --      → separates run.sh flags from CMD; everything after -- is passed as CMD
+            without further parsing by run.sh. Required when CMD has flags that
+            collide with run.sh (e.g. --target).
+            Example: ./run.sh -t cli -- sdkmanager --target JETSON --flash
 EOF
       ;;
   esac
   exit 0
 }
 
-# _compose_cleanup tears down the project on shell exit so the container
+# _app_cleanup tears down the project on shell exit so the container
 # and its compose-project default network do not outlive the foreground
 # `./run.sh` session. Installed via `trap ... EXIT` in foreground mode by
 # default (#386); covers normal exit, Ctrl-C, and signal termination.
@@ -327,16 +338,65 @@ EOF
 # redirect is dropped so the planned `[dry-run] docker compose ... down
 # --remove-orphans` line is actually visible — same convention as the
 # rest of `_compose` callers.
-_compose_cleanup() {
+# _app_cleanup
+#
+# run.sh's EXIT trap handler. Runs post-run hook first (container is
+# still alive at this point so the hook can `docker exec` into it),
+# then tears the project down via `compose down`. Hook failure
+# overrides the wrapper exit code but still lets cleanup run --
+# matches the strict-with-cleanup policy decided for #440.
+#
+# Renamed from _compose_cleanup in #440 to reflect that the cleanup
+# scope now covers both the post-hook and compose lifecycle, not
+# just compose. Future expansion (metric flush, log close, etc.)
+# also lands here.
+_app_cleanup() {
+  local _post_rc=0
+  _run_post_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || _post_rc=$?
   if [[ "${DRY_RUN:-false}" == true ]]; then
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 || true
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 || true
   else
-    COMPOSE_PROFILES='*' _compose_project down --remove-orphans -t 0 \
+    COMPOSE_PROFILES='*' _compose_dispatch down --remove-orphans -t 0 \
       >/dev/null 2>&1 || true
+  fi
+  if (( _post_rc != 0 )); then
+    exit "${_post_rc}"
   fi
 }
 
+# _compose_dispatch <verb> <args>
+#
+# Single dispatch point for compose invocations from run.sh. When
+# INSTANCE is set, routes through _compose_project_with_overlay so
+# config/instances/${INSTANCE}.{yaml,env} are auto-loaded as compose
+# overlays (#465). Otherwise delegates to plain _compose_project.
+#
+# The wrapper silently skips missing overlay files, so callers do not
+# need to pre-check. INSTANCE was already validated by
+# _validate_instance_name in the --instance arm, so the path
+# interpolation is shell-safe.
+_compose_dispatch() {
+  if [[ -z "${INSTANCE:-}" ]]; then
+    _compose_project "$@"
+    return $?
+  fi
+  local _overlay_yaml="${FILE_PATH}/config/instances/${INSTANCE}.yaml"
+  local _overlay_env="${FILE_PATH}/config/instances/${INSTANCE}.env"
+  if [[ "${QUIET:-0}" != 1 ]]; then
+    [[ -f "${_overlay_yaml}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_yaml}"
+    [[ -f "${_overlay_env}" ]] \
+      && _log_info run run_instance_overlay "display=overlay loaded: ${_overlay_env}"
+  fi
+  _compose_project_with_overlay "${_overlay_yaml}" "${_overlay_env}" -- "$@"
+}
+
 main() {
+  # #440: keep the wrapper's original argv around so the EXIT trap
+  # (which fires asynchronously and can no longer see main's local $@)
+  # can forward identical "$@" to the post-run hook.
+  ORIG_ARGV=("$@")
+
   # Pre-pass: scan for --lang so usage() (which exits via -h/--help)
   # runs in the requested locale even when --help is the first arg.
   # See build.sh's main() for the full rationale (#222).
@@ -430,6 +490,13 @@ main() {
         ;;
       --instance)
         INSTANCE="${2:?"--instance requires a value"}"
+        # #465: strict char-class rule so the value can be safely
+        # interpolated into config/instances/${INSTANCE}.{yaml,env}.
+        # Reject path traversal etc. up front rather than relying on
+        # silent file-not-found fall-through.
+        if ! _validate_instance_name "${INSTANCE}"; then
+          exit 1
+        fi
         shift 2
         ;;
       --lang)
@@ -447,11 +514,8 @@ main() {
         break
         ;;
       *)
-        # Positional from here on is the CMD to run inside the container,
-        # mirroring `docker run <image> [cmd...]` semantics. Empty CMD_ARGS
-        # means "use the Dockerfile CMD".
-        CMD_ARGS+=("$1")
-        shift
+        CMD_ARGS+=("$@")
+        break
         ;;
     esac
   done
@@ -463,13 +527,11 @@ main() {
   # override cmd, so -d + CMD is ambiguous — refuse rather than silently
   # drop the cmd.
   if [[ "${DETACH}" == true ]] && (( ${#CMD_ARGS[@]} > 0 )); then
-    printf "[run] ERROR: -d/--detach does not accept a CMD (got: %s). " "${CMD_ARGS[*]}" >&2
-    printf "Use './exec.sh -t %s %s' to run a command inside a detached container.\n" \
-      "${TARGET}" "${CMD_ARGS[*]}" >&2
+    _log_err run run_detach_cmd_rejected "display=-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use './exec.sh -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
     exit 2
   fi
 
-  local _setup="${FILE_PATH}/.base/script/docker/setup.sh"
+  local _setup="${FILE_PATH}/.base/script/docker/wrapper/setup.sh"
   local _tui="${FILE_PATH}/setup_tui.sh"
 
   # _run_interactive: prefer setup_tui.sh when an interactive TTY is
@@ -505,21 +567,21 @@ main() {
   elif [[ ! -f "${FILE_PATH}/.env" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
-    _log_info run "$(_msg bootstrap info)"
+    _log_info run run_bootstrap "display=$(_msg bootstrap info)"
     "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
   else
     # Drift → auto-regen via subprocess (see build.sh for the full
     # rationale; subprocess avoids the #101 _msg shadow class).
     if ! "${_setup}" check-drift --base-path "${FILE_PATH}" --lang "${_LANG}"; then
-      _log_info run "$(_msg drift regen)"
+      _log_info run run_drift_regen "display=$(_msg drift regen)"
       "${_setup}" apply --base-path "${FILE_PATH}" --lang "${_LANG}"
     fi
   fi
 
   # Defensive: bootstrap must leave .env in place. See build.sh.
   if [[ ! -f "${FILE_PATH}/.env" ]]; then
-    _log_err  run "$(_msg errors no_env)"
-    _log_info run "$(_msg errors rerun_setup)"
+    _log_err  run run_no_env "display=$(_msg errors no_env)"
+    _log_info run run_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
@@ -532,42 +594,44 @@ main() {
   # Mute with QUIET=1 for piped / CI logs.
   [[ "${QUIET:-0}" != "1" ]] && _print_config_summary run
 
-  # ── #216: soft guard for the auto-build path ──
-  # Compose's auto-build (when image is missing locally) only walks
-  # `target: devel` (or whatever -t says) and silently skips the
-  # `target: devel-test` stage that runs ShellCheck / Hadolint / Bats
-  # smoke. (Pre-#243 this stage was named `test`.)
-  # On a fresh clone this means new contributors who reach for
-  # ./run.sh first land in a working dev container without ever
-  # hitting the lint/smoke gates that ./build.sh test enforces.
+  # ── #440: pre-run hook (after env prep, before build delegate) ──
+  # Fires once env validation + drift resolution + config summary are
+  # done but BEFORE the image-check / build delegate, so a hook that
+  # needs to set up host state required by build (e.g. binfmt
+  # registration for cross-arch images on jetson_sdk_manager) can do
+  # its work before docker build runs. Skipped under --dry-run.
+  _run_pre_hook run "${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}" || exit $?
+
+  # ── #216 / #429: auto-build gate ──
+  # When the target image is missing locally, delegate to build.sh
+  # instead of letting compose auto-build (which silently skips the
+  # test stage). This makes the first `make run` equivalent to
+  # `make build && make run` without requiring two commands.
   #
   # Behavior:
   #   - --build → invoke ./build.sh test BEFORE compose up (full
   #     local-CI parity). Always runs, even if image is cached.
-  #   - default + image absent + interactive TTY → print INFO before
-  #     compose up so user knows the auto-build will skip lint/smoke.
-  #   - default + image absent + non-TTY → silent (CI / cron context).
-  #   - default + image present → silent (no auto-build will fire).
+  #   - default + image absent → auto-delegate to ./build.sh TARGET
+  #     so the image is built via the proper build pipeline (#429).
+  #   - default + image present → silent (no build needed).
   #
   # Image inspect is per-target so ./run.sh -t headless checks
   # ${IMAGE_NAME}:headless (per #215 auto-emit naming), not :devel.
   if [[ "${PRE_BUILD}" == true && "${DRY_RUN}" != true ]]; then
     local _build_sh="${FILE_PATH}/build.sh"
     if [[ -x "${_build_sh}" ]]; then
-      _log_info run "$(_msg build invoking)"
+      _log_info run run_build_invoking "display=$(_msg build invoking)"
       "${_build_sh}" test
     fi
   elif [[ "${DRY_RUN}" != true ]]; then
     local _full_tag="${DOCKER_HUB_USER:-local}/${IMAGE_NAME}:${TARGET}"
     if ! docker image inspect "${_full_tag}" --format '{{.Id}}' \
          >/dev/null 2>&1; then
-      # `[[ -t 2 ]]` checks if stderr is connected to a terminal
-      # (interactive). RUN_FORCE_TTY=1 is a test-only override so unit
-      # tests can exercise the TTY branch without a real PTY.
-      if [[ "${RUN_FORCE_TTY:-0}" == "1" ]] || [[ -t 2 ]]; then
-        _log_warn run "$(_msg build image_missing): ${_full_tag}"
-        _log_warn run "$(_msg build skips_lint)"
-        _log_warn run "$(_msg build full_hint)"
+      local _build_sh="${FILE_PATH}/build.sh"
+      if [[ -x "${_build_sh}" ]]; then
+        _log_info run run_build_image_missing "display=$(_msg build image_missing): ${_full_tag}" "tag=${_full_tag}"
+        _log_info run run_build_delegating "display=$(_msg build delegating)"
+        "${_build_sh}" "${TARGET}"
       fi
     fi
   fi
@@ -603,7 +667,7 @@ main() {
       # shellcheck disable=SC2059
       printf -v _stop "$(_msg hints stop_hint)" "${_instance_arg}"
       _parallel="$(_msg hints parallel_hint)"
-      _log_err run "${_already}
+      _log_err run run_already_running "display=${_already}
 ${_stop}
 ${_parallel}"
       exit 1
@@ -620,33 +684,34 @@ ${_parallel}"
   # ... down --remove-orphans" line is visible in the planned-action
   # output (no real teardown happens — _compose honors DRY_RUN).
   if [[ "${DETACH}" != true && "${NO_RM}" != true ]]; then
-    trap _compose_cleanup EXIT
+    trap _app_cleanup EXIT
   fi
 
   if [[ "${DETACH}" == true ]]; then
-    _compose_project down 2>/dev/null || true
-    _compose_project up -d "${TARGET}"
+    _compose_dispatch down 2>/dev/null || true
+    _compose_dispatch up -d "${TARGET}"
   elif [[ "${TARGET}" == "devel" ]]; then
     # Foreground devel: `up -d` + `exec` so a second terminal can join via
     # `./exec.sh`. CMD_ARGS passthrough: empty → `bash` (matches
     # Dockerfile CMD for devel); non-empty → override
     # (e.g. `./run.sh ls /tmp`). Exit cleanup handled by the
-    # centrally-installed `trap _compose_cleanup EXIT` above (#386).
-    _compose_project up -d "${TARGET}"
+    # centrally-installed `trap _app_cleanup EXIT` above (#386, #440, #465).
+    _compose_dispatch up -d "${TARGET}"
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project exec "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project exec "${TARGET}" bash
+      _compose_dispatch exec "${TARGET}" bash
     fi
   else
-    # Other one-shot stages (runtime, test, ...): `compose run --rm` with
-    # CMD passthrough. Empty CMD_ARGS → service's Dockerfile CMD runs
-    # (e.g. runtime auto-boots parameter_bridge). Non-empty overrides
-    # (e.g. `./run.sh -t runtime bash` to debug interactively).
+    # Other one-shot stages (runtime, test, ...): unified to `compose up`
+    # so the container_name: directive (#215, #322, #335) takes effect.
+    # Empty CMD_ARGS → foreground `up`, Dockerfile CMD runs. Non-empty
+    # CMD_ARGS → `up -d` + `exec` for interactive override. Closes #458.
     if (( ${#CMD_ARGS[@]} > 0 )); then
-      _compose_project run --rm "${TARGET}" "${CMD_ARGS[@]}"
+      _compose_dispatch up -d "${TARGET}"
+      _compose_dispatch exec "${TARGET}" "${CMD_ARGS[@]}"
     else
-      _compose_project run --rm "${TARGET}"
+      _compose_dispatch up "${TARGET}"
     fi
   fi
 }

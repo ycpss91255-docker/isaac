@@ -30,6 +30,8 @@ if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
   FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
+elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
+  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
 else
   FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
 fi
@@ -59,17 +61,17 @@ done
 unset _chdir_i _chdir_next _chdir_arg
 readonly FILE_PATH
 
-# _lib.sh lookup: .base/script/docker/_lib.sh in consumer repos, or
+# _lib.sh lookup: .base/script/docker/lib/_lib.sh in consumer repos, or
 # sibling _lib.sh in /lint/ (Dockerfile test stage).
-if [[ -f "${FILE_PATH}/.base/script/docker/_lib.sh" ]]; then
+if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
   # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/_lib.sh"
+  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
 elif [[ -f "${FILE_PATH}/_lib.sh" ]]; then
   # shellcheck disable=SC1091
   source "${FILE_PATH}/_lib.sh"
 else
   printf "[prune] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/_lib.sh" >&2
+  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
   printf "  %s\n" "${FILE_PATH}/_lib.sh" >&2
   exit 1
 fi
@@ -334,7 +336,7 @@ _resolve_workspace() {
     _RESOLVED_WORKSPACE="${WS_PATH}"
     return 0
   fi
-  _log_err prune "cannot resolve workspace; pass --workspace <dir> or run from a repo with .env (no WS_PATH found)"
+  _log_err prune prune_no_workspace "display=cannot resolve workspace; pass --workspace <dir> or run from a repo with .env (no WS_PATH found)"
   exit 2
 }
 
@@ -386,7 +388,7 @@ _run_worktree_orphans_prune() {
   _resolve_owner
   local _worktree_root="${_RESOLVED_WORKSPACE%/}/worktree"
 
-  _log_info prune "Scanning worktree-orphan images (owner=${_RESOLVED_OWNER}, workspace=${_RESOLVED_WORKSPACE})..."
+  _log_info prune prune_worktree_scan "display=Scanning worktree-orphan images (owner=${_RESOLVED_OWNER}, workspace=${_RESOLVED_WORKSPACE})..." "owner=${_RESOLVED_OWNER}" "workspace=${_RESOLVED_WORKSPACE}"
 
   # IFS read into array — `docker images` output is one tag per line.
   local -a _all_images=()
@@ -448,20 +450,20 @@ _run_worktree_orphans_prune() {
   # Always emit the safety summary so the user knows we deliberately
   # left other-user / bare-name images alone.
   if (( ${#_skipped_other_owner[@]} > 0 )); then
-    _log_info prune "Skipping ${#_skipped_other_owner[@]} image(s) owned by another user (safety):"
+    _log_info prune prune_skip_other_owner "display=Skipping ${#_skipped_other_owner[@]} image(s) owned by another user (safety):" "count=${#_skipped_other_owner[@]}"
     printf '  %s\n' "${_skipped_other_owner[@]}" >&2
   fi
   if (( ${#_skipped_bare[@]} > 0 )); then
-    _log_info prune "Skipping ${#_skipped_bare[@]} bare-name image(s) — ownership unknown:"
+    _log_info prune prune_skip_bare "display=Skipping ${#_skipped_bare[@]} bare-name image(s) — ownership unknown:" "count=${#_skipped_bare[@]}"
     printf '  %s\n' "${_skipped_bare[@]}" >&2
   fi
 
   if (( ${#_candidates[@]} == 0 )); then
-    _log_info prune "No worktree orphans found."
+    _log_info prune prune_worktree_none "display=No worktree orphans found."
     return 0
   fi
 
-  _log_info prune "Worktree-orphan candidates (${#_candidates[@]}):"
+  _log_info prune prune_worktree_candidates "display=Worktree-orphan candidates (${#_candidates[@]}):" "count=${#_candidates[@]}"
   printf '  %s\n' "${_candidates[@]}" >&2
 
   if [[ "${ASSUME_YES}" != true && "${DRY_RUN}" != true ]]; then
@@ -471,7 +473,7 @@ _run_worktree_orphans_prune() {
     case "${_reply}" in
       y|Y|yes|YES) ;;
       *)
-        _log_info prune "aborted by user."
+        _log_info prune prune_aborted "display=aborted by user."
         return 1
         ;;
     esac
@@ -585,7 +587,7 @@ main() {
         shift 2
         ;;
       *)
-        _log_err prune "unknown flag: $1"
+        _log_err prune prune_unknown_flag "display=unknown flag: $1" "flag=$1"
         exit 2
         ;;
     esac
@@ -597,9 +599,13 @@ main() {
   if [[ "${DO_NETWORKS}" != true && "${DO_IMAGES}" != true \
         && "${DO_VOLUMES}" != true && "${DO_BUILDER}" != true \
         && "${DO_WORKTREE_ORPHANS}" != true ]]; then
-    _log_err prune "$(_msg info nothing_selected)"
+    _log_err prune prune_nothing_selected "display=$(_msg info nothing_selected)"
     exit 2
   fi
+
+  # #440: pre-prune hook fires after arg parsing + target selection,
+  # before any docker prune fires. Skipped under --dry-run.
+  _run_pre_hook prune "$@" || exit $?
 
   # Resolve per-target until value: --until overrides the per-kind default.
   local _net_until="${UNTIL_OVERRIDE:-10m}"
@@ -608,17 +614,17 @@ main() {
   local _vol_until="${UNTIL_OVERRIDE}"  # default: no filter for volumes
 
   if [[ "${DO_NETWORKS}" == true ]]; then
-    _log_info prune "Pruning networks (until=${_net_until})..."
+    _log_info prune prune_networks "display=Pruning networks (until=${_net_until})..." "until=${_net_until}"
     _run_prune network "${_net_until}"
   fi
 
   if [[ "${DO_IMAGES}" == true ]]; then
-    _log_info prune "Pruning dangling images (until=${_img_until})..."
+    _log_info prune prune_images "display=Pruning dangling images (until=${_img_until})..." "until=${_img_until}"
     _run_prune image "${_img_until}"
   fi
 
   if [[ "${DO_BUILDER}" == true ]]; then
-    _log_info prune "Pruning buildx cache (until=${_bldr_until})..."
+    _log_info prune prune_buildx "display=Pruning buildx cache (until=${_bldr_until})..." "until=${_bldr_until}"
     _run_prune builder "${_bldr_until}"
   fi
 
@@ -631,18 +637,22 @@ main() {
       case "${_reply}" in
         y|Y|yes|YES) ;;
         *)
-          _log_info prune "$(_msg info volume_aborted)"
+          _log_info prune prune_volume_aborted "display=$(_msg info volume_aborted)"
           exit 1
           ;;
       esac
     fi
-    _log_info prune "Pruning volumes (until=${_vol_until:-<none>})..."
+    _log_info prune prune_volumes "display=Pruning volumes (until=${_vol_until:-<none>})..." "until=${_vol_until:-<none>}"
     _run_prune volume "${_vol_until}"
   fi
 
   if [[ "${DO_WORKTREE_ORPHANS}" == true ]]; then
     _run_worktree_orphans_prune
   fi
+
+  # #440: post-prune hook fires at end of main(), after all prune
+  # targets complete.
+  _run_post_hook prune "$@"
 }
 
 main "$@"

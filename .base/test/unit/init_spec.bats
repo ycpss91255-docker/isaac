@@ -8,6 +8,7 @@
 # fallback, _create_version_file with no argument).
 
 setup() {
+  export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
 
@@ -17,7 +18,8 @@ setup() {
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/.base/dockerfile" \
            "${TMP_REPO}/.base/config" \
-           "${TMP_REPO}/.base/script/docker/lib"
+           "${TMP_REPO}/.base/script/docker/lib" \
+           "${TMP_REPO}/.base/script/docker/runtime"
   ln -s /source/init.sh "${TMP_REPO}/.base/init.sh"
   # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
   # lib so its functions are available to tests that hit _create_new_repo.
@@ -26,15 +28,19 @@ setup() {
   # init.sh sources _lib.sh on load (#278: routes _log / _error through
   # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
   # (#284), so symlink all three surfaces.
-  ln -s /source/script/docker/_lib.sh \
-        "${TMP_REPO}/.base/script/docker/_lib.sh"
-  ln -s /source/script/docker/i18n.sh \
-        "${TMP_REPO}/.base/script/docker/i18n.sh"
-  for _sl in log env conf compose config_summary; do
+  ln -s /source/script/docker/lib/_lib.sh \
+        "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
+  ln -s /source/script/docker/lib/i18n.sh \
+        "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
+  for _sl in log env conf conf_logging compose config_summary hook; do
     ln -s "/source/script/docker/lib/${_sl}.sh" \
           "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
   done
   unset _sl
+  ln -s /source/script/docker/lib/log-events.txt \
+        "${TMP_REPO}/.base/script/docker/lib/log-events.txt"
+  cp /source/script/docker/runtime/entrypoint.sh \
+     "${TMP_REPO}/.base/script/docker/runtime/entrypoint.sh"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
   cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'
@@ -43,9 +49,11 @@ EOF
 
   # Stub scripts referenced by _create_symlinks — empty files are fine
   # because symlinks only need a valid target path, not a valid payload.
-  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh Makefile; do
-    : > "${TMP_REPO}/.base/script/docker/${_f}"
+  mkdir -p "${TMP_REPO}/.base/script/docker/wrapper"
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
+    : > "${TMP_REPO}/.base/script/docker/wrapper/${_f}"
   done
+  : > "${TMP_REPO}/.base/script/docker/Makefile"
   : > "${TMP_REPO}/.base/.hadolint.yaml"
 
   cd "${TMP_REPO}"
@@ -210,11 +218,11 @@ REMOTE
 @test "_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
   _source_init
   _create_symlinks
-  # Seven wrappers under script/ with ../.base/script/docker/<name>.sh targets.
+  # Seven wrappers under script/ with ../.base/script/docker/wrapper/<name>.sh targets.
   for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
     assert [ -L "${TMP_REPO}/script/${_f}" ]
     run readlink "${TMP_REPO}/script/${_f}"
-    assert_output "../.base/script/docker/${_f}"
+    assert_output "../.base/script/docker/wrapper/${_f}"
     # And must NOT exist at root.
     assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
@@ -344,13 +352,13 @@ REMOTE
 
 @test "_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)" {
   # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
-  # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/build.sh
+  # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/wrapper/build.sh
   # (sub-folder link target is relative to the link's directory), and
   # Makefile / .hadolint.yaml at root keep the direct .base/ target.
   source "${TMP_REPO}/.base/init.sh"
   _create_symlinks
   run readlink "${TMP_REPO}/script/build.sh"
-  assert_output "../.base/script/docker/build.sh"
+  assert_output "../.base/script/docker/wrapper/build.sh"
   run readlink "${TMP_REPO}/Makefile"
   assert_output ".base/script/docker/Makefile"
   run readlink "${TMP_REPO}/.hadolint.yaml"
@@ -368,4 +376,64 @@ REMOTE
   assert_success
   run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
   assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _kind _wrapper _file
+  for _kind in pre post; do
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${TMP_REPO}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -f "${_file}" ]] || { echo "missing ${_file}"; return 1; }
+      [[ -x "${_file}" ]] || { echo "not executable: ${_file}"; return 1; }
+    done
+  done
+}
+
+@test "_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file
+  for _file in "${TMP_REPO}/script/hooks/pre/run.sh" \
+               "${TMP_REPO}/script/hooks/post/build.sh"; do
+    run head -n 1 "${_file}"
+    assert_output "#!/usr/bin/env bash"
+    run tail -n 1 "${_file}"
+    assert_output "exit 0"
+  done
+}
+
+@test "_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file="${TMP_REPO}/script/hooks/pre/run.sh"
+  # Simulate user editing their hook
+  printf '#!/usr/bin/env bash\necho USER_CONTENT\nexit 0\n' > "${_file}"
+  chmod +x "${_file}"
+  # Re-run init's stub creator
+  _create_hook_stubs
+  run grep -F "USER_CONTENT" "${_file}"
+  assert_success
+}
+
+@test "_create_new_repo: includes hook stubs in new-repo layout (#440)" {
+  _source_init
+  _create_new_repo "main"
+  [[ -x "${TMP_REPO}/script/hooks/pre/run.sh" ]] || { echo "missing pre/run.sh"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/run.sh" ]] || { echo "missing post/run.sh"; return 1; }
+}
+
+@test "_init_existing_repo: creates missing hook stubs on upgrade (#440)" {
+  _source_init
+  # Simulate an existing repo on pre-#440 template — no hooks/ dir yet
+  [[ ! -d "${TMP_REPO}/script/hooks" ]] || rm -rf "${TMP_REPO}/script/hooks"
+  : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
+  _init_existing_repo
+  [[ -x "${TMP_REPO}/script/hooks/pre/build.sh" ]] || { echo "missing pre/build.sh after upgrade"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/setup_tui.sh" ]] || { echo "missing post/setup_tui.sh after upgrade"; return 1; }
 }

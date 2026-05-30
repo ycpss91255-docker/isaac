@@ -1,4 +1,4 @@
-name: Self Test
+name: CI
 
 on:
   push:
@@ -100,13 +100,13 @@ jobs:
                   'compose.yaml' \
                   'dockerfile/Dockerfile.example' \
                   'dockerfile/Dockerfile.test-tools' \
-                  'script/docker/build.sh' \
-                  'script/docker/run.sh' \
-                  'script/docker/exec.sh' \
-                  'script/docker/stop.sh' \
-                  'script/docker/prune.sh' \
-                  'script/docker/setup.sh' \
-                  'script/docker/i18n.sh' \
+                  'script/docker/wrapper/build.sh' \
+                  'script/docker/wrapper/run.sh' \
+                  'script/docker/wrapper/exec.sh' \
+                  'script/docker/wrapper/stop.sh' \
+                  'script/docker/wrapper/prune.sh' \
+                  'script/docker/wrapper/setup.sh' \
+                  'script/docker/lib/i18n.sh' \
                   'script/docker/lib/**' \
                   'test/behavioural/**' \
                   'init.sh' 'upgrade.sh' \

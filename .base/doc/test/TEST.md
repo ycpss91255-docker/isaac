@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1458 tests** total (1390 unit + 68 integration).
+Template self-tests: **1466 tests** total (1398 unit + 68 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -47,35 +47,29 @@ Template self-tests: **1458 tests** total (1390 unit + 68 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (25)
+### test/unit/log_spec.bats (48)
 
-| Test | Description |
-|------|-------------|
-| `_log_err writes '[<tag>] ERROR: <msg>' to stderr (no TTY -> no color)` | Default routing + no-color path |
-| `_log_warn writes '[<tag>] WARNING: <msg>' to stderr (no TTY -> no color)` | Warning routing + no-color path |
-| `_log_info writes '[<tag>] INFO: <msg>' to stdout (no TTY -> no color)` | Info routing + no-color path |
-| `_log_err joins multi-token message with single spaces` | Multi-token message join |
-| `_log_err with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_warn with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_info with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_err with FORCE_COLOR=1 emits red bold ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
-| `_log_warn with FORCE_COLOR=1 emits yellow ANSI on non-TTY stderr` | FORCE_COLOR overrides TTY detection |
-| `_log_info with FORCE_COLOR=1 emits dim ANSI on non-TTY stdout` | FORCE_COLOR overrides TTY detection |
-| `_log_err with NO_COLOR=1 + FORCE_COLOR=1 omits ANSI (NO_COLOR wins)` | NO_COLOR precedence |
-| `_log_warn with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
-| `_log_info with NO_COLOR=1 omits ANSI` | NO_COLOR strips color |
-| `_log_color_enabled returns non-zero on non-TTY fd 1 without overrides` | Auto-detect default off |
-| `_log_color_enabled returns 0 with FORCE_COLOR=1 on non-TTY` | FORCE_COLOR opt-in |
-| `_log_color_enabled returns non-zero with NO_COLOR=1 + FORCE_COLOR=1` | NO_COLOR wins over FORCE_COLOR |
-| `_log_color_enabled with no fd argument exits non-zero (param guard)` | Required fd guard |
-| `_log_plain writes '[<tag>] <msg>' to stdout with no style (no ANSI even with FORCE_COLOR)` | Empty style suppresses color |
-| `_log_plain with bold style + FORCE_COLOR=1 wraps message in ANSI bold` | Bold style ANSI wrap |
-| `_log_plain with dim style + FORCE_COLOR=1 wraps message in ANSI dim` | Dim style ANSI wrap |
-| `_log_plain with bold style + NO_COLOR=1 omits ANSI even with FORCE_COLOR=1` | NO_COLOR precedence on _log_plain |
-| `_log_plain on non-TTY without FORCE_COLOR omits ANSI` | Auto-detect default off |
-| `_log_plain joins multi-token message with single spaces` | Multi-token message join |
-| `_log_plain with no tag exits non-zero (param ':?' guard)` | Required tag guard |
-| `_log_plain with unknown style + FORCE_COLOR=1 falls back to no ANSI (case match miss)` | Unknown style safe fallback |
+OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
+`LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
+body = fatal), `display=` attribute for i18n text in text mode, UTC
+microsecond timestamps, `_log_plain` removed.
+
+| Category | Tests |
+|----------|-------|
+| Text output format (`LOG_FORMAT=text`): timestamp + aligned level + tag, multi-token join, attr=val skip, `display=` override | 10 |
+| Timestamp: UTC with microsecond precision in both text and JSON | 2 |
+| Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL | 2 |
+| Single-sink tty-detect dispatch (#438): non-TTY auto JSON, `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv | 5 |
+| JSON output: OTel fields, custom attributes, severity numbers, per-line structure | 4 |
+| TRACEPARENT in JSON: trace_id/span_id present/absent | 2 |
+| Strict body enforcement (#438): unregistered fatal, registered OK, empty OK, error names body + file | 4 |
+| Missing service rejected, `_log_fatal` does not auto-exit | 3 |
+| Scoped wrappers: `_log_with_trace` save/restore, `_log_with_span` trace_id | 4 |
+| `_log_plain` removed (#438) | 1 |
+| `_log_color_enabled`: TTY detect, FORCE_COLOR, NO_COLOR precedence | 3 |
+| FORCE_COLOR text: red bold ERROR, yellow WARN, NO_COLOR strips | 3 |
+| Event registry: registered/unregistered/comment detection | 3 |
+| lnav format file | 2 |
 
 ### test/unit/setup_spec.bats (309)
 
@@ -187,7 +181,7 @@ target areas the issue body called out.
 | Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4 langs; `_render_runtime_menu` / `_render_mounts_menu` / `_render_features_menu` function existence; main-menu dispatch for image/build/runtime/mounts/features + bare network/deploy/gui/volumes/environment no longer dispatch from main; Runtime sub-menu dispatch for network/deploy/gui/environment + __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs + __back/Cancel; Features sub-menu __back, per_stage enabled enters editor, per_stage hidden shows msgbox without entering editor; Advanced sub-menu image/build/devices/tmpfs entries removed, security still dispatches) | 31 |
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 
-### test/unit/build_worker_yaml_spec.bats (33)
+### test/unit/build_worker_yaml_spec.bats (37)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -219,6 +213,7 @@ on doc-only PRs).
 | #243 stage rename + runtime-test smoke: `target: devel-test` (renamed from `test`), no leftover `target: test`, `target: runtime-test` exists, runtime-test gated on `inputs.build_runtime` (>=2 occurrences shared with runtime gate) | 4 |
 | #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty default, `Compute cache scope` step emits `id: cache` + base key (no `-cache` suffix; per-target suffix appended at use site), 4 build steps use per-target `<base>-<target>-cache` scopes (cache-from + cache-to per target), no legacy shared-scope leftover (negative regression), 4 build steps preserve `mode=max`, default preserves zero-diff for single-call callers | 6 |
 | #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite): `path-filter` job declared, classifier is pure shell (`git diff --name-only base...head` + `case` glob; no `dorny/paths-filter` dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the case body stays portable, non-PR event short-circuits before git diff (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`, `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm, `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2 occurrences), `docker-build` aggregator handles `code_changed == 'false'` short-circuit + `needs: [path-filter, build]`, non-PR triggers always set `code_changed=true` | 8 |
+| #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 
 ### test/unit/self_test_yaml_spec.bats (52)
 
@@ -503,7 +498,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (54)
+### test/unit/run_sh_spec.bats (57)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -517,10 +512,11 @@ routing, `--instance`, already-running guard, Wayland xhost path,
 `--lang` / `--instance` argument validation, fallback `_detect_lang`
 branches, **runtime log-line i18n** (bootstrap + already-running
 error translate in all four languages via the local `_msg()` table),
-**#216 auto-build soft guard / `--build` opt-in** (image
-present → silent, image absent + TTY → INFO, image absent + no TTY →
-silent, per-target image inspect, `--build` invokes `./build.sh test`
-before compose up, `--build` after check-drift), and **`-C` / `--chdir`
+**#216/#429 auto-build gate** (image present → silent + no build,
+image absent → auto-delegates to `./build.sh TARGET`, non-devel target
+forwarded, build failure aborts run, per-target image inspect, `--build`
+invokes `./build.sh test` before compose up, `--build` after
+check-drift), and **`-C` / `--chdir`
 flag** (docker_harness#53: redirect FILE_PATH, short + long form,
 value-required and directory guards, usage help mention), and **`-v`
 / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
@@ -528,7 +524,10 @@ trace pattern as build.sh, parity across wrappers), and **#386
 foreground exit auto compose-down** (default-on for devel + one-shot
 non-devel targets, `--no-rm` opts out, `-d` suppresses the trap; the
 trap fires `down --remove-orphans` to mirror stop.sh and close the
-worktree-removed-before-stop network leak).
+worktree-removed-before-stop network leak), and **#448 `--` CMD
+separator** (`--` stops flag parsing so CMD flags like `--target`
+don't collide; positional CMD also stops parsing; usage documents
+`--`).
 
 ### test/unit/exec_sh_spec.bats (53)
 
@@ -633,7 +632,7 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (28)
+### test/unit/makefile_user_spec.bats (32)
 
 Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
 Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
@@ -646,10 +645,12 @@ help. Sandbox copies the Makefile into a fake repo, planting stub
 can assert exactly which underlying script ran and with what args.
 
 Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
-`make help` lists 10 user-facing targets; removed sub-cmd targets
+`make help` lists 11 user-facing targets; removed sub-cmd targets
 (`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
-across all 10 targets (build / run / exec / stop / prune / setup /
-setup-tui / upgrade / upgrade-check / help); positional forwarding
+across all 11 targets (build / run / start / exec / stop / prune / setup /
+setup-tui / upgrade / upgrade-check / help); `make start` combined
+build+run (invokes build.sh then run.sh, correct execution order, args
+forwarded to build.sh only, visible in help); positional forwarding
 (`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
 setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
 test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all

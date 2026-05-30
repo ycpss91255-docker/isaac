@@ -20,10 +20,10 @@ _DOCKER_TUI_CONF_SOURCED=1
 #
 # Valid forms:
 #   <host>:<container>
-#   <host>:<container>:ro
-#   <host>:<container>:rw
-# Both parts must be non-empty. Exactly 1 or 2 ':' separators (env-var
-# forms like ${FOO} count as host path, not separators).
+#   <host>:<container>:<mode>
+# where <mode> is one or more of: ro, rw, rslave, rshared, rprivate,
+# slave, shared, private — comma-separated (e.g. rw,rslave).
+# Both path parts must be non-empty. Exactly 1 or 2 ':' separators.
 _validate_mount() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 1
@@ -36,13 +36,37 @@ _validate_mount() {
       ;;
     3)
       [[ -n "${_parts[0]}" && -n "${_parts[1]}" ]] || return 1
-      [[ "${_parts[2]}" == "ro" || "${_parts[2]}" == "rw" ]] || return 1
+      local _mode
+      IFS=',' read -ra _mode <<< "${_parts[2]}"
+      local _m
+      for _m in "${_mode[@]}"; do
+        case "${_m}" in
+          ro|rw|rslave|rshared|rprivate|slave|shared|private) ;;
+          *) return 1 ;;
+        esac
+      done
       ;;
     *)
       return 1
       ;;
   esac
   return 0
+}
+
+# _assemble_mount_value <host> <container> [<mode>]
+#
+# Builds the host:container[:mode] string for [devices] device_* and
+# [volumes] mount_* entries. Lets the TUI collect pieces separately
+# (path inputbox + mode picker) and assemble them safely (#461).
+_assemble_mount_value() {
+  local _host="${1:?_assemble_mount_value requires host}"
+  local _container="${2:?_assemble_mount_value requires container}"
+  local _mode_str="${3-}"
+  if [[ -n "${_mode_str}" ]]; then
+    printf '%s:%s:%s\n' "${_host}" "${_container}" "${_mode_str}"
+  else
+    printf '%s:%s\n' "${_host}" "${_container}"
+  fi
 }
 
 # _validate_gpu_count <value>
