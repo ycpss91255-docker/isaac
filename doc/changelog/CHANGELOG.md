@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `Makefile.local run-stream`: docker-logs FD redirect now targets the container PID 1's host-side PID resolved via `docker inspect --format '{{.State.Pid}}'`, instead of the literal `/proc/1/fd/{1,2}`. The container runs `pid: ${PID_MODE}` with `PID_MODE=host`, so `/proc/1/...` from inside the container resolves to host systemd; writes get rejected with EPERM and `docker logs <isaac>` / lazydocker stayed empty while Isaac Sim was actually running. With the corrected target, Kit output streams into `docker logs` natively (closes #75). Regression guarded by `test/smoke/bats/makefile_local_spec.bats`, with `Makefile.local` baked into `/smoke_test/` at devel-test build time.
+
 ### Changed
 - **`.base/` subtree bumped v0.35.0 → v0.40.0** + main CI workflow refs (`call-docker-build` + `call-release`) repinned `@v0.35.0` → `@v0.40.0`. Picks up:
   - `free_disk_space: true` opt-in for `build-worker.yaml` (base#470 / #483) — removes ~30 GB of pre-installed runner tooling so Isaac Sim BASE_IMAGE (~15 GB extracted) stops deterministically hitting `no space left on device` during BuildKit COPY. Already saw the symptom on PR #68 attempt 1 (passed on attempt 2 by timing luck).
