@@ -4,6 +4,7 @@
 
 ### Fixed
 - `Makefile.local run-stream`: docker-logs FD redirect now targets the container PID 1's host-side PID resolved via `docker inspect --format '{{.State.Pid}}'`, instead of the literal `/proc/1/fd/{1,2}`. The container runs `pid: ${PID_MODE}` with `PID_MODE=host`, so `/proc/1/...` from inside the container resolves to host systemd; writes get rejected with EPERM and `docker logs <isaac>` / lazydocker stayed empty while Isaac Sim was actually running. With the corrected target, Kit output streams into `docker logs` natively (closes #75).
+- `Dockerfile devel-test`: overrides inherited `CMD ["bash"]` with `CMD ["sleep", "infinity"]`. base v0.40.0's `./script/run.sh -t test -- <cmd>` invokes `compose up -d test` + `compose exec test <cmd>`, but inherited `bash` exits immediately under `compose up -d` (no stdin), so the subsequent `exec` fires against a dead container. PR #71's `python-tests` CI never exercised this path because no `test/<category>/pytest/` directory existed yet; this PR adds the first one and surfaces the regression. Aligns with the headless / headless-stream idle pattern.
 
 ### Changed
 - **`.base/` subtree bumped v0.35.0 → v0.40.0** + main CI workflow refs (`call-docker-build` + `call-release`) repinned `@v0.35.0` → `@v0.40.0`. Picks up:

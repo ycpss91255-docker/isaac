@@ -312,6 +312,16 @@ USER "${USER}"
 
 RUN bats /smoke_test/
 
+# [isaac] Override CMD inherited from `devel` (`["bash"]`). The CI
+# python-tests job uses base v0.40.0's `./script/run.sh -t test --
+# <cmd>` flow, which is `compose up -d test` + `compose exec test
+# <cmd>`. With CMD bash, the container's PID 1 has no stdin and
+# exits immediately, so the subsequent `exec` fires against a dead
+# container ("Error response from daemon: container ... is not
+# running"). Match the headless / headless-stream idle pattern so
+# the container stays alive for the exec'd command (closes #75).
+CMD ["sleep", "infinity"]
+
 ############################## headless ##############################
 # [isaac] Pure simulation, no streaming. Idles on startup; driver
 # scripts are exec'd in and read ISAAC_LIVESTREAM=0 to skip streaming.
