@@ -1,6 +1,13 @@
 # TEST.md
 
-**21 tests** total.
+**23 tests** total.
+
+## test/smoke/bats/makefile_local_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `Makefile.local: no /proc/1/fd/ redirect under pid=host (#75)` | Asserts `Makefile.local` does not redirect to the literal `/proc/1/fd/*`. Under `pid=host` that path points at host systemd, fails with EPERM, leaves `docker logs` empty. |
+| `Makefile.local: redirect resolves container PID 1 via State.Pid (#75)` | Asserts `Makefile.local` resolves `CONTAINER_PID1` via `docker inspect --format '{{.State.Pid}}'` so the FD redirect lands in the container's docker logs pipe. |
 
 ## test/smoke/docker_env.bats (3)
 

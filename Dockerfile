@@ -306,6 +306,12 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 # under test/smoke/pytest/ do not collide with bats discovery.
 COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/bats/ /smoke_test/
+# [isaac #75] Bake Makefile.local alongside the smoke specs so
+# makefile_local_spec.bats can grep its content at build time
+# (the docker-logs FD redirect regression guard). Makefile.local
+# itself is a developer-facing wrapper; copying it into /smoke_test/
+# is solely for the regression check.
+COPY Makefile.local /smoke_test/Makefile.local
 
 ARG USER
 USER "${USER}"
