@@ -204,10 +204,10 @@ teardown() {
 # return its _pre_head so the test can call _verify_subtree_intact.
 _mk_subtree_repo() {
   local _dir="$1"
-  mkdir -p "${_dir}/.base/script/docker"
+  mkdir -p "${_dir}/.base/script/docker/wrapper"
   echo "v0.9.5" > "${_dir}/.base/.version"
   echo "#!/usr/bin/env bash" > "${_dir}/.base/init.sh"
-  echo "#!/usr/bin/env bash" > "${_dir}/.base/script/docker/setup.sh"
+  echo "#!/usr/bin/env bash" > "${_dir}/.base/script/docker/wrapper/setup.sh"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t
   git -C "${_dir}" config user.name t
@@ -247,12 +247,12 @@ _mk_subtree_repo() {
   [ -f "${_git_dir}/.base/.version" ]
 }
 
-@test "_verify_subtree_intact rolls back when .base/script/docker/setup.sh is missing" {
+@test "_verify_subtree_intact rolls back when .base/script/docker/wrapper/setup.sh is missing" {
   local _git_dir="${TEMP_DIR}/intact_nosetup"
   _mk_subtree_repo "${_git_dir}"
   local _pre
   _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
-  rm "${_git_dir}/.base/script/docker/setup.sh"
+  rm "${_git_dir}/.base/script/docker/wrapper/setup.sh"
 
   run bash -c "
     cd '${_git_dir}'
@@ -260,8 +260,8 @@ _mk_subtree_repo() {
     _verify_subtree_intact '${_pre}'
   "
   assert_failure
-  assert_output --partial ".base/script/docker/setup.sh"
-  [ -f "${_git_dir}/.base/script/docker/setup.sh" ]
+  assert_output --partial ".base/script/docker/wrapper/setup.sh"
+  [ -f "${_git_dir}/.base/script/docker/wrapper/setup.sh" ]
 }
 
 # ── upgrade.sh structural invariants (safety guards) ───────────────────────

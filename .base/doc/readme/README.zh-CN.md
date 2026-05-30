@@ -186,6 +186,10 @@ make run -- -t headless               # 跑 headless 变体
 make run -- -t gui                    # 跑 gui 变体
 make exec -- -t headless bash         # 进入 running 的 headless container
 
+# Kit 风格的 `=` 参数会被 #414 guard 挡下，改走 EXEC_ARGS env var (#469)：
+EXEC_ARGS='--/app/livestream/port=49100' \
+  make exec -- -t headless-stream /isaac-sim/runheadless.sh -v
+
 # 等效直接 .sh 写法：
 ./script/build.sh
 ./script/run.sh -t headless
@@ -461,6 +465,44 @@ Main
 `make upgrade` 都会重新生成这两个文件（init.sh 在 subtree pull 后重跑
 `setup.sh apply`）— 不要手改，需要 override 写到 `setup.conf`。
 
+### 每个 wrapper 的 pre/post hook（#440）
+
+每个 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
+`setup_tui`）会检测以下两个可选的 repo-local script：
+
+```
+script/hooks/pre/<wrapper>.sh    # env 准备完成后、主逻辑前
+script/hooks/post/<wrapper>.sh   # 主逻辑后（run.sh 则在 EXIT trap 内）
+```
+
+`init.sh` 自动创建 14 个 executable stub（默认 `exit 0`），所以
+hook 框架开箱即用。把 `exit 0` 换成你的 host-side 步骤（如
+`multiarch/qemu-user-static` binfmt 注册、mount 目录创建、硬件预检）。
+Stub 对 upgrade 幂等 — pre-#440 的 template 跑 `make upgrade` 后自动
+补齐 scaffolding。
+
+**Contract：**
+
+| 方面 | 行为 |
+|---|---|
+| 参数 | 跟 wrapper 收到的 `"$@"` 一样 |
+| 执行位置 | 主机（**不是** container 内） |
+| `pre` 非零 | abort wrapper |
+| `post` 非零 | override wrapper exit code；cleanup 照跑（run.sh） |
+| 非 executable | hard fail + `chmod +x` 提示 |
+| `--dry-run` | 两个 hook 都 silent skip |
+
+**示例 — jetson_sdk_manager binfmt 注册：**
+
+```bash
+# script/hooks/pre/run.sh
+#!/usr/bin/env bash
+if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  docker run --rm --privileged \
+    multiarch/qemu-user-static --reset -p yes
+fi
+```
+
 ### 命名规则：三个 namespace、两个 user 身份
 
 `setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
@@ -498,6 +540,19 @@ project-level naming」在「单人机」假设下成立 — 两者都带 user
 OS user 想同时跑同一 repo 多个 container（例如并行测两个 branch）：
 设 `INSTANCE_SUFFIX=2` 就会得到 `alice-<repo>-2` 与对应的 project
 name。默认空字符串；wrappers 支持的场合可用 `-n / --instance`。
+
+**Per-instance overlay (#465)**。`run.sh --instance NAME` 还会自动
+检测下面两个 optional 文件作为 compose overlay：
+
+```
+config/instances/<NAME>.yaml   → docker compose -f
+config/instances/<NAME>.env    → docker compose --env-file
+```
+
+两个文件任一存在皆可；不存在就 silent skip。yaml 用于 structural
+override（per-instance ports、volumes、cache 路径），env 用于与
+`compose.yaml` 共享的 `${VAR}` override。`NAME` 受 `^[a-z0-9][a-z0-9_-]*$`
+验证以保 path 安全。
 
 示例。OS user `alice`、Docker Hub user `alice-hub`、repo
 `claude_code`、默认 `INSTANCE_SUFFIX` 空：

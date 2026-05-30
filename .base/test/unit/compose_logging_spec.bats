@@ -2,7 +2,7 @@
 #
 # Tests for [logging] / [logging.<svc>] support in generate_compose_yaml
 # and the supporting _collect_logging / _parse_logging_svc_sections
-# parsers in script/docker/setup.sh. Closes #310.
+# parsers in script/docker/wrapper/setup.sh. Closes #310.
 
 bats_require_minimum_version 1.5.0
 
@@ -10,7 +10,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 
   # shellcheck disable=SC1091
-  source /source/script/docker/setup.sh
+  source /source/script/docker/wrapper/setup.sh
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
@@ -127,94 +127,9 @@ teardown() {
   echo "${output}" | grep -F 'max-file: "3"'
 }
 
-# ════════════════════════════════════════════════════════════════════
-# _parse_logging_svc_sections
-# ════════════════════════════════════════════════════════════════════
-
-@test "_parse_logging_svc_sections enumerates services in file order" {
-  cat > "${CONF_FILE}" <<'CONF'
-[logging]
-driver = json-file
-
-[logging.runtime]
-max_size = 50m
-
-[logging.devel]
-compress = false
-CONF
-  local -a _svcs=()
-  _parse_logging_svc_sections "${CONF_FILE}" _svcs
-  [[ "${#_svcs[@]}" -eq 2 ]]
-  [[ "${_svcs[0]}" == "runtime" ]]
-  [[ "${_svcs[1]}" == "devel" ]]
-}
-
-@test "_parse_logging_svc_sections ignores plain [logging] section" {
-  cat > "${CONF_FILE}" <<'CONF'
-[logging]
-driver = json-file
-CONF
-  local -a _svcs=()
-  _parse_logging_svc_sections "${CONF_FILE}" _svcs
-  [[ "${#_svcs[@]}" -eq 0 ]]
-}
-
-@test "_parse_logging_svc_sections returns empty when file does not exist" {
-  local -a _svcs=()
-  _parse_logging_svc_sections "/no/such/file" _svcs
-  [[ "${#_svcs[@]}" -eq 0 ]]
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _collect_logging
-# ════════════════════════════════════════════════════════════════════
-
-@test "_collect_logging reads global [logging] from per-repo setup.conf" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[logging]
-driver = local
-max_size = 20m
-CONF
-  local _g="" _p=""
-  _collect_logging "${TEMP_DIR}" _g _p
-  [[ "${_g}" == *"driver=local"* ]]
-  [[ "${_g}" == *"max_size=20m"* ]]
-  [[ -z "${_p}" ]]
-}
-
-@test "_collect_logging reads per-service [logging.<svc>] sections" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[logging]
-driver = json-file
-
-[logging.runtime]
-max_size = 100m
-compress = false
-CONF
-  local _g="" _p=""
-  _collect_logging "${TEMP_DIR}" _g _p
-  [[ "${_p}" == *"runtime:max_size=100m"* ]]
-  [[ "${_p}" == *"runtime:compress=false"* ]]
-}
-
-@test "_collect_logging returns empty when no [logging] sections anywhere" {
-  mkdir -p "${TEMP_DIR}/config/docker"
-  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
-[image]
-rule_1 = @basename
-CONF
-  local _g="" _p=""
-  # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a
-  # path whose ../../config/docker/setup.conf does not exist).
-  local _save="${_SETUP_SCRIPT_DIR:-}"
-  _SETUP_SCRIPT_DIR="${TEMP_DIR}/nonexistent/docker"
-  _collect_logging "${TEMP_DIR}" _g _p
-  _SETUP_SCRIPT_DIR="${_save}"
-  [[ -z "${_g}" ]]
-  [[ -z "${_p}" ]]
-}
+# _parse_logging_svc_sections / _collect_logging parser tests moved
+# to test/unit/conf_logging_spec.bats when the implementations were
+# extracted to lib/conf_logging.sh in #402 (PR-A).
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml: [logging] local_path bind mount + LOG_FILE_PATH (#328)
@@ -318,122 +233,12 @@ CONF
 # these end-to-end assertions cover the same resolution branches
 # (relative / absolute / per-svc / empty fall-through).
 
-# ════════════════════════════════════════════════════════════════════
-# _sync_logging_local_paths_gitignore (#328)
-# ════════════════════════════════════════════════════════════════════
-
-@test "_sync_logging_local_paths_gitignore appends relative local_path to .gitignore (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_success
-  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${_gitignore}"
-  assert_success
-}
-
-@test "_sync_logging_local_paths_gitignore skips absolute paths (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=/srv/logs/" ""
-  run grep -F "/srv/logs" "${_gitignore}"
-  assert_failure
-}
-
-@test "_sync_logging_local_paths_gitignore skips ~ paths (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=~/logs/" ""
-  run grep -F "~/logs" "${_gitignore}"
-  assert_failure
-}
-
-@test "_sync_logging_local_paths_gitignore is idempotent (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
-  local _first
-  _first="$(cat "${_gitignore}")"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
-  [[ "$(cat "${_gitignore}")" == "${_first}" ]]
-}
-
-@test "_sync_logging_local_paths_gitignore collects from both global + per-svc (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  local _per_svc=""
-  printf -v _per_svc '%s\n%s' "devel:local_path=./devel-logs/" "test:local_path=./test-logs/"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./global-logs/" "${_per_svc}"
-  run grep -xF "/global-logs/" "${_gitignore}"
-  assert_success
-  run grep -xF "/devel-logs/" "${_gitignore}"
-  assert_success
-  run grep -xF "/test-logs/" "${_gitignore}"
-  assert_success
-}
-
-@test "_sync_logging_local_paths_gitignore is no-op when no local_path keys (#328)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "driver=json-file" ""
-  # File should be unchanged (still empty).
-  [[ ! -s "${_gitignore}" ]]
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _sync_logging_local_paths_gitignore prune behavior (#390)
-# ════════════════════════════════════════════════════════════════════
-#
-# When local_path values change (e.g. a rename), stale entries inside
-# the managed block must be removed so downstream .gitignore stays
-# consistent without manual intervention. Entries outside the managed
-# block are user-owned and must never be touched.
-
-@test "_sync_logging_local_paths_gitignore prunes stale managed entries on value change (#390)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_success
-  # Second apply with renamed value: /logs/ pruned, /log/ added.
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./log/" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_failure
-  run grep -xF "/log/" "${_gitignore}"
-  assert_success
-}
-
-@test "_sync_logging_local_paths_gitignore drops marker + entries when candidates become empty (#390)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  : > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./logs/" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_success
-  # Feature turned off: marker + entries removed.
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_failure
-  run grep -xF "# managed by template: [logging] local_path (do not remove)" "${_gitignore}"
-  assert_failure
-}
-
-@test "_sync_logging_local_paths_gitignore preserves user entries outside managed block (#390)" {
-  local _gitignore="${TEMP_DIR}/.gitignore"
-  # User-owned /logs/ above the managed block (e.g. legacy entry kept
-  # for the host directory after the rename migration).
-  printf '%s\n' "# user ignores" "/logs/" "" > "${_gitignore}"
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "local_path=./log/" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_success
-  run grep -xF "/log/" "${_gitignore}"
-  assert_success
-  # Turning the feature off prunes managed /log/ but leaves user /logs/.
-  _sync_logging_local_paths_gitignore "${TEMP_DIR}" "" ""
-  run grep -xF "/logs/" "${_gitignore}"
-  assert_success
-  run grep -xF "/log/" "${_gitignore}"
-  assert_failure
-}
+# _sync_logging_local_paths_gitignore (#328) + prune behaviour (#390)
+# tests moved to test/unit/gitignore_spec.bats when the implementation
+# was relocated to lib/gitignore.sh and renamed _sync_logging_gitignore
+# in #402 (PR-B). The new tests stage a setup.conf and call the
+# single-arg form, exercising the full _collect_logging -> sync flow
+# rather than mocking the resolved strings.
 
 # ════════════════════════════════════════════════════════════════════
 # setup.conf [logging] section: in-image helper path reference (#368)
@@ -443,7 +248,7 @@ CONF
   # The [logging] section in the template default setup.conf is the
   # primary surface where downstream maintainers learn about the
   # local_path feature + the entrypoint helper. PR #356 originally
-  # pointed at `.base/script/docker/_entrypoint_logging.sh` (the
+  # pointed at `.base/script/docker/runtime/logging.sh` (the
   # subtree path inside the workspace bind mount), which crashes on
   # build-time smoke ($USER unset) and is wrong on multi-repo
   # workspaces (WS_PATH = workspace parent, not repo root). Path A
@@ -455,7 +260,7 @@ CONF
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken pre-#368 path must not reappear.
-  run grep -F '.base/script/docker/_entrypoint_logging.sh' "${_conf}"
+  run grep -F '.base/script/docker/runtime/logging.sh' "${_conf}"
   assert_failure
 }
 
