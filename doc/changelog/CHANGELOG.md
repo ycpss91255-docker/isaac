@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- **BREAKING: rename `headless-stream` stage → `stream`** (closes #69; see ADR-0014 in `ycpss91255-research/isaac`). The two sim-runtime stages are now `headless` (no viewer, `ISAAC_LIVESTREAM=0`, pure inference / batch) and `stream` (WebRTC web-viewer, `ISAAC_LIVESTREAM=2`, devel observation). `headless-stream` was a self-contradictory name; a separate `infer` stage scoped in #69 turned out to already be `headless`, so #69 became this rename. Update `make run/exec -- -t headless-stream` and `run_instance.sh <id> headless-stream` invocations to `-t stream`; container name / image tag / compose profile move `headless-stream` → `stream`.
+  - `setup.conf`: `[stage:headless-stream]` → `[stage:stream]`; added `[stage:test-tools-stage]` (`deploy.gpu_mode = off`, `gui.mode = off`) so the lint-tools stage stops inheriting GPU / X11 via `extends: devel` (interim until base#493).
 - **`.base/` subtree bumped v0.35.0 → v0.40.0** + main CI workflow refs (`call-docker-build` + `call-release`) repinned `@v0.35.0` → `@v0.40.0`. Picks up:
   - `free_disk_space: true` opt-in for `build-worker.yaml` (base#470 / #483) — removes ~30 GB of pre-installed runner tooling so Isaac Sim BASE_IMAGE (~15 GB extracted) stops deterministically hitting `no space left on device` during BuildKit COPY. Already saw the symptom on PR #68 attempt 1 (passed on attempt 2 by timing luck).
   - `EXEC_ARGS` env passthrough for Kit `--/app/...=val` args (base#469 / #474) — future opportunity to simplify `Makefile.local` exec calls; not opted in yet.

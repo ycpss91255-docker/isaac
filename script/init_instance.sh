@@ -142,4 +142,4 @@ echo "  ports: signal=${signal_port} media=${media_port} api=${api_port} viewer=
 echo ""
 echo "Next steps:"
 echo "  1. Review/edit ${env_file}"
-echo "  2. Start: ./script/run_instance.sh ${id} headless-stream"
+echo "  2. Start: ./script/run_instance.sh ${id} stream"

@@ -29,18 +29,18 @@ Production stages (both idle on startup — exec driver scripts into the running
 
 ```bash
 make run -- -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-make run -- -t headless-stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
-make exec -- -t headless-stream /isaac-sim/python.sh <script>   # run a driver script
+make run -- -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> Two stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (pure sim, `ISAAC_LIVESTREAM=0`) and `headless-stream` (sim + WebRTC, `ISAAC_LIVESTREAM=2`). Both idle on startup — the container stays up and you exec driver scripts in via `make exec -- -t <stage> <cmd>`. Use `make run -- -t <stage> -d` to launch.
+> Two stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (pure sim, `ISAAC_LIVESTREAM=0`) and `stream` (sim + WebRTC, `ISAAC_LIVESTREAM=2`). Both idle on startup — the container stays up and you exec driver scripts in via `make exec -- -t <stage> <cmd>`. Use `make run -- -t <stage> -d` to launch.
 
 ## Connecting to the WebRTC livestream
 
 Isaac Sim 5.1 uses the NVCF (`omni.services.livestream.nvcf`) livestream protocol. Connect with the desktop client or a browser-based viewer:
 
 1. Download the **Isaac Sim WebRTC Streaming Client (1.1.5)** from [NVIDIA docs — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html). 1.1.5 is the latest, ships with 5.1.
-2. While `headless-stream` is running, launch the client and enter Server: `<server-ip>` (use `localhost` for same-machine, the server's LAN IP otherwise). **Do not add `:8011` or any port suffix** — the client manages signaling/data ports internally; appending a port routes through the wrong path and yields a black screen.
+2. While `stream` is running, launch the client and enter Server: `<server-ip>` (use `localhost` for same-machine, the server's LAN IP otherwise). **Do not add `:8011` or any port suffix** — the client manages signaling/data ports internally; appending a port routes through the wrong path and yields a black screen.
 3. Click Connect. First-time shader compile takes 1–3 min before the viewport renders.
 
 ### Browser-based viewer (omniverse_web_viewer)
@@ -57,7 +57,7 @@ cp config/host.yaml.example config/host.yaml
 make -f Makefile.local run-stream
 
 # Watch Isaac Sim load (it pipes to docker logs via /proc/1/fd/1)
-docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-headless-stream")
+docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # Open Chrome -> http://<host-ip>:5173
 # Select "UI for any streaming app" -> Next
@@ -96,7 +96,7 @@ Env wiring shipped in `setup.conf [environment]` (distro-agnostic):
 
 ### Distro choice (build-time, hard-baked)
 
-`ARG ROS_DISTRO=humble` in the Dockerfile is wired to `setup.conf [build]`. At build time the value is written to `/etc/isaac/ros-distro`, and `script/isaac-ros-env-wrapper.sh` is installed at `/usr/local/bin/`. The `headless` and `headless-stream` stages set `ENTRYPOINT` to that wrapper, which on every container start unconditionally re-exports `ROS_DISTRO` and `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` from the baked file — runtime `-e ROS_DISTRO=...` flags are therefore ineffective on the production paths.
+`ARG ROS_DISTRO=humble` in the Dockerfile is wired to `setup.conf [build]`. At build time the value is written to `/etc/isaac/ros-distro`, and `script/isaac-ros-env-wrapper.sh` is installed at `/usr/local/bin/`. The `headless` and `stream` stages set `ENTRYPOINT` to that wrapper, which on every container start unconditionally re-exports `ROS_DISTRO` and `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` from the baked file — runtime `-e ROS_DISTRO=...` flags are therefore ineffective on the production paths.
 
 The `devel` stage soft-bakes the same values via `Dockerfile ENV` (interactive shells get them by default; devs can `export ROS_DISTRO=...` to experiment).
 
@@ -113,7 +113,7 @@ The jazzy path aligns with Isaac's auto-default on 24.04 (LTS until 2029) — kn
 
 ### Verify cross-container DDS
 
-After `make run -- -t headless-stream -d` (with the humble override env) and connecting via the WebRTC client or browser viewer, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+After `make run -- -t stream -d` (with the humble override env) and connecting via the WebRTC client or browser viewer, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
 
 From a separate terminal on the same host:
 
@@ -140,9 +140,9 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 ### Standalone Python workflow (alternative to Script Editor)
 
-`isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. Both `headless` and `headless-stream` stages idle on startup, so standalone scripts are exec'd into the running container — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
+`isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. Both `headless` and `stream` stages idle on startup, so standalone scripts are exec'd into the running container — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
 
-| In-kit (Script Editor → File → Open → Run) | Standalone (`make exec -- -t headless-stream /isaac-sim/python.sh <path>`) |
+| In-kit (Script Editor → File → Open → Run) | Standalone (`make exec -- -t stream /isaac-sim/python.sh <path>`) |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -152,8 +152,8 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 Pattern:
 
 ```bash
-make run -- -t headless-stream -d   # idle container with WebRTC streaming enabled
-make exec -- -t headless-stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+make run -- -t stream -d   # idle container with WebRTC streaming enabled
+make exec -- -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Connect via WebRTC client or browser viewer to see the stage
 # Ctrl+C in the exec session kills the script cleanly; container stays idle
 make stop                           # cleanup
@@ -179,12 +179,12 @@ Multiple Isaac Sim instances can run on the same GPU. Each instance gets isolate
 # edit config/instances/*.env if needed (ports, cache paths)
 
 # Start instances (stagger — wait for "is loaded" between launches)
-./script/run_instance.sh warehouse headless-stream
+./script/run_instance.sh warehouse stream
 # ... wait for "is loaded" ...
-./script/run_instance.sh factory headless-stream
+./script/run_instance.sh factory stream
 
 # Exec driver scripts into a specific instance
-make exec -- -t headless-stream-warehouse /isaac-sim/python.sh <script>
+make exec -- -t stream-warehouse /isaac-sim/python.sh <script>
 
 # Tear down
 ./script/stop_instance.sh warehouse
