@@ -312,6 +312,10 @@ COPY test/smoke/bats/ /smoke_test/
 # itself is a developer-facing wrapper; copying it into /smoke_test/
 # is solely for the regression check.
 COPY Makefile.local /smoke_test/Makefile.local
+# [isaac #81] Same pattern for script/run_instance.sh so
+# run_instance_spec.bats can guard the two bugs that produced
+# silent failures (Isaac exitCode=2, viewer white screen).
+COPY script/run_instance.sh /smoke_test/run_instance.sh
 
 ARG USER
 USER "${USER}"
