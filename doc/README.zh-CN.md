@@ -6,6 +6,8 @@ NVIDIA Isaac Sim 5.1.0 Docker 开发环境，以 [`ycpss91255-docker/base`](http
 
 Image scope 涵盖 Isaac Sim 本体，加上让其内建 ROS 2 bridge 跨容器通讯所需的 env wiring。下游应用节点（CoreSAM、AGV bring-up）以及给 Noetic interop 用的 ROS 1 / ROS 2 bridge 放在相邻的 docker folder。
 
+本 repo 同时收纳 Isaac Sim workspace 内容（driver script、ADR、USD / URDF 模型）于 [`src/`](../src/README.md)；root 的 Dockerfile + base subtree 是运行该 workspace 的开发环境。两者原本分属 `ycpss91255-research/isaac` 与 `ycpss91255-docker/isaac`（research wraps docker via submodule），按 [#78](https://github.com/ycpss91255-docker/isaac/issues/78) 合并至此。
+
 ## 前置需求
 
 - NVIDIA driver `>= 580.65.06`（Isaac Sim 5.1 最低需求）
