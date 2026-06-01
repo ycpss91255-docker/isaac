@@ -1,0 +1,14 @@
+# Sensor test bench — single robot with all sensor types
+# Minimal scene for sensor integration testing.
+
+robot:
+  model: "robot/openbase/openbase_l2.usda"
+  pose:
+    xyz: [0, 0, 0]
+    rpy: [0, 0, 0]
+
+sensors:
+  - "config/camera/realsense.yaml"
+  - "config/lidar/ouster_os1.yaml"
+  - "config/lidar/rplidar_s2e.yaml"
+  - "config/imu/default.yaml"

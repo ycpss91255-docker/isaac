@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-1-g15f4949  Build Version: 1.6.7594.29634
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="omwr">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.000455646246067566 0.000811694117781514 0.020119977038071"
+        rpy="0 0 0" />
+      <mass
+        value="1.89769515400292" />
+      <inertia
+        ixx="0.00203870421675236"
+        ixy="-3.27327410701632E-06"
+        ixz="5.39454756330921E-08"
+        iyy="0.00192797712175279"
+        iyz="-9.91897216552498E-08"
+        izz="0.00385166203404091" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="wheel_link_1">
+    <inertial>
+      <origin
+        xyz="-3.86434327037666E-08 -6.47441782009733E-08 0.000278578805558621"
+        rpy="0 0 0" />
+      <mass
+        value="0.0219332134678674" />
+      <inertia
+        ixx="7.81868143177715E-07"
+        ixy="4.37364991111912E-13"
+        ixz="1.09395269168608E-11"
+        iyy="7.81863503239375E-07"
+        iyz="9.76071457932988E-12"
+        izz="1.25414249321258E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="wheel_joint_1"
+    type="continuous">
+    <origin
+      xyz="0.0915670497449635 0 -0.0166999999999997"
+      rpy="0 1.5707963267949 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="wheel_link_1" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="wheel_link_2">
+    <inertial>
+      <origin
+        xyz="6.47438472764494E-08 -3.86432083832045E-08 0.000278578805204113"
+        rpy="0 0 0" />
+      <mass
+        value="0.0219332134667945" />
+      <inertia
+        ixx="7.81863503201909E-07"
+        ixy="-4.37399074667269E-13"
+        ixz="-9.76073274427034E-12"
+        iyy="7.81868143163356E-07"
+        iyz="1.09395132123487E-11"
+        izz="1.254142493171E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="wheel_joint_2"
+    type="continuous">
+    <origin
+      xyz="0 0.0915670497449634 -0.0166999999999998"
+      rpy="-1.57079632679489 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="wheel_link_2" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="wheel_link_3">
+    <inertial>
+      <origin
+        xyz="-3.86433878507564E-08 -6.47442539511434E-08 0.000278578805495755"
+        rpy="0 0 0" />
+      <mass
+        value="0.0219332134667944" />
+      <inertia
+        ixx="7.8186814315554E-07"
+        ixy="4.37380720581609E-13"
+        ixz="1.09395370824763E-11"
+        iyy="7.81863503212026E-07"
+        iyz="9.7607265595441E-12"
+        izz="1.2541424931687E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="wheel_joint_3"
+    type="continuous">
+    <origin
+      xyz="-0.0915670497449634 0 -0.0166999999999998"
+      rpy="3.14159265358979 1.5707963267949 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="wheel_link_3" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="wheel_link_4">
+    <inertial>
+      <origin
+        xyz="-6.47439583646714E-08 3.86435293209253E-08 0.000278578805303381"
+        rpy="0 0 0" />
+      <mass
+        value="0.0219332134662579" />
+      <inertia
+        ixx="7.81863503194693E-07"
+        ixy="-4.37389687260924E-13"
+        ixz="9.7607216505699E-12"
+        iyy="7.81868143145534E-07"
+        iyz="-1.09395297860106E-11"
+        izz="1.25414249314933E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://omwr/meshes/wheel_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="wheel_joint_4"
+    type="continuous">
+    <origin
+      xyz="0 -0.0915670497449635 -0.0166999999999998"
+      rpy="1.57079632679489 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="wheel_link_4" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+</robot>

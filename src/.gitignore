@@ -1,0 +1,24 @@
+# Local Claude config (out of repo scope for now)
+.claude/
+
+# Raw asset dumps / temp imports (to be cleaned up)
+OpenBase/
+usd_model/
+
+# Build / generated
+build/
+install/
+log/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Driver runtime logs
+script/*.log
+script/**/*.log

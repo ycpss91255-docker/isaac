@@ -1,0 +1,21 @@
+# IMU sensor — default config
+# Must mount on rigid body (L2 kinematic or L3 dynamic)
+
+mount:
+  parent_prim: "/World/Robot/base_link"  # must have RigidBodyAPI
+  pose:
+    xyz: [0, 0, 0.1]
+    rpy: [0, 0, 0]
+
+sensor:
+  category: imu
+  type: imu
+  frequency_hz: 400
+  filter:
+    linear_acceleration: 10
+    angular_velocity: 10
+    orientation: 10
+
+ros:
+  topic_prefix: "/imu"
+  frame_id_prefix: "imu"

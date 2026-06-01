@@ -1,0 +1,19 @@
+# 3D LiDAR — Ouster OS1 (128-channel, 10Hz, 1024-resolution, Rev7)
+# Uses NVIDIA pre-built RTX LiDAR variant (Isaac Sim 5.1+)
+# Available variants: OS0/OS1/OS2 x REV6/REV7 x 32/128ch x 10/20Hz x 512/1024/2048res
+
+mount:
+  parent_prim: "/World/Robot/base_link"
+  pose:
+    xyz: [0, 0, 0.5]
+    rpy: [0, 0, 0]
+
+sensor:
+  category: lidar
+  type: lidar_3d
+  profile: "OS1_REV7_128ch10hz1024res"
+
+ros:
+  topic_prefix: "/lidar_3d"
+  frame_id_prefix: "lidar_3d"
+  publish_type: "point_cloud"
