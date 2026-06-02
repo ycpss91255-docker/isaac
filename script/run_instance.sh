@@ -19,6 +19,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
+# shellcheck source=host_yaml.sh
+source "${script_dir}/script/host_yaml.sh"
+
 _usage() {
   cat >&2 <<'EOF'
 Usage: ./script/run_instance.sh <instance_id> [stage] [extra kit args...]
@@ -79,8 +82,9 @@ container_name="isaac-${id}"
 host_yaml="${script_dir}/config/host.yaml"
 public_ip=""
 if [[ -f "${host_yaml}" ]]; then
-  public_ip=$(awk -F': *' '/^[[:space:]]*public_ip:/{gsub(/"/,""); print $2}' \
-    "${host_yaml}" 2>/dev/null || true)
+  # Shared, validated parser (strips inline comments, rejects garbage)
+  # so host side and the container-side wrapper never drift (#104).
+  public_ip="$(resolve_public_ip "${host_yaml}")" || exit 1
 fi
 
 kit_args=(
@@ -154,6 +158,10 @@ _start_web_viewer() {
     signaling_server_env=(-e "SIGNALING_SERVER=${public_ip}")
   fi
 
+  # Idempotent re-run: a prior web-viewer with this name may still be up
+  # (--rm only cleans up on stop). Mirror Makefile.local's run-stream.
+  docker rm -f "${WV_CONTAINER}" >/dev/null 2>&1 || true
+
   docker run --rm -d \
     --name "${WV_CONTAINER}" \
     --network=host \
@@ -168,7 +176,11 @@ _start_web_viewer() {
   echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${public_ip:-localhost}:${VIEWER_PORT}"
 }
 
-if [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
+# Web-viewer connects to the WebRTC stream, so it only makes sense on the
+# stream stage; headless has no stream to show (#105).
+if [[ "${stage}" != "stream" ]]; then
+  echo "[run_instance] stage '${stage}' is not 'stream' — skipping web-viewer."
+elif [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
   _start_web_viewer &
 else
   echo "[run_instance] web_viewer/ submodule not found — skipping web-viewer."
