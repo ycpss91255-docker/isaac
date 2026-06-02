@@ -102,3 +102,38 @@ Maintainer PRs use `gh pr merge --auto --squash` (after `unit-test` + `lint` + `
 - **ADR-0010**: Isaac Dev Kit 4-layer standardized development environment -- introduces the tests that drove this decision
 - **ycpss91255-docker/isaac#59**: `pytest + pyyaml + pytest-cov` added to `devel-test` Dockerfile stage -- prerequisite for running pytest in container
 - **ycpss91255-docker/base** existing reusable workflow pattern (`build-worker.yaml`, `release-worker.yaml`) -- template for future reusable extraction
+
+## Update (2026-06-02) -- single-repo collapse after research/isaac merge
+
+`ycpss91255-research/isaac` was merged into `ycpss91255-docker/isaac` per `ycpss91255-docker/isaac#78` (org-axis realignment: `-docker/*` is generic env, `-research/*` is application-specific; the workspace material here was always standardized env work). The 4-bucket decision in §Decision still stands; what changes is the implementation footprint now that there is one repo instead of two.
+
+### Repo set (revised)
+
+| Org | Repos |
+|---|---|
+| `ycpss91255-research` | `runner-setup`, `canary`, Phase-2 `seggpt` / `sam_manager` (no longer hosts `isaac`) |
+| `ycpss91255-docker` | `base`, `isaac` (env + workspace, merged), `ros1_bridge` (relocation pending per `ycpss91255-docker/ros1_bridge#136`), `canary` |
+
+The org-level runner topology (two registrations, one per org, both labeled `gpu`) is unchanged. `-research` runners stay registered because other repos in that org still need them.
+
+### Workflow file layout (revised)
+
+`ycpss91255-research/isaac` previously split lint and unit tests across `ci.yaml` + `unit-test.yaml`, while `ycpss91255-docker/isaac` already used a single `main.yaml` with multiple jobs. Post-merge the consolidated repo follows the single-file pattern:
+
+```
+.github/workflows/
+└── main.yaml             # all 4 buckets as separate jobs
+    ├── lint              # actionlint + shellcheck + py-compile + readme-sync (hosted)
+    ├── unit-test         # pytest test/unit/pytest/ (hosted)
+    ├── call-docker-build # Dockerfile build + bats RUN /smoke_test/ (hosted via base reusable)
+    └── python-tests      # pytest test/integration/pytest/ inside devel-test (self-hosted GPU)
+```
+
+The 4-bucket allocation (Unit, Lint, Smoke, Integration) maps to jobs of one workflow, not separate workflow files. Job-level `runs-on` (hosted vs self-hosted) carries the bucket routing; the original §Test bucket classification table still applies verbatim, only the file column needs reinterpretation as job-name.
+
+Research's two workflow files arrived under `src/.github_research_legacy/` via the filter-repo path-callback (GitHub only fires `.github/workflows/` at repo root, so they are inert there). Fold-into-`.github/workflows/main.yaml` plus drop of the legacy directory is tracked as a follow-up to `#78` -- it requires adjusting the research's `readme-sync` check (`doc/readme/` prefix -> `doc/` here) and merging its lint job set into the existing `main.yaml`, which is non-trivial enough to ship separately.
+
+### Cross-references added
+
+- **ycpss91255-docker/isaac#78**: research/isaac merge -- the trigger for this Update
+- **ycpss91255-docker/ros1_bridge#136**: parallel org-axis realignment (relocation in the other direction)
