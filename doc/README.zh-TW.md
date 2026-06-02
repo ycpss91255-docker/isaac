@@ -34,7 +34,7 @@ make run                      # 進 devel 容器互動 shell
 /isaac-sim/runapp.sh           # 本機 GUI（需要 X11；host 端先跑 `xhost +local:docker`）
 ```
 
-> 三個 stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（ENTRYPOINT `runheadless.sh -v`，WebRTC livestream）、`gui`（ENTRYPOINT `runapp.sh`，X11）、`standalone`（無 ENTRYPOINT，idle — 搭配 `make exec -- -t standalone /isaac-sim/python.sh <script>` 跑 standalone Python workflow，腳本內 `SimulationApp({"livestream": 2})` 啟自己的 kit + WebRTC server）。使用 `make run -- -t <stage> -d`。上面的手動 launcher 仍可用於 ad-hoc 情境。
+> 兩個 runtime stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（無 stream，`ISAAC_LIVESTREAM=0`）與 `stream`（ENTRYPOINT `runheadless.sh -v`，WebRTC web-viewer，`ISAAC_LIVESTREAM=2`）。standalone Python workflow（腳本內 `SimulationApp({"livestream": 2})` 啟自己的 kit + WebRTC server）跑在 `stream` stage 上 — 搭配 `make exec -- -t stream /isaac-sim/python.sh <script>`。使用 `make run -- -t <stage> -d`。上面的手動 launcher 仍可用於 ad-hoc 情境。
 
 ## 連接 WebRTC livestream
 
@@ -141,9 +141,9 @@ Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`isaac_ws/src/script/` 同時放 in-kit Script Editor 版本與 standalone 版本（透過 `SimulationApp({"livestream": 2})` 啟自己的 kit）。standalone 走 `make run -- -t standalone` + `make exec -- -t standalone /isaac-sim/python.sh <script>` — Ctrl+C 透過 SIGINT handler 乾淨退出，不需要 Script Editor UI。
+`isaac_ws/src/script/` 同時放 in-kit Script Editor 版本與 standalone 版本（透過 `SimulationApp({"livestream": 2})` 啟自己的 kit）。standalone 走 `make run -- -t stream` + `make exec -- -t stream /isaac-sim/python.sh <script>` — Ctrl+C 透過 SIGINT handler 乾淨退出，不需要 Script Editor UI。
 
-| In-kit（Script Editor → File → Open → Run） | Standalone（`make exec -- -t standalone /isaac-sim/python.sh <path>`） |
+| In-kit（Script Editor → File → Open → Run） | Standalone（`make exec -- -t stream /isaac-sim/python.sh <path>`） |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -154,14 +154,14 @@ Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 使用 pattern：
 
 ```bash
-make run -- -t standalone -d   # idle kit 容器（沒 runheadless ENTRYPOINT）
-make exec -- -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+make run -- -t stream -d   # idle kit 容器（沒 runheadless ENTRYPOINT）
+make exec -- -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Browser: localhost:8211/streaming/webrtc-client 看 stage
 # 在 exec session 按 Ctrl+C 乾淨殺 script，容器仍 idle
 make stop                      # 收尾
 ```
 
-`headless` 與 `standalone` stage **不能同時跑** — 兩個都 bind WebRTC port 8211。每次選一個。
+`headless` 與 `stream` stage 都是一次只能跑一個 kit process — 兩個都 bind WebRTC port 8211。每次選一個。
 
 ## Cache 路徑
 

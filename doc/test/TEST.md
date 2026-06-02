@@ -36,15 +36,16 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `run_instance.sh: web-viewer launch is gated on the stream stage (#105)` | Asserts the launch guard tests `stage == stream`, so `headless` does not spawn a viewer with no stream to show. |
 | `run_instance.sh: uses the shared validated host.yaml parser (#104)` | Asserts `resolve_public_ip` is used and the old permissive inline awk parser is gone. |
 
-## test/smoke/docker_env.bats (3)
+## test/smoke/bats/docker_env.bats (4)
 
 | Test | Description |
 |------|-------------|
 | `entrypoint.sh is installed and executable` | Entrypoint check |
 | `bash is available on PATH` | Shell sanity |
 | `fastdds.xml is baked at /isaac-sim/fastdds.xml and world-readable` | Fast DDS profile (UDPv4-only) shipped by this repo's Dockerfile, content sanity-checked for `useBuiltinTransports=false` |
+| `custom streaming kit experience baked at /isaac-sim/apps/ (issue #21 fix-B)` | The repo's custom streaming `.kit` experience file is baked into `/isaac-sim/apps/` so the stream stage launches it |
 
-## test/smoke/isaac_smoke.bats (7)
+## test/smoke/bats/isaac_smoke.bats (7)
 
 | Test | Description |
 |------|-------------|
@@ -56,7 +57,7 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `bundled ROS 2 humble + jazzy libs are both readable` | `librmw_fastrtps_cpp.so` present under both `humble/lib/` and `jazzy/lib/` — image carries both distros; the headless / stream shim picks one via `ARG ROS_DISTRO` |
 | `bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.11)` | `rclpy/` Python bindings present under both distros; kit-side `import rclpy` resolves to whichever the bridge extension activates |
 
-## test/smoke/isaac_ros_env_wrapper.bats (8)
+## test/smoke/bats/isaac_ros_env_wrapper.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -66,10 +67,23 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `wrapper exports LD_LIBRARY_PATH derived from ROS_DISTRO` | Wrapper exports `/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` |
 | `wrapper hard-overrides runtime ROS_DISTRO env` | `ROS_DISTRO=jazzy ./wrapper bash -c 'echo ROS_DISTRO'` still prints `humble` — runtime `-e` ineffective on headless / stream |
 | `wrapper passes args verbatim to wrapped command` | `./wrapper echo arg1 arg2 arg3` → `arg1 arg2 arg3` |
+| `wrapper appends publicEndpointAddress when PUBLIC_IP is set` | With `PUBLIC_IP` exported, the wrapper adds `--/app/livestream/publicEndpointAddress=<ip>` to the Kit args |
+| `wrapper does not append publicEndpointAddress when PUBLIC_IP is empty` | With no `PUBLIC_IP`, the wrapper omits the public-endpoint arg (localhost-only WebRTC) |
 | `devel stage ENV ROS_DISTRO is baked (soft)` | Devel interactive shell sees `ROS_DISTRO=humble` from Dockerfile `ENV` |
 | `devel stage ENV LD_LIBRARY_PATH points to baked humble lib` | Same — `ENV LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` interpolated at build time |
 
-## test/smoke/python_testing.bats (3)
+## test/smoke/bats/init_isaac_dirs_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `script-under-test is baked into the test stage` | `init_isaac_dirs.sh` is present in the devel-test image for the spec to exercise |
+| `fresh run creates all 10 namespaced dirs` | A clean run creates the full per-instance namespaced cache directory set |
+| `second run is idempotent (no error, no double-mkdir noise)` | Re-running does not error or re-create existing dirs |
+| `migration: pre-2026-05-21 layout is auto-moved to new namespaces` | Legacy cache layout is migrated into the namespaced layout |
+| `migration skips when destination already exists (no overwrite)` | Migration does not clobber an existing destination |
+| `missing .env errors with actionable message` | Absent `.env` produces a clear, actionable error |
+
+## test/smoke/bats/python_testing.bats (3)
 
 | Test | Description |
 |------|-------------|
