@@ -1,0 +1,7 @@
+# Declare custom self-hosted runner labels so actionlint stops warning
+# on `runs-on: [self-hosted, gpu]`. Per ADR-0011, the `gpu` label tags
+# the maintainer's GPU machine that runs smoke / integration jobs.
+self-hosted-runner:
+  labels:
+    - gpu
+    - isaac-sim

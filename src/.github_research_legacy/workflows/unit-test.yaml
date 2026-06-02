@@ -1,0 +1,55 @@
+name: Unit Tests
+
+# Per ADR-0011 + ADR-0013: workspace owns unit tests only. Smoke and
+# integration tests live in ycpss91255-docker/isaac (env-dependent,
+# run in devel-test container on self-hosted GPU). Unit tests under
+# test/unit/pytest/ are pure Python (pytest + pyyaml), no Isaac Sim
+# dependency, so they run on free GitHub-hosted runners.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-test:
+    name: pytest test/unit/pytest/
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml
+
+      - name: Discover and report tests
+        run: |
+          set -euo pipefail
+          # Per ycpss91255-docker/base#473 (Layout B: test/<category>/<tool>/),
+          # Python unit tests live under test/unit/pytest/. Other-tool unit
+          # tests would live in sibling subdirs (test/unit/bats/, etc.) and
+          # are exercised by their own runners.
+          if [ ! -d test/unit/pytest ]; then
+            echo "no test/unit/pytest/ directory — skipping (will become required once test files land)"
+            exit 0
+          fi
+          count=$(find test/unit/pytest -name 'test_*.py' | wc -l)
+          echo "test/unit/pytest/ contains $count test files"
+
+      - name: Run pytest
+        run: |
+          set -euo pipefail
+          if [ ! -d test/unit/pytest ]; then
+            echo "no test/unit/pytest/ directory — skip"
+            exit 0
+          fi
+          python -m pytest test/unit/pytest/ -v --tb=short

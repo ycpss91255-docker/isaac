@@ -1,0 +1,8 @@
+#usda 1.0
+(
+    subLayers = [@./omwr_geometry.usda@]
+)
+
+# Material overrides go here.
+# Use USD Variant Sets for color switching.
+# See ADR-0010 L2 Asset Structure for details.

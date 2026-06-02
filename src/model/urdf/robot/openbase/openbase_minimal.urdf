@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<!--
+  Minimal OpenBase URDF — base_link only (no rims, no rollers).
+
+  Source: 從 OpenBase 原 URDF (description.urdf) 抽出 base_link 完整 block,
+  其餘 32 個 link / 31 個 joint (3 rim + 24 roller + omni-wheel articulations)
+  全砍。理由: Isaac URDF importer 處理 OpenBase 完整 articulation 時,
+  PhysX 在 standalone python.sh 路徑下 update loop 起來 ~2s 後 hard segfault
+  (no actionable warning); 砍到 single rigid body 就過。
+
+  Use case: cmd_vel → set_rigid_body_linear_velocity(base) → 平面移動驗證。
+  Wheels / rollers 對 cmd_vel 平面移動本來就是 disable 的 (script `drive`
+  全關), 所以視覺裝飾外無功能損失。
+
+  B-Phase 真要 differential drive / mecanum 物理時再補完整 articulation
+  + 解 Isaac PhysX crash issue (可能要 file Isaac upstream issue)。
+-->
+<robot name="open_base">
+
+	<link name="base_link">
+
+		<inertial>
+			<mass value="0.07862944645"/>
+			<inertia
+				ixx="0.00002035985530754"
+				ixy="0"
+				ixz="0"
+				iyy="0.00002035985530754"
+				iyz="0"
+				izz="0.00003945961663220"
+			/>
+		</inertial>
+		<visual>
+			<geometry>
+				<mesh filename="package://open_base/mesh/base.stl"/>
+			</geometry>
+			<material name="base_material">
+				<color rgba="1 1 1 1"/>
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<mesh filename="package://open_base/mesh/base.stl"/>
+			</geometry>
+		</collision>
+
+	</link>
+
+</robot>

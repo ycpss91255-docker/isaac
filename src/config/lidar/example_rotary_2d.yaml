@@ -1,0 +1,19 @@
+# 2D LiDAR — NVIDIA Example_Rotary_2D
+# Built-in 2D rotary lidar profile shipped with Isaac Sim 5.1
+# Publishes sensor_msgs/LaserScan
+
+mount:
+  parent_prim: "/World/Robot/base_link"
+  pose:
+    xyz: [0.2, 0, 0.1]
+    rpy: [0, 0, 0]
+
+sensor:
+  category: lidar
+  type: lidar_2d
+  profile: "Example_Rotary_2D"
+
+ros:
+  topic_prefix: "/scan"
+  frame_id_prefix: "base_scan"
+  publish_type: "laser_scan"

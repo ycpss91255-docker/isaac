@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS TCPv4 CLIENT profile for a remote viewer (nb).
+  Connects to the Isaac server's TCP listener (10.2.23.83:42100) so large
+  images arrive reliably over TCP instead of being dropped as lost UDP
+  fragments across the subnet. Pair with fastdds_tcp_server.xml on the server.
+  Apply via: FASTRTPS_DEFAULT_PROFILES_FILE=<this file>.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>tcp_client</transport_id>
+      <type>TCPv4</type>
+      <calculate_crc>false</calculate_crc>
+      <check_crc>false</check_crc>
+      <enable_tcp_nodelay>true</enable_tcp_nodelay>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="default_xml_profile" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>tcp_client</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <builtin>
+        <initialPeersList>
+          <locator>
+            <tcpv4>
+              <address>10.2.23.83</address>
+              <physical_port>42100</physical_port>
+            </tcpv4>
+          </locator>
+        </initialPeersList>
+      </builtin>
+    </rtps>
+  </participant>
+</profiles>

@@ -1,0 +1,51 @@
+# Stereolabs ZED X sim camera for forklift between-fork mount.
+# Uses Stereolabs's official Isaac Sim extension (third-party, not bundled).
+# Install instructions: doc/zed_install.md.
+#
+# This config is the schema target for PR-3 of #6. Runtime verification
+# requires the Stereolabs extension to be built + loaded into Isaac Sim
+# first (see SOP). Without it, the driver dispatch raises a clear error
+# pointing at the SOP doc.
+#
+# Schema rules: doc/adr/0006-per-sensor-yaml-camera-config.md
+
+# mount = camera_link analog (device body center, attached to parent_prim).
+# Pose is RELATIVE to parent_prim.
+mount:
+  parent_prim: "/World/Forklift/carriage"
+  pose:
+    xyz: [0.55, 0.0, 0.0]      # meters (RHS XYZ)
+    rpy: [0.0, -5.0, 0.0]      # degrees (URDF roll/pitch/yaw around X/Y/Z)
+
+sensor:
+  category: camera
+  type: zed
+  # The Stereolabs Isaac Sim extension exposes the ZED X USD asset under
+  # the Isaac Assets tab after the extension is enabled. The exact USD
+  # path depends on where the extension was installed; the driver looks
+  # up the prim via the model name + Stereolabs ext API rather than this
+  # raw path. The asset_path field below is informational + a fallback
+  # for users who want to reference the USD manually.
+  asset_path: "/exts/sl.sensor.camera/data/zed_x.usd"
+  # Stereolabs supports multiple ZED models; the extension USD typically
+  # has all of them with parameterised prims. Pick which one to spawn.
+  # Known values: zed_x (officially supported in extension as of writing).
+  model: zed_x
+
+# Stereolabs SDK-style configuration. The extension consumes these via
+# its own OmniGraph node (NOT the standard Isaac Sim Camera Helper),
+# so the override schema here mirrors the SDK config names rather than
+# the (width, height, fps) tuples that realsense / custom use.
+overrides:
+  resolution: HD720            # ZED preset: HD2K / HD1080 / HD720 / VGA
+  depth_mode: NEURAL           # ZED SDK depth mode (NEURAL / ULTRA / QUALITY / PERFORMANCE)
+  fps: 30
+
+# ROS 2 output. The Stereolabs publisher prepends its own ZED-side
+# topic structure under topic_prefix; expected end topics include
+# <topic_prefix>/left/image_rect_color, <topic_prefix>/depth/depth_registered,
+# <topic_prefix>/left/camera_info, etc. See the Stereolabs ROS 2 wrapper
+# docs for the exact tree.
+ros:
+  topic_prefix: "/forklift/camera"
+  frame_id_prefix: "forklift_camera"
