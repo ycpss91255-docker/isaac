@@ -201,6 +201,9 @@ COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-w
 # --/app/livestream/publicEndpointAddress without host-side YAML
 # parsing. See doc/ for the host.yaml schema.
 COPY --chmod=0755 script/runheadless-host-config.sh /usr/local/bin/runheadless-host-config.sh
+# Shared host.yaml parser sourced by the wrapper above (and by host-side
+# run_instance.sh from the repo tree) -- single source of truth (#104).
+COPY --chmod=0755 script/host_yaml.sh /usr/local/lib/host_yaml.sh
 
 USER "${USER}"
 
@@ -316,6 +319,8 @@ COPY Makefile.local /smoke_test/Makefile.local
 # run_instance_spec.bats can guard the two bugs that produced
 # silent failures (Isaac exitCode=2, viewer white screen).
 COPY script/run_instance.sh /smoke_test/run_instance.sh
+# [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
+COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 
 ARG USER
 USER "${USER}"

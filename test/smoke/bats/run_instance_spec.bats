@@ -58,8 +58,45 @@ setup() {
   echo "${body}" | grep -qE 'SIGNALING_SERVER=.*\$\{?public_ip\}?'
 }
 
-@test "run_instance.sh: web-viewer launched in stream-only auto-launch (#79)" {
+# Extract the _start_web_viewer function body once for the structural
+# assertions below (avoids whole-file greps that pass on a comment or a
+# stale string outside the docker run -- #107).
+_wv_body() {
+  awk '
+    /^_start_web_viewer\(\)/ { in_fn = 1 }
+    in_fn { print }
+    in_fn && /^\}/ { exit }
+  ' "${RUN_INSTANCE}"
+}
+
+@test "run_instance.sh: VIEWER_* passed as -e flags inside _start_web_viewer (#79/#107)" {
   assert_file_exists "${RUN_INSTANCE}"
-  grep -q "VIEWER_UI_MODE=stream-only" "${RUN_INSTANCE}"
-  grep -q "VIEWER_AUTO_LAUNCH=true" "${RUN_INSTANCE}"
+  body="$(_wv_body)"
+  # Must be -e FLAG=VALUE args, not a bare string elsewhere in the file.
+  echo "${body}" | grep -qE '[-]e[[:space:]]+"?VIEWER_UI_MODE=stream-only"?'
+  echo "${body}" | grep -qE '[-]e[[:space:]]+"?VIEWER_AUTO_LAUNCH=true"?'
+  # Negative guard: the opposite (usd-viewer / false) must NOT appear.
+  ! echo "${body}" | grep -qE 'VIEWER_UI_MODE=usd-viewer'
+  ! echo "${body}" | grep -qE 'VIEWER_AUTO_LAUNCH=false'
+}
+
+@test "run_instance.sh: _start_web_viewer removes a stale container first (#105)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  body="$(_wv_body)"
+  # docker rm -f on the viewer container before docker run -- idempotent re-run.
+  echo "${body}" | grep -qE 'docker rm -f[[:space:]]+"?\$\{?WV_CONTAINER\}?"?'
+}
+
+@test "run_instance.sh: web-viewer launch is gated on the stream stage (#105)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  # The guard around the _start_web_viewer call must test stage == stream
+  # (or skip non-stream), so headless does not spawn a viewer.
+  grep -qE '\$\{?stage\}?"?[[:space:]]*(!=|==)[[:space:]]*"?stream' "${RUN_INSTANCE}"
+}
+
+@test "run_instance.sh: uses the shared validated host.yaml parser (#104)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  grep -q "resolve_public_ip" "${RUN_INSTANCE}"
+  # The old permissive inline awk parser must be gone.
+  ! grep -qE "awk -F': \\*'.*public_ip" "${RUN_INSTANCE}"
 }

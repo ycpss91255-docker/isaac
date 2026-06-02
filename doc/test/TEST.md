@@ -1,6 +1,6 @@
 # TEST.md
 
-**27 tests** total.
+**47 tests** total.
 
 ## test/smoke/bats/makefile_local_spec.bats (3)
 
@@ -8,15 +8,33 @@
 |------|-------------|
 | `Makefile.local: no /proc/1/fd/ redirect under pid=host (#75)` | Asserts `Makefile.local` does not redirect to the literal `/proc/1/fd/*`. Under `pid=host` that path points at host systemd, fails with EPERM, leaves `docker logs` empty. |
 | `Makefile.local: redirect resolves container PID 1 via State.Pid (#75)` | Asserts `Makefile.local` resolves `CONTAINER_PID1` via `docker inspect --format '{{.State.Pid}}'` so the FD redirect lands in the container's docker logs pipe. |
-| `Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79)` | Asserts `run-stream` passes `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` to the viewer container so it boots straight into the stream. |
+| `Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79/#107)` | Asserts `run-stream` passes `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` as `-e` flags (not a bare string) and that the opposite values are not wired. |
 
-## test/smoke/bats/run_instance_spec.bats (3)
+## test/smoke/bats/host_yaml_spec.bats (8)
+
+Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_instance.sh` and `runheadless-host-config.sh` (#104).
+
+| Test | Description |
+|------|-------------|
+| `host_yaml: clean quoted value` | A quoted IPv4 is returned verbatim. |
+| `host_yaml: strips a trailing inline comment (#104)` | `public_ip: "1.2.3.4"  # note` yields `1.2.3.4`, not the comment. |
+| `host_yaml: trims whitespace on an unquoted value` | Leading/trailing whitespace is removed. |
+| `host_yaml: accepts a hostname` | A DNS hostname passes validation. |
+| `host_yaml: absent file -> empty, rc 0` | A missing file resolves to empty (localhost-only), no error. |
+| `host_yaml: key absent -> empty, no warning` | A file without `public_ip` resolves to empty with no warning. |
+| `host_yaml: key present but empty -> empty value + warning (#104)` | Distinguishes "not configured" from "configured but unparseable" -- warns on stderr. |
+| `host_yaml: invalid value (metacharacters) -> rc 1 + error (#104)` | A value with illegal characters fails fast with an error instead of passing garbage to Kit / the viewer. |
+
+## test/smoke/bats/run_instance_spec.bats (6)
 
 | Test | Description |
 |------|-------------|
 | `run_instance.sh: kit_args starts with /isaac-sim/runheadless.sh (#81 bug A)` | Asserts the first non-flag token in the `kit_args` array literal is `/isaac-sim/runheadless.sh`. Without the prefix the image entrypoint (`exec "$@"`) eats `-v` as its own flag and the Isaac container dies with `exitCode=2 / execDuration=0`. |
 | `run_instance.sh: _start_web_viewer passes SIGNALING_SERVER env (#81 bug B)` | Asserts `_start_web_viewer` passes `-e SIGNALING_SERVER=${public_ip}` to the viewer container. Defense in depth so the viewer JS bundle gets the right host IP even if the locally cached `owv:runtime` image is older than `omniverse_web_viewer#12` (the entrypoint that reads `/etc/host.yaml`). |
-| `run_instance.sh: web-viewer launched in stream-only auto-launch (#79)` | Asserts `_start_web_viewer` passes `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` so multi-instance viewers also boot straight into the stream. |
+| `run_instance.sh: VIEWER_* passed as -e flags inside _start_web_viewer (#79/#107)` | Structural check: both `VIEWER_*` appear as `-e` flags within the `_start_web_viewer` body, and the opposite values do not. |
+| `run_instance.sh: _start_web_viewer removes a stale container first (#105)` | Asserts `docker rm -f "${WV_CONTAINER}"` runs before `docker run` so a re-run does not hit a name conflict. |
+| `run_instance.sh: web-viewer launch is gated on the stream stage (#105)` | Asserts the launch guard tests `stage == stream`, so `headless` does not spawn a viewer with no stream to show. |
+| `run_instance.sh: uses the shared validated host.yaml parser (#104)` | Asserts `resolve_public_ip` is used and the old permissive inline awk parser is gone. |
 
 ## test/smoke/docker_env.bats (3)
 

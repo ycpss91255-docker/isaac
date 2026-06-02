@@ -33,8 +33,13 @@ setup() {
   grep -q "State\.Pid" "${MAKEFILE_LOCAL}"
 }
 
-@test "Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79)" {
+@test "Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79/#107)" {
   assert_file_exists "${MAKEFILE_LOCAL}"
-  grep -q "VIEWER_UI_MODE=stream-only" "${MAKEFILE_LOCAL}"
-  grep -q "VIEWER_AUTO_LAUNCH=true" "${MAKEFILE_LOCAL}"
+  # Must be -e FLAG=VALUE args to the viewer docker run, not a bare string
+  # in a comment or elsewhere (#107).
+  grep -qE '[-]e[[:space:]]+VIEWER_UI_MODE=stream-only' "${MAKEFILE_LOCAL}"
+  grep -qE '[-]e[[:space:]]+VIEWER_AUTO_LAUNCH=true' "${MAKEFILE_LOCAL}"
+  # Negative guard: the opposite values must not be wired.
+  ! grep -qE '[-]e[[:space:]]+VIEWER_UI_MODE=usd-viewer' "${MAKEFILE_LOCAL}"
+  ! grep -qE '[-]e[[:space:]]+VIEWER_AUTO_LAUNCH=false' "${MAKEFILE_LOCAL}"
 }
