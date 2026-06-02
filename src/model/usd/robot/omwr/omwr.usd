@@ -1,0 +1,8 @@
+#usda 1.0
+(
+    subLayers = [@./omwr_material.usda@]
+)
+
+# Root composition file.
+# Sublayer chain: root -> material -> geometry
+# Scene YAML points to this file.

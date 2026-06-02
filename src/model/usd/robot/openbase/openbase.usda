@@ -1,0 +1,49 @@
+#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "open_base" (
+    variants = {
+        string Physics = "PhysX"
+        string Robot = "Robot"
+        string Sensor = "Sensors"
+    }
+    prepend variantSets = ["Physics", "Sensor", "Robot"]
+)
+{
+    variantSet "Physics" = {
+        "None" (
+            prepend references = @configuration/openbase_base.usd@
+        ) {
+
+        }
+        "PhysX" (
+            prepend payload = @configuration/openbase_physics.usd@
+        ) {
+
+        }
+    }
+    variantSet "Sensor" = {
+        "None" {
+
+        }
+        "Sensors" (
+            prepend payload = @configuration/openbase_sensor.usd@
+        ) {
+
+        }
+    }
+    variantSet "Robot" = {
+        "None" {
+
+        }
+        "Robot" (
+            prepend payload = @configuration/openbase_robot.usd@
+        ) {
+
+        }
+    }
+}
+
