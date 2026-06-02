@@ -60,7 +60,7 @@ make -f Makefile.local run-stream
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # Open Chrome -> http://<host-ip>:5173
-# Select "UI for any streaming app" -> Next
+# Boots straight into the live stream (stream-only auto-launch; no UI Option screen)
 
 # Stop everything
 make -f Makefile.local stop-stream
