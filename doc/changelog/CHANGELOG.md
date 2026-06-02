@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Bundled web-viewer now defaults to stream-only auto-launch (closes #79). `run-stream` (Makefile.local) and `run_instance.sh` pass `-e VIEWER_UI_MODE=stream-only -e VIEWER_AUTO_LAUNCH=true` to the viewer container, so the browser boots straight into the Isaac stream with no "UI Option" selection screen. `public_ip` still comes from `config/host.yaml`. Requires the `web_viewer/` submodule at omniverse_web_viewer#14 (pointer bumped). Regression guarded by `makefile_local_spec.bats` / `run_instance_spec.bats`.
+
 ### Fixed
 - `script/run_instance.sh`: two compounding bugs that produced a working-looking output ("Container started", "Web-viewer started") while the Isaac container had already died with `exitCode=2 / execDuration=0` and the browser showed a white screen (closes #81).
   - **Bug A**: `kit_args` array used to start with `-v`. The image entrypoint is `exec "$@"`, so the bash exec builtin treated `-v` as its own verbose flag and the container died before Isaac was invoked. Fix: prepend `/isaac-sim/runheadless.sh` to `kit_args`, mirroring what `Makefile.local`'s `run-stream` exec does from the other direction.

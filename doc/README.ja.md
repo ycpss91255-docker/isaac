@@ -61,7 +61,7 @@ make -f Makefile.local run-stream
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # Chrome -> http://<host-ip>:5173 を開く
-# "UI for any streaming app" を選択 -> Next
+# そのまま映像ストリームが起動します（stream-only 自動起動。UI Option 選択画面なし）
 
 # 停止
 make -f Makefile.local stop-stream

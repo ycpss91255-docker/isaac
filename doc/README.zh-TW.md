@@ -61,7 +61,7 @@ make -f Makefile.local run-stream
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # 開啟 Chrome -> http://<host-ip>:5173
-# 選擇 "UI for any streaming app" -> Next
+# 直接進入即時串流（stream-only 自動啟動，不顯示 UI Option 選單）
 
 # 收掉
 make -f Makefile.local stop-stream
