@@ -173,18 +173,26 @@ _start_web_viewer() {
     -e "VIEWER_AUTO_LAUNCH=true" \
     "${WV_IMAGE}" >/dev/null
 
-  echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${public_ip:-localhost}:${VIEWER_PORT}"
+  if [[ -n "${public_ip}" ]]; then
+    echo "[run_instance] Web-viewer '${WV_CONTAINER}' started (remote-ready) at http://${public_ip}:${VIEWER_PORT}"
+  else
+    echo "[run_instance] Web-viewer '${WV_CONTAINER}' started (localhost only) at http://localhost:${VIEWER_PORT}"
+    echo "[run_instance]   For remote access, set network.public_ip in config/host.yaml."
+  fi
 }
 
 # Web-viewer connects to the WebRTC stream, so it only makes sense on the
 # stream stage; headless has no stream to show (#105).
 if [[ "${stage}" != "stream" ]]; then
   echo "[run_instance] stage '${stage}' is not 'stream' — skipping web-viewer."
-elif [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]]; then
+elif [[ -d "${WV_DIR}" ]] && [[ -f "${WV_DIR}/Dockerfile" ]] && [[ -d "${WV_DIR}/.base" ]]; then
   _start_web_viewer &
 else
-  echo "[run_instance] web_viewer/ submodule not found — skipping web-viewer."
-  echo "  Run: git submodule update --init web_viewer"
+  # Dir + Dockerfile alone can pass for a shallow / non-recursive checkout
+  # whose nested .base/ is missing -- the viewer Dockerfile COPYs from
+  # .base/, so docker build would fail later. Require .base/ too (#109).
+  echo "[run_instance] web_viewer/ submodule missing or not fully initialized — skipping web-viewer."
+  echo "  Run: git submodule update --init --recursive web_viewer"
 fi
 
 echo "[run_instance] Wait for 'is loaded' then open browser at :${VIEWER_PORT}"

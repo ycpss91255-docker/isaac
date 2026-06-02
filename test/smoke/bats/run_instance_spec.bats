@@ -100,3 +100,18 @@ _wv_body() {
   # The old permissive inline awk parser must be gone.
   ! grep -qE "awk -F': \\*'.*public_ip" "${RUN_INSTANCE}"
 }
+
+@test "run_instance.sh: success message distinguishes remote vs localhost-only (#108)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  body="$(_wv_body)"
+  echo "${body}" | grep -qiE 'remote'
+  echo "${body}" | grep -qiE 'localhost only'
+  # localhost-only branch points the user at host.yaml public_ip.
+  echo "${body}" | grep -q 'config/host.yaml'
+}
+
+@test "run_instance.sh: viewer guard also requires an initialized .base (#109)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  grep -qE '\$\{?WV_DIR\}?/\.base' "${RUN_INSTANCE}"
+  grep -q "submodule update --init --recursive" "${RUN_INSTANCE}"
+}

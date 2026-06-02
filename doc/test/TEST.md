@@ -1,14 +1,17 @@
 # TEST.md
 
-**47 tests** total.
+**52 tests** total.
 
-## test/smoke/bats/makefile_local_spec.bats (3)
+## test/smoke/bats/makefile_local_spec.bats (6)
 
 | Test | Description |
 |------|-------------|
 | `Makefile.local: no /proc/1/fd/ redirect under pid=host (#75)` | Asserts `Makefile.local` does not redirect to the literal `/proc/1/fd/*`. Under `pid=host` that path points at host systemd, fails with EPERM, leaves `docker logs` empty. |
 | `Makefile.local: redirect resolves container PID 1 via State.Pid (#75)` | Asserts `Makefile.local` resolves `CONTAINER_PID1` via `docker inspect --format '{{.State.Pid}}'` so the FD redirect lands in the container's docker logs pipe. |
 | `Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79/#107)` | Asserts `run-stream` passes `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` as `-e` flags (not a bare string) and that the opposite values are not wired. |
+| `Makefile.local: host.yaml-absent message is functional, not Kit jargon (#108)` | The no-host.yaml message says remote browser access will not work (no `skip publicEndpointAddress` Kit jargon). |
+| `Makefile.local: run-stream output includes a firewall hint (#108)` | run-stream output mentions firewall + ports 8011 / 49100. |
+| `Makefile.local: HOST_YAML resolves relative to the makefile dir (#109)` | `HOST_YAML` is derived from `$(SELF_DIR)` (via `MAKEFILE_LIST`), not the CWD. |
 
 ## test/smoke/bats/host_yaml_spec.bats (8)
 
@@ -25,7 +28,7 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `host_yaml: key present but empty -> empty value + warning (#104)` | Distinguishes "not configured" from "configured but unparseable" -- warns on stderr. |
 | `host_yaml: invalid value (metacharacters) -> rc 1 + error (#104)` | A value with illegal characters fails fast with an error instead of passing garbage to Kit / the viewer. |
 
-## test/smoke/bats/run_instance_spec.bats (6)
+## test/smoke/bats/run_instance_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
@@ -35,6 +38,8 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `run_instance.sh: _start_web_viewer removes a stale container first (#105)` | Asserts `docker rm -f "${WV_CONTAINER}"` runs before `docker run` so a re-run does not hit a name conflict. |
 | `run_instance.sh: web-viewer launch is gated on the stream stage (#105)` | Asserts the launch guard tests `stage == stream`, so `headless` does not spawn a viewer with no stream to show. |
 | `run_instance.sh: uses the shared validated host.yaml parser (#104)` | Asserts `resolve_public_ip` is used and the old permissive inline awk parser is gone. |
+| `run_instance.sh: success message distinguishes remote vs localhost-only (#108)` | The viewer success line has a remote-ready branch and a localhost-only branch that points at `config/host.yaml`. |
+| `run_instance.sh: viewer guard also requires an initialized .base (#109)` | The launch guard also checks `WV_DIR/.base` and the error suggests `--init --recursive`, so a shallow submodule does not reach a failing docker build. |
 
 ## test/smoke/bats/docker_env.bats (4)
 
