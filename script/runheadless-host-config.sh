@@ -9,11 +9,13 @@
 # Lives in /usr/local/bin/ (COPY'd by Dockerfile devel stage).
 set -euo pipefail
 
-PUBLIC_IP=""
-if [ -f /etc/host.yaml ]; then
-  PUBLIC_IP=$(awk -F': *' '/^[[:space:]]*public_ip:/{gsub(/"/,""); print $2}' \
-    /etc/host.yaml 2>/dev/null || true)
-fi
+# Shared, validated parser (strips inline comments, rejects garbage) so
+# this container-side wrapper and host-side run_instance.sh never drift
+# (#104). COPY'd next to this script by the Dockerfile devel stage.
+# shellcheck source=host_yaml.sh
+. /usr/local/lib/host_yaml.sh
+
+PUBLIC_IP="$(resolve_public_ip /etc/host.yaml)" || exit 1
 
 if [ -n "${PUBLIC_IP}" ]; then
   exec /isaac-sim/runheadless.sh -v \
