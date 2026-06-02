@@ -32,3 +32,9 @@ setup() {
   grep -q "CONTAINER_PID1" "${MAKEFILE_LOCAL}"
   grep -q "State\.Pid" "${MAKEFILE_LOCAL}"
 }
+
+@test "Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79)" {
+  assert_file_exists "${MAKEFILE_LOCAL}"
+  grep -q "VIEWER_UI_MODE=stream-only" "${MAKEFILE_LOCAL}"
+  grep -q "VIEWER_AUTO_LAUNCH=true" "${MAKEFILE_LOCAL}"
+}
