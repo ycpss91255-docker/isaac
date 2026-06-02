@@ -185,8 +185,10 @@ Multiple Isaac Sim instances can run on the same GPU. Each instance gets isolate
 # ... wait for "is loaded" ...
 ./script/run_instance.sh factory stream
 
-# Exec driver scripts into a specific instance
-make exec -- -t stream-warehouse /isaac-sim/python.sh <script>
+# Exec driver scripts into a specific instance. `-t` selects a Dockerfile
+# stage, not an instance; multi-instance containers are named isaac-<id>,
+# so exec into them directly:
+docker exec isaac-warehouse /isaac-sim/python.sh <script>
 
 # Tear down
 ./script/stop_instance.sh warehouse
@@ -197,14 +199,14 @@ make exec -- -t stream-warehouse /isaac-sim/python.sh <script>
 
 Each instance is assigned a unique set of ports. Default allocation in `config/instances/<id>.env`:
 
-| Port | Purpose | Instance 1 (default) | Instance 2 |
-|------|---------|---------------------|------------|
-| Signal | NVCF signaling (FastAPI) | 8011 | 8021 |
-| Media | Self-host WebRTC | 49100 | 49200 |
-| API | Kit API / streaming viewer | 8211 | 8221 |
-| Viewer | omniverse_web_viewer | 8111 | 8121 |
+| Port | Purpose | Instance 1 (default) | Instance 2 | Step |
+|------|---------|---------------------|------------|------|
+| Signal | NVCF livestream signaling (`--/app/livestream/port`) | 49100 | 49200 | +100 |
+| Media | WebRTC media (`--/app/livestream/fixedHostPort`) | 47998 | 48098 | +100 |
+| API | Kit HTTP API (`--/exts/omni.services.transport.server.http/port`) | 8011 | 8012 | +1 |
+| Viewer | omniverse_web_viewer (`SERVE_PORT`) | 5173 | 5174 | +1 |
 
-Adjust ports in `config/instances/<id>.env` if the defaults conflict with other services.
+Values come from `script/init_instance.sh` (`signal=49100+offset*100`, `media=47998+offset*100`, `api=8011+offset`, `viewer=5173+offset`) and are written to `config/docker/instances/<id>.env`. Adjust there if the defaults conflict with other services.
 
 ### Cache isolation
 
