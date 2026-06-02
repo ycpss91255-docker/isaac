@@ -56,6 +56,8 @@ run-stream: ## Start Isaac stream + Isaac Sim + web-viewer
 	  $(WV_MOUNT_HOST_YAML) \
 	  -e SIGNALING_PORT=49100 \
 	  -e SERVE_PORT=5173 \
+	  -e VIEWER_UI_MODE=stream-only \
+	  -e VIEWER_AUTO_LAUNCH=true \
 	  "$(WV_IMAGE)" >/dev/null
 	@echo "[run-stream] Web-viewer started on port 5173."
 	@echo "[run-stream] Wait for 'is loaded' (docker logs -f $(ISAAC_CONTAINER))"

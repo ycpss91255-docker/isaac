@@ -57,3 +57,9 @@ setup() {
   ' "${RUN_INSTANCE}")
   echo "${body}" | grep -qE 'SIGNALING_SERVER=.*\$\{?public_ip\}?'
 }
+
+@test "run_instance.sh: web-viewer launched in stream-only auto-launch (#79)" {
+  assert_file_exists "${RUN_INSTANCE}"
+  grep -q "VIEWER_UI_MODE=stream-only" "${RUN_INSTANCE}"
+  grep -q "VIEWER_AUTO_LAUNCH=true" "${RUN_INSTANCE}"
+}

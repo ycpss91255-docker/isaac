@@ -161,6 +161,8 @@ _start_web_viewer() {
     "${signaling_server_env[@]}" \
     -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
     -e "SERVE_PORT=${VIEWER_PORT}" \
+    -e "VIEWER_UI_MODE=stream-only" \
+    -e "VIEWER_AUTO_LAUNCH=true" \
     "${WV_IMAGE}" >/dev/null
 
   echo "[run_instance] Web-viewer '${WV_CONTAINER}' started at http://${public_ip:-localhost}:${VIEWER_PORT}"
