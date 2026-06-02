@@ -43,3 +43,23 @@ setup() {
   ! grep -qE '[-]e[[:space:]]+VIEWER_UI_MODE=usd-viewer' "${MAKEFILE_LOCAL}"
   ! grep -qE '[-]e[[:space:]]+VIEWER_AUTO_LAUNCH=false' "${MAKEFILE_LOCAL}"
 }
+
+@test "Makefile.local: host.yaml-absent message is functional, not Kit jargon (#108)" {
+  assert_file_exists "${MAKEFILE_LOCAL}"
+  grep -q "remote browser access will not work" "${MAKEFILE_LOCAL}"
+  # The Kit-internal term is no longer surfaced to users.
+  ! grep -q "skip publicEndpointAddress" "${MAKEFILE_LOCAL}"
+}
+
+@test "Makefile.local: run-stream output includes a firewall hint (#108)" {
+  assert_file_exists "${MAKEFILE_LOCAL}"
+  grep -qiE 'firewall' "${MAKEFILE_LOCAL}"
+  grep -qE '8011' "${MAKEFILE_LOCAL}"
+  grep -qE '49100' "${MAKEFILE_LOCAL}"
+}
+
+@test "Makefile.local: HOST_YAML resolves relative to the makefile dir (#109)" {
+  assert_file_exists "${MAKEFILE_LOCAL}"
+  grep -q "MAKEFILE_LIST" "${MAKEFILE_LOCAL}"
+  grep -qE 'HOST_YAML[[:space:]]*:?=[[:space:]]*\$\(SELF_DIR\)' "${MAKEFILE_LOCAL}"
+}

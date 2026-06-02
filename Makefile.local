@@ -1,3 +1,9 @@
+# This file's own directory, captured before `include` appends to
+# MAKEFILE_LIST. Used so config paths resolve relative to the repo, not
+# the caller's CWD (#109). The recipes still expect to run from the docker
+# repo root (they call ./script/*.sh); this only hardens the host.yaml path.
+SELF_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
 include Makefile
 
 # stream stage (#28) idles on start (CMD = sleep infinity) —
@@ -24,7 +30,7 @@ include Makefile
 ISAAC_CONTAINER := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-$${IMAGE_NAME}-stream")
 WV_IMAGE := $(shell . ./.env 2>/dev/null && echo "$${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve")
 WV_NAME := $(shell . ./.env 2>/dev/null && echo "$${USER_NAME}-omniverse_web_viewer-serve")
-HOST_YAML := config/host.yaml
+HOST_YAML := $(SELF_DIR)/config/host.yaml
 WV_MOUNT_HOST_YAML := $(if $(wildcard $(HOST_YAML)),-v $(abspath $(HOST_YAML)):/etc/host.yaml:ro,)
 
 .PHONY: run-stream stop-stream
@@ -35,8 +41,8 @@ run-stream: ## Start Isaac stream + Isaac Sim + web-viewer
 	  docker cp "$(HOST_YAML)" "$(ISAAC_CONTAINER):/etc/host.yaml"; \
 	  echo "[run-stream] Copied $(HOST_YAML) -> $(ISAAC_CONTAINER):/etc/host.yaml"; \
 	else \
-	  echo "[run-stream] No $(HOST_YAML) — Isaac will skip publicEndpointAddress."; \
-	  echo "[run-stream] Copy $(HOST_YAML).example to $(HOST_YAML) and fill network.public_ip for remote browser access."; \
+	  echo "[run-stream] No $(HOST_YAML) — remote browser access will not work (localhost only)."; \
+	  echo "[run-stream] For remote access: copy $(HOST_YAML).example to $(HOST_YAML) and set network.public_ip to this host's LAN IP."; \
 	fi
 	@if docker exec "$(ISAAC_CONTAINER)" pgrep -f /isaac-sim/kit/kit >/dev/null 2>&1; then \
 	  echo "[run-stream] Isaac Sim already running in '$(ISAAC_CONTAINER)', skipping exec."; \
@@ -60,6 +66,7 @@ run-stream: ## Start Isaac stream + Isaac Sim + web-viewer
 	  -e VIEWER_AUTO_LAUNCH=true \
 	  "$(WV_IMAGE)" >/dev/null
 	@echo "[run-stream] Web-viewer started on port 5173."
+	@echo "[run-stream] Behind a firewall? Allow TCP 8011 (signaling) + 49100 (WebRTC), e.g. sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp"
 	@echo "[run-stream] Wait for 'is loaded' (docker logs -f $(ISAAC_CONTAINER))"
 
 stop-stream: ## Stop web-viewer + Isaac stream
