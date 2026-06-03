@@ -97,7 +97,7 @@ Bridge extension `isaacsim.ros2.bridge` 透過預設 kit experience（`isaacsim.
 
 ### Distro 選擇（build-time、hard-baked）
 
-Dockerfile 的 `ARG ROS_DISTRO=humble` 接到 `setup.conf [build]`。Build 時值會被寫進 `/etc/isaac/ros-distro`，且 `script/isaac-ros-env-wrapper.sh` 會 install 到 `/usr/local/bin/`。`headless` 與 `gui` 兩個 stage 把 `ENTRYPOINT` 設成這個 wrapper — 每次 container 啟動時 wrapper 從 baked file 讀取並無條件 re-export `ROS_DISTRO` 與 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，因此 production paths 上的 runtime `-e ROS_DISTRO=...` flag **無效**。
+Dockerfile 的 `ARG ROS_DISTRO=humble` 接到 `setup.conf [build]`。Build 時值會被寫進 `/etc/isaac/ros-distro`，且 `script/isaac-ros-env-wrapper.sh` 會 install 到 `/usr/local/bin/`。`headless` 與 `stream` 兩個 stage 把 `ENTRYPOINT` 設成這個 wrapper — 每次 container 啟動時 wrapper 從 baked file 讀取並無條件 re-export `ROS_DISTRO` 與 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib`，因此 production paths 上的 runtime `-e ROS_DISTRO=...` flag **無效**。
 
 `devel` stage 透過 Dockerfile `ENV` soft-bake 同樣兩個值（互動 shell 預設拿到，devs 仍可 `export ROS_DISTRO=...` 實驗）。
 
