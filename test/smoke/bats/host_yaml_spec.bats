@@ -23,23 +23,23 @@ teardown() {
 }
 
 @test "host_yaml: clean quoted value" {
-  printf 'network:\n  public_ip: "10.2.23.83"\n' > "${YAML}"
+  printf 'network:\n  public_ip: "127.0.0.1"\n' > "${YAML}"
   run --separate-stderr resolve_public_ip "${YAML}"
   [ "$status" -eq 0 ]
-  [ "${output}" = "10.2.23.83" ]
+  [ "${output}" = "127.0.0.1" ]
 }
 
 @test "host_yaml: strips a trailing inline comment (#104)" {
-  printf 'network:\n  public_ip: "10.2.23.83"  # host IP\n' > "${YAML}"
+  printf 'network:\n  public_ip: "127.0.0.1"  # host IP\n' > "${YAML}"
   run --separate-stderr resolve_public_ip "${YAML}"
   [ "$status" -eq 0 ]
-  [ "${output}" = "10.2.23.83" ]
+  [ "${output}" = "127.0.0.1" ]
 }
 
 @test "host_yaml: trims whitespace on an unquoted value" {
-  printf 'network:\n  public_ip:   10.2.23.83   \n' > "${YAML}"
+  printf 'network:\n  public_ip:   127.0.0.1   \n' > "${YAML}"
   run --separate-stderr resolve_public_ip "${YAML}"
-  [ "${output}" = "10.2.23.83" ]
+  [ "${output}" = "127.0.0.1" ]
 }
 
 @test "host_yaml: accepts a hostname" {
