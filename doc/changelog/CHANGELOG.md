@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Bundled `web_viewer` submodule bumped `a649dc8` -> `4594bb5` (omniverse_web_viewer #17 + #15). The viewer entrypoint now validates every config value and fails fast on bad input, strips inline `# comments` from `host.yaml`, and re-renders the served bundle from pristine templates on every boot (idempotent -- a `docker restart` or changed env / host.yaml is picked up next start, instead of the old one-shot in-place edit). An embeddable stream demo (`examples/embedded-site-demo`, served on 8080) is also now available in the submodule. Backward-compatible for `run-stream` / `run_instance.sh` (precedence host.yaml > env > default unchanged); a fresh `git submodule update --init` now checks out this entrypoint.
+
 ### Added
 - Bundled web-viewer now defaults to stream-only auto-launch (closes #79). `run-stream` (Makefile.local) and `run_instance.sh` pass `-e VIEWER_UI_MODE=stream-only -e VIEWER_AUTO_LAUNCH=true` to the viewer container, so the browser boots straight into the Isaac stream with no "UI Option" selection screen. `public_ip` still comes from `config/host.yaml`. Requires the `web_viewer/` submodule at omniverse_web_viewer#14 (pointer bumped). Regression guarded by `makefile_local_spec.bats` / `run_instance_spec.bats`.
 
