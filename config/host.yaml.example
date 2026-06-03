@@ -7,6 +7,6 @@
 
 network:
   # Host LAN IP for WebRTC ICE candidates. 127.0.0.1 = localhost-only browser
-  # access. Change to this machine's LAN IP (e.g. "10.2.23.83") for remote
+  # access. Change to this machine's LAN IP (e.g. "192.168.50.1") for remote
   # browser access from another machine on the same network.
   public_ip: "127.0.0.1"

@@ -45,9 +45,9 @@ setup() {
 }
 
 @test "wrapper appends publicEndpointAddress when PUBLIC_IP is set" {
-  PUBLIC_IP=10.2.23.83 run /usr/local/bin/isaac-ros-env-wrapper.sh echo -v
+  PUBLIC_IP=127.0.0.1 run /usr/local/bin/isaac-ros-env-wrapper.sh echo -v
   assert_success
-  assert_output "-v --/app/livestream/publicEndpointAddress=10.2.23.83"
+  assert_output "-v --/app/livestream/publicEndpointAddress=127.0.0.1"
 }
 
 @test "wrapper does not append publicEndpointAddress when PUBLIC_IP is empty" {
