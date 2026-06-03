@@ -131,9 +131,10 @@ The org-level runner topology (two registrations, one per org, both labeled `gpu
 
 The 4-bucket allocation (Unit, Lint, Smoke, Integration) maps to jobs of one workflow, not separate workflow files. Job-level `runs-on` (hosted vs self-hosted) carries the bucket routing; the original §Test bucket classification table still applies verbatim, only the file column needs reinterpretation as job-name.
 
-Research's two workflow files arrived under `src/.github_research_legacy/` via the filter-repo path-callback (GitHub only fires `.github/workflows/` at repo root, so they are inert there). Fold-into-`.github/workflows/main.yaml` plus drop of the legacy directory is tracked as a follow-up to `#78` -- it requires adjusting the research's `readme-sync` check (`doc/readme/` prefix -> `doc/` here) and merging its lint job set into the existing `main.yaml`, which is non-trivial enough to ship separately.
+Research's two workflow files arrived under `src/.github_research_legacy/` via the filter-repo path-callback (GitHub only fires `.github/workflows/` at repo root, so they are inert there). Fold-into-`.github/workflows/main.yaml` plus drop of the legacy directory is tracked as `#85` (a follow-up to `#78`) -- it requires adjusting the research's `readme-sync` check (`doc/readme/` prefix -> `doc/` here) and merging its lint job set into the existing `main.yaml`, which is non-trivial enough to ship separately.
 
 ### Cross-references added
 
 - **ycpss91255-docker/isaac#78**: research/isaac merge -- the trigger for this Update
+- **ycpss91255-docker/isaac#85**: the follow-up issue that executes the workflow fold + un-defers python-tests described above
 - **ycpss91255-docker/ros1_bridge#136**: parallel org-axis realignment (relocation in the other direction)
