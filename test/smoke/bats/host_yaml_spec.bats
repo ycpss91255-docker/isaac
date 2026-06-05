@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 #
 # Unit guard for script/host_yaml.sh -- the shared host.yaml public_ip
-# parser used by both run_instance.sh (host) and runheadless-host-config.sh
-# (container). #104: the old inline awk did not strip trailing inline
-# comments, did not trim, and did not validate, so a realistic config
-# (the template encourages inline comments) silently broke WebRTC.
+# parser used by both the post-run hook (host) and
+# runheadless-host-config.sh (container). #104: the old inline awk did
+# not strip trailing inline comments, did not trim, and did not validate,
+# so a realistic config (the template encourages inline comments)
+# silently broke WebRTC.
 #
 # host_yaml.sh is baked into /smoke_test/ next to this spec by the
-# devel-test stage (same pattern as run_instance.sh / Makefile.local).
+# devel-test stage (same pattern as runheadless-host-config.sh).
 
 bats_require_minimum_version 1.5.0
 
