@@ -54,22 +54,30 @@ git submodule update --init --recursive web_viewer
 cp config/host.yaml.example config/host.yaml
 # 编辑 config/host.yaml：把 network.public_ip 填这台机器的 LAN IP
 
-# 一键启动（Isaac + Isaac Sim + web-viewer）
-make -f Makefile.local run-stream
+# 启动 idle stream 容器 + host.yaml + web-viewer。
+# post-run hook（base #440）把 host.yaml copy 进去并启动 viewer。
+make run -- -t stream -d
+# （多实例：append --instance <name>；见下方 Multi-Instance）
 
-# 看 Isaac Sim 载入（runheadless 输出已重定向到 /proc/1/fd/1）
+# 把 Isaac Sim 启进容器 -- 一个明确的步骤（run = infra，
+# exec = workload）。可以跑 driver script：
+make exec -- -t stream /isaac-sim/python.sh <driver.py>
+# ...或者，no-driver 快速 stream，用 livestream wrapper：
+#   make exec -- -t stream /usr/local/bin/runheadless-host-config.sh
+
+# 看 Isaac Sim 载入
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # 打开 Chrome -> http://<host-ip>:5173
 # 直接进入实时串流（stream-only 自动启动，不显示 UI Option 选择界面）
 
-# 停掉
-make -f Makefile.local stop-stream
+# 停掉所有东西（post-stop hook 会移除 web-viewer）
+make stop
 ```
 
 `config/host.yaml` 是 gitignored、per-machine。它的 `network.public_ip` 会 mount 进两个 container：Isaac 端由 `runheadless-host-config.sh` 读取并转成 Kit `publicEndpointAddress` 参数；web-viewer 端由 entrypoint 读取设成 `SIGNALING_SERVER`。
 
-多实例场景下，`run_instance.sh` 读同一份 `config/host.yaml`，为每个实例启动配对 web-viewer（见下方 [Multi-Instance](#multi-instance)）。同时也把 `network.public_ip` 当 `SIGNALING_SERVER` env 传给 viewer container — defense in depth，当本机 cache 的 viewer image 早于 `omniverse_web_viewer#12`（读 `/etc/host.yaml` 的 entrypoint）时仍能拿到正确 host IP。`web_viewer/` submodule pointer 升级后请手动 rebuild `owv:runtime` 拉取新 entrypoint。
+多实例场景下，`./run.sh --instance <name>` 会把 `config/instances/<name>.{yaml,env}` 当 compose overlay 载入（base #465），post-run hook 为每个实例启动配对 web-viewer（见下方 [Multi-Instance](#multi-instance)）。hook 同时也把 `network.public_ip` 当 `SIGNALING_SERVER` env 传给 viewer container — defense in depth，当本机 cache 的 viewer image 早于 `omniverse_web_viewer#12`（读 `/etc/host.yaml` 的 entrypoint）时仍能拿到正确 host IP。`web_viewer/` submodule pointer 升级后请手动 rebuild `owv:runtime` 拉取新 entrypoint。
 
 要求：Chrome 或 Chromium（Firefox 不兼容）。每个 Isaac Sim 实例只能有一个交互式 client。
 
@@ -161,6 +169,64 @@ make stop                      # 收尾
 ```
 
 `headless` 与 `stream` stage 每次只能跑一个 kit process — 两个都 bind WebRTC port 8211。每次选一个。
+
+## Multi-Instance
+
+同一张 GPU 上可以跑多个 Isaac Sim 实例。每个实例分到隔离的 port 与 cache 目录以避免冲突。
+
+### 前置需求
+
+- 多个实例共享同一张 GPU（VRAM 必须容纳所有运行中的 sim）
+- `setup.conf` 设 `pid=host`（GPU process 可见性所需）
+- 错峰启动 — 等每个实例报 "is loaded" 再启动下一个
+- 每个实例必须有隔离的 cache 目录（共享会导致 corruption）
+
+### 用法
+
+```bash
+# Author per-instance overlays from the committed template (ports + cache).
+# These live in config/instances/<name>.{yaml,env} (base #465 convention)
+# and are gitignored except the example template.
+cp config/instances/example.env  config/instances/warehouse.env
+cp config/instances/example.yaml config/instances/warehouse.yaml
+# edit warehouse.env: bump the ports for a second concurrent instance
+
+# Start instances (stagger — wait for "is loaded" between launches).
+# The pre-run hook creates the cache tree; the post-run hook copies
+# host.yaml in and starts the per-instance web-viewer.
+./run.sh -t stream -d --instance warehouse
+# ... wait for "is loaded" ...
+./run.sh -t stream -d --instance factory
+
+# Launch Isaac Sim into a specific instance (container is
+# ${USER_NAME}-isaac-stream-<name>):
+./exec.sh -t stream --instance warehouse /isaac-sim/python.sh <script>
+
+# Tear down (the post-stop hook also removes the per-instance web-viewer)
+./stop.sh --instance warehouse
+./stop.sh --instance factory
+```
+
+### Port 布局
+
+每个实例分到一组唯一的 port，在 `config/instances/<name>.env` 内手动填写（从 `example.env` copy）：
+
+| Port | 用途 | Instance 1（默认） | Instance 2 | Step |
+|------|---------|---------------------|------------|------|
+| Signal | NVCF livestream signaling（`--/app/livestream/port`） | 49100 | 49200 | +100 |
+| Media | WebRTC media（`--/app/livestream/fixedHostPort`） | 47998 | 48098 | +100 |
+| API | Kit HTTP API（`--/exts/omni.services.transport.server.http/port`） | 8011 | 8012 | +1 |
+| Viewer | omniverse_web_viewer（`SERVE_PORT`） | 5173 | 5174 | +1 |
+
+`config/instances/example.env` 内含默认实例的值，并在 inline 注释里记录每个实例的 offset。没有 auto-assignment generator：copy template 后为每个并发实例按各自的 step 调高 port。overlay `<name>.yaml` 把 port 喂进 container env（让 `runheadless-host-config.sh` build 出对应的 Kit args）并 remap cache mount。
+
+### Cache 隔离
+
+每个实例把 runtime state 存在自己的 `INSTANCE_CACHE_DIR`（默认 `instance/<name>`，相对 docker repo root）而非共享的默认 path。pre-run hook（`script/hooks/pre/run.sh`）在 `run.sh --instance <name>` 时自动创建这个目录树。**实例之间绝不可共享 cache 目录** — 对同一份 shader cache 或 kit data 目录并发写入会导致 corruption 与 crash。
+
+### 连接
+
+为每个实例配一个指向该实例 signal port 的 `omniverse_web_viewer`，或用原生 WebRTC client（每个实例一个 client）。
 
 ## Cache 路径
 

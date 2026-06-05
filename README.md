@@ -55,22 +55,30 @@ git submodule update --init --recursive web_viewer
 cp config/host.yaml.example config/host.yaml
 # Edit config/host.yaml: set network.public_ip to this host's LAN IP
 
-# One-command startup (Isaac + Isaac Sim + web-viewer)
-make -f Makefile.local run-stream
+# Bring up the idle stream container + host.yaml + web-viewer.
+# The post-run hook (base #440) copies host.yaml in and starts the viewer.
+make run -- -t stream -d
+# (multi-instance: append --instance <name>; see Multi-Instance below)
 
-# Watch Isaac Sim load (it pipes to docker logs via /proc/1/fd/1)
+# Launch Isaac Sim into the container -- an explicit step (run = infra,
+# exec = workload). Either a driver script:
+make exec -- -t stream /isaac-sim/python.sh <driver.py>
+# ...or, for a no-driver quick stream, the livestream wrapper:
+#   make exec -- -t stream /usr/local/bin/runheadless-host-config.sh
+
+# Watch Isaac Sim load
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 
 # Open Chrome -> http://<host-ip>:5173
 # Boots straight into the live stream (stream-only auto-launch; no UI Option screen)
 
-# Stop everything
-make -f Makefile.local stop-stream
+# Stop everything (the post-stop hook removes the web-viewer)
+make stop
 ```
 
 `config/host.yaml` is gitignored and per-machine. Its `network.public_ip` is mounted into both the Isaac container (read by `runheadless-host-config.sh` for the Kit `publicEndpointAddress` arg) and the web-viewer container (read by entrypoint for `SIGNALING_SERVER`).
 
-For multi-instance, `run_instance.sh` reads the same `config/host.yaml` and starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below). It also passes `network.public_ip` to the viewer container as `SIGNALING_SERVER` env -- defense in depth so the viewer still gets the right host IP if its locally cached image was built before `omniverse_web_viewer#12` (the entrypoint that reads `/etc/host.yaml`). Rebuild `owv:runtime` after the `web_viewer/` submodule pointer bumps to pick up newer entrypoint changes.
+For multi-instance, `./run.sh --instance <name>` loads `config/instances/<name>.{yaml,env}` as a compose overlay (base #465) and the post-run hook starts a paired web-viewer per instance (see [Multi-Instance](#multi-instance) below). The hook also passes `network.public_ip` to the viewer container as `SIGNALING_SERVER` env -- defense in depth so the viewer still gets the right host IP if its locally cached image was built before `omniverse_web_viewer#12` (the entrypoint that reads `/etc/host.yaml`). Rebuild `owv:runtime` after the `web_viewer/` submodule pointer bumps to pick up newer entrypoint changes.
 
 Requirements: Chrome or Chromium (Firefox incompatible). One interactive client per Isaac Sim instance.
 
@@ -175,29 +183,32 @@ Multiple Isaac Sim instances can run on the same GPU. Each instance gets isolate
 ### Usage
 
 ```bash
-# Initialize per-instance config
-./script/init_instance.sh warehouse
-./script/init_instance.sh factory
-# edit config/instances/*.env if needed (ports, cache paths)
+# Author per-instance overlays from the committed template (ports + cache).
+# These live in config/instances/<name>.{yaml,env} (base #465 convention)
+# and are gitignored except the example template.
+cp config/instances/example.env  config/instances/warehouse.env
+cp config/instances/example.yaml config/instances/warehouse.yaml
+# edit warehouse.env: bump the ports for a second concurrent instance
 
-# Start instances (stagger — wait for "is loaded" between launches)
-./script/run_instance.sh warehouse stream
+# Start instances (stagger — wait for "is loaded" between launches).
+# The pre-run hook creates the cache tree; the post-run hook copies
+# host.yaml in and starts the per-instance web-viewer.
+./run.sh -t stream -d --instance warehouse
 # ... wait for "is loaded" ...
-./script/run_instance.sh factory stream
+./run.sh -t stream -d --instance factory
 
-# Exec driver scripts into a specific instance. `-t` selects a Dockerfile
-# stage, not an instance; multi-instance containers are named isaac-<id>,
-# so exec into them directly:
-docker exec isaac-warehouse /isaac-sim/python.sh <script>
+# Launch Isaac Sim into a specific instance (container is
+# ${USER_NAME}-isaac-stream-<name>):
+./exec.sh -t stream --instance warehouse /isaac-sim/python.sh <script>
 
-# Tear down
-./script/stop_instance.sh warehouse
-./script/stop_instance.sh factory
+# Tear down (the post-stop hook also removes the per-instance web-viewer)
+./stop.sh --instance warehouse
+./stop.sh --instance factory
 ```
 
 ### Port layout
 
-Each instance is assigned a unique set of ports. Default allocation in `config/instances/<id>.env`:
+Each instance is assigned a unique set of ports, hand-authored in `config/instances/<name>.env` (copy from `example.env`):
 
 | Port | Purpose | Instance 1 (default) | Instance 2 | Step |
 |------|---------|---------------------|------------|------|
@@ -206,11 +217,11 @@ Each instance is assigned a unique set of ports. Default allocation in `config/i
 | API | Kit HTTP API (`--/exts/omni.services.transport.server.http/port`) | 8011 | 8012 | +1 |
 | Viewer | omniverse_web_viewer (`SERVE_PORT`) | 5173 | 5174 | +1 |
 
-Values come from `script/init_instance.sh` (`signal=49100+offset*100`, `media=47998+offset*100`, `api=8011+offset`, `viewer=5173+offset`) and are written to `config/docker/instances/<id>.env`. Adjust there if the defaults conflict with other services.
+`config/instances/example.env` ships the default-instance values with the per-instance offsets documented inline. There is no auto-assignment generator: copy the template and bump the ports by their step for each concurrent instance. The overlay `<name>.yaml` feeds the ports into the container env (so `runheadless-host-config.sh` builds the matching Kit args) and remaps the cache mounts.
 
 ### Cache isolation
 
-Each instance stores runtime state under `isaac-sim/instances/<id>/` instead of the shared default paths. `init_instance.sh` creates these directories automatically. **Instances MUST NOT share cache directories** — concurrent writes to the same shader cache or kit data directory cause corruption and crashes.
+Each instance stores runtime state under its `INSTANCE_CACHE_DIR` (default `instance/<name>`, relative to the docker repo root) instead of the shared default paths. The pre-run hook (`script/hooks/pre/run.sh`) creates this directory tree automatically on `run.sh --instance <name>`. **Instances MUST NOT share cache directories** — concurrent writes to the same shader cache or kit data directory cause corruption and crashes.
 
 ### Connecting
 
@@ -235,7 +246,7 @@ All Isaac Sim runtime state persists under `${WS_PATH}/isaac-sim/` on the host (
 
 Pre-2026-05-21 layout (`cache/{kit,ov,pip,glcache,computecache}`, flat `logs/`, flat `data/`) is auto-migrated to the new namespaced paths by `./script/init_isaac_dirs.sh` on first run after upgrade (issue #21 fix-A). Pre-existing shader / pip / compute caches are preserved through the move.
 
-Multi-instance setups use per-instance cache directories at `isaac-sim/instances/<id>/` (mirroring the same subdirectory structure above). These are created by `init_instance.sh` and must not overlap with the shared default paths or with other instances.
+Multi-instance setups use per-instance cache directories at each instance's `INSTANCE_CACHE_DIR` (default `instance/<name>`, mirroring the same subdirectory structure above). These are created by the pre-run hook (`script/hooks/pre/run.sh`) and must not overlap with the shared default paths or with other instances.
 
 First headless launch spends 1–3 min compiling shaders; subsequent launches start in `< 30s` thanks to the persisted caches.
 

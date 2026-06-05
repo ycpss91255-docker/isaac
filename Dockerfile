@@ -285,6 +285,10 @@ COPY .base/script/docker/lib /lint/lib
 # build time.
 #COPY script/docker/*.sh /lint/
 RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
+# [base #440] Repo-local run/stop hooks live under script/hooks/{pre,post}/
+# (nested, so the flat /lint/*.sh glob above misses them). Lint them here.
+COPY script/hooks /lint/hooks
+RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # [isaac] Python testing toolkit (pytest + common deps). Installed into
@@ -309,18 +313,16 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 # under test/smoke/pytest/ do not collide with bats discovery.
 COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/bats/ /smoke_test/
-# [isaac #75] Bake Makefile.local alongside the smoke specs so
-# makefile_local_spec.bats can grep its content at build time
-# (the docker-logs FD redirect regression guard). Makefile.local
-# itself is a developer-facing wrapper; copying it into /smoke_test/
-# is solely for the regression check.
-COPY Makefile.local /smoke_test/Makefile.local
-# [isaac #81] Same pattern for script/run_instance.sh so
-# run_instance_spec.bats can guard the two bugs that produced
-# silent failures (Isaac exitCode=2, viewer white screen).
-COPY script/run_instance.sh /smoke_test/run_instance.sh
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
+# [base #465/#440] Scripts under test by the migrated specs: the
+# livestream wrapper + the per-instance run/stop hooks. Both hooks are
+# named run.sh / stop.sh inside their pre/post dirs, so they are baked
+# under distinct flat names that match the *_spec.bats files.
+COPY --chmod=0755 script/runheadless-host-config.sh /smoke_test/runheadless-host-config.sh
+COPY --chmod=0755 script/hooks/pre/run.sh /smoke_test/pre_run_hook.sh
+COPY --chmod=0755 script/hooks/post/run.sh /smoke_test/post_run_hook.sh
+COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
 
 ARG USER
 USER "${USER}"

@@ -1,21 +1,10 @@
 # TEST.md
 
-**52 tests** total.
-
-## test/smoke/bats/makefile_local_spec.bats (6)
-
-| Test | Description |
-|------|-------------|
-| `Makefile.local: no /proc/1/fd/ redirect under pid=host (#75)` | Asserts `Makefile.local` does not redirect to the literal `/proc/1/fd/*`. Under `pid=host` that path points at host systemd, fails with EPERM, leaves `docker logs` empty. |
-| `Makefile.local: redirect resolves container PID 1 via State.Pid (#75)` | Asserts `Makefile.local` resolves `CONTAINER_PID1` via `docker inspect --format '{{.State.Pid}}'` so the FD redirect lands in the container's docker logs pipe. |
-| `Makefile.local: run-stream launches web-viewer in stream-only auto-launch (#79/#107)` | Asserts `run-stream` passes `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` as `-e` flags (not a bare string) and that the opposite values are not wired. |
-| `Makefile.local: host.yaml-absent message is functional, not Kit jargon (#108)` | The no-host.yaml message says remote browser access will not work (no `skip publicEndpointAddress` Kit jargon). |
-| `Makefile.local: run-stream output includes a firewall hint (#108)` | run-stream output mentions firewall + ports 8011 / 49100. |
-| `Makefile.local: HOST_YAML resolves relative to the makefile dir (#109)` | `HOST_YAML` is derived from `$(SELF_DIR)` (via `MAKEFILE_LIST`), not the CWD. |
+**60 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (8)
 
-Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_instance.sh` and `runheadless-host-config.sh` (#104).
+Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both the post-run hook and `runheadless-host-config.sh` (#104).
 
 | Test | Description |
 |------|-------------|
@@ -28,18 +17,55 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both `run_i
 | `host_yaml: key present but empty -> empty value + warning (#104)` | Distinguishes "not configured" from "configured but unparseable" -- warns on stderr. |
 | `host_yaml: invalid value (metacharacters) -> rc 1 + error (#104)` | A value with illegal characters fails fast with an error instead of passing garbage to Kit / the viewer. |
 
-## test/smoke/bats/run_instance_spec.bats (8)
+## test/smoke/bats/runheadless_host_config_spec.bats (8)
+
+Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-config.sh`); ports from container env, `public_ip` from `/etc/host.yaml`. Exercised via `RUNHEADLESS_DRYRUN=1` (base #465/#440).
 
 | Test | Description |
 |------|-------------|
-| `run_instance.sh: kit_args starts with /isaac-sim/runheadless.sh (#81 bug A)` | Asserts the first non-flag token in the `kit_args` array literal is `/isaac-sim/runheadless.sh`. Without the prefix the image entrypoint (`exec "$@"`) eats `-v` as its own flag and the Isaac container dies with `exitCode=2 / execDuration=0`. |
-| `run_instance.sh: _start_web_viewer passes SIGNALING_SERVER env (#81 bug B)` | Asserts `_start_web_viewer` passes `-e SIGNALING_SERVER=${public_ip}` to the viewer container. Defense in depth so the viewer JS bundle gets the right host IP even if the locally cached `owv:runtime` image is older than `omniverse_web_viewer#12` (the entrypoint that reads `/etc/host.yaml`). |
-| `run_instance.sh: VIEWER_* passed as -e flags inside _start_web_viewer (#79/#107)` | Structural check: both `VIEWER_*` appear as `-e` flags within the `_start_web_viewer` body, and the opposite values do not. |
-| `run_instance.sh: _start_web_viewer removes a stale container first (#105)` | Asserts `docker rm -f "${WV_CONTAINER}"` runs before `docker run` so a re-run does not hit a name conflict. |
-| `run_instance.sh: web-viewer launch is gated on the stream stage (#105)` | Asserts the launch guard tests `stage == stream`, so `headless` does not spawn a viewer with no stream to show. |
-| `run_instance.sh: uses the shared validated host.yaml parser (#104)` | Asserts `resolve_public_ip` is used and the old permissive inline awk parser is gone. |
-| `run_instance.sh: success message distinguishes remote vs localhost-only (#108)` | The viewer success line has a remote-ready branch and a localhost-only branch that points at `config/host.yaml`. |
-| `run_instance.sh: viewer guard also requires an initialized .base (#109)` | The launch guard also checks `WV_DIR/.base` and the error suggests `--init --recursive`, so a shallow submodule does not reach a failing docker build. |
+| `runheadless: first token is the Kit launcher` | The emitted command line starts with `/isaac-sim/runheadless.sh`. |
+| `runheadless: always emits -v + quitOnSessionEnded=false` | The two unconditional Kit args are always present. |
+| `runheadless: port env -> livestream port kit-args` | `ISAAC_SIGNAL_PORT` / `ISAAC_MEDIA_PORT` / `ISAAC_API_PORT` map to `--/app/livestream/port` / `fixedHostPort` / the http port. |
+| `runheadless: no port env -> no port kit-args (default instance)` | With no port env, the port args are omitted (Kit defaults). |
+| `runheadless: host.yaml public_ip -> publicEndpointAddress` | A valid `public_ip` is appended as `--/app/livestream/publicEndpointAddress`. |
+| `runheadless: no host.yaml -> no publicEndpointAddress` | Absent host.yaml omits the public-endpoint arg (localhost-only). |
+| `runheadless: invalid public_ip -> rc 1 (shared parser rejects)` | Garbage in host.yaml fails fast via the shared `resolve_public_ip`. |
+| `runheadless: forwards extra args after the built kit-args` | Trailing `"$@"` (e.g. a scene USD) is appended after the constructed args. |
+
+## test/smoke/bats/pre_run_hook_spec.bats (4)
+
+Pre-run hook (`script/hooks/pre/run.sh`, base #440): creates the per-instance cache dir tree for `run.sh --instance NAME`.
+
+| Test | Description |
+|------|-------------|
+| `pre-run: --instance creates the 8 cache subdirs (absolute path)` | The kit/ov/nvidia cache subtree is created under an absolute `INSTANCE_CACHE_DIR`. |
+| `pre-run: relative INSTANCE_CACHE_DIR resolves against FILE_PATH` | A relative cache path resolves against the repo root. |
+| `pre-run: no --instance is a no-op (creates nothing)` | Without `--instance` the hook does nothing (the default instance is handled elsewhere). |
+| `pre-run: --instance with missing env warns but does not fail` | A named instance with no overlay env warns on stderr and exits 0. |
+
+## test/smoke/bats/post_run_hook_spec.bats (8)
+
+Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the web-viewer. Exercised via `POST_RUN_DRYRUN=1`.
+
+| Test | Description |
+|------|-------------|
+| `post-run: non-stream target is a no-op` | A non-`stream` target produces no actions. |
+| `post-run: stream without -d is a no-op` | The stream stage without `-d/--detach` produces no actions. |
+| `post-run: stream + -d starts the viewer with stream-only + auto-launch` | Viewer `docker run` carries `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` (negative guard on the opposites). |
+| `post-run: viewer SIGNALING_PORT comes from the instance overlay env` | The viewer's `SIGNALING_PORT` is sourced from `config/instances/<name>.env`. |
+| `post-run: viewer container is named per instance and removed first` | `docker rm -f owv-<name>` precedes `docker run --name owv-<name>` (idempotent). |
+| `post-run: default instance falls back to owv-default + port 49100` | With no `--instance`, the viewer is `owv-default` on the default signaling port. |
+| `post-run: host.yaml present is copied into the Isaac container` | A present host.yaml is `docker cp`'d to the per-instance Isaac container at `/etc/host.yaml`. |
+| `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
+
+## test/smoke/bats/post_stop_hook_spec.bats (2)
+
+Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compose web-viewer that `stop.sh` does not see.
+
+| Test | Description |
+|------|-------------|
+| `post-stop: --instance stops the per-instance viewer` | `stop.sh --instance <name>` removes `owv-<name>`. |
+| `post-stop: no --instance stops the default viewer` | `stop.sh` (no instance) removes `owv-default`. |
 
 ## test/smoke/bats/docker_env.bats (4)
 
