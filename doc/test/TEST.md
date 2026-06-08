@@ -1,6 +1,6 @@
 # TEST.md
 
-**60 tests** total.
+**61 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (8)
 
@@ -43,7 +43,7 @@ Pre-run hook (`script/hooks/pre/run.sh`, base #440): creates the per-instance ca
 | `pre-run: no --instance is a no-op (creates nothing)` | Without `--instance` the hook does nothing (the default instance is handled elsewhere). |
 | `pre-run: --instance with missing env warns but does not fail` | A named instance with no overlay env warns on stderr and exits 0. |
 
-## test/smoke/bats/post_run_hook_spec.bats (8)
+## test/smoke/bats/post_run_hook_spec.bats (9)
 
 Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the web-viewer. Exercised via `POST_RUN_DRYRUN=1`.
 
@@ -57,6 +57,7 @@ Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`,
 | `post-run: default instance falls back to owv-default + port 49100` | With no `--instance`, the viewer is `owv-default` on the default signaling port. |
 | `post-run: host.yaml present is copied into the Isaac container` | A present host.yaml is `docker cp`'d to the per-instance Isaac container at `/etc/host.yaml`. |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
+| `post-run: viewer image is omniverse_web_viewer:serve, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve`; regression guard that the renamed/stale `owv:runtime` is not launched. |
 
 ## test/smoke/bats/post_stop_hook_spec.bats (2)
 

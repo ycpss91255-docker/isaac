@@ -55,7 +55,7 @@ fi
 suffix=""; [ -n "${instance}" ] && suffix="-${instance}"
 isaac_container="${USER_NAME}-${IMAGE_NAME}-stream${suffix}"
 wv_container="owv-${instance:-default}"
-wv_image="owv:runtime"
+wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve"
 host_yaml="${repo_root}/config/host.yaml"
 
 _docker() {
