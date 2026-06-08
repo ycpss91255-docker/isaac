@@ -1,7 +1,7 @@
 # PRD (DRAFT — local only, not published): `ycpss91255-docker/isaac` 收斂為 Isaac 機器人模擬 base repo
 
-> 狀態：local draft，三輪 grill-me + 三角色 review（資深 RD / PM / QA）已 fold 進。
-> Publish 前 pending：(1) `-docker/base` 調整定案後 double-check（消費機制 subtree vs submodule、目錄慣例、versioning、test 執行機制 base#493/isaac#74）、(2) demo checkpoint（camera→ROS2 topic headless smoke）通過後才執行。
+> 狀態：local draft，三輪 grill-me + 三角色 review（資深 RD / PM / QA）+ 第四輪 grill（A–F 缺口 + 使用情景 + Milestone）已 fold 進。
+> Publish 前 pending：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 Slice 1+、(2) M2b 外部 gated 於 base v0.41.0 release。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
 > Triage label（送出時）：`ready-for-agent`。送 GitHub 前依雙語規約翻英文 + `--body-file`。
 
 ## Problem Statement
@@ -47,7 +47,51 @@
 
 ## User Stories
 
-（沿用前版 32 條：scaffold 一鍵、30 秒看到 topic、i18n 教學、`import isaac_devkit`、mount 即時生效、URDF→USD 走 L1、SDF-like sensor YAML、三檔 scene、mobility、sensor 巢狀+link、catalog 完整參數、overrides、custom.yaml 預設、雙邊 ROS2、ament py+cmake 範本、base 純淨、bump 傳播、ADR 分類、框架 package 化、pure/Isaac+import-safety、example 當 integration 對象、4 層斷言、coverage ratchet、mount 即時迭代、lint 零容忍、forklift 搬遷、ADR 跟搬、未來情景共用、stub 指向、successor ADR、修文件、CI 分流。完整列表見 git 歷史前版。）
+32 條，依 persona 分組。編號對應「Finalized Issue Breakdown」的 Stories 欄（每條都掛在某 issue 上，無孤兒）。
+
+### Persona: Robot Owner（用 base 建自己機器人模擬的人）
+| # | Story |
+|---|---|
+| 1 | scaffold 一鍵：`new-workspace.sh <name>` 一行搭好 `.env` + `src/docker` submodule + `src/isaac` 骨架，不必手組結構 |
+| 2 | warm image 下 `make run` **<30s** 出第一筆 camera ROS2 topic（M1）|
+| 3 | 4 語言 step-by-step、可複製貼上的 README，新手照走不用問人 |
+| 4 | driver 裡乾淨 `import isaac_devkit`（真 library，非散落 script）|
+| 6 | `import_urdf()` 把 URDF 轉 USD 且回可驗的 prim/joint summary（L1 確定性）|
+| 7 | SDF-like YAML 宣告 sensor，schema 熟悉可攜 |
+| 8 | 三檔 scene（scene/robot/object）分離環境、可動機器人、被動物件 |
+| 9 | 每個 object 標 `mobility: dynamic\|static`，被動物件物理行為顯式 |
+| 10 | sensor 巢狀掛在 robot/object 的某 URDF `link`（預設 base_link），placement 對齊運動學樹 |
+| 11 | catalog 暴露**所有** Isaac 可調參數，不限子集 |
+| 12 | per-placement `overrides:` deep-merge 蓋 catalog，同一 catalog entry 可在地微調 |
+| 13 | sensor config **三層**解析：NV builtin → base 預設 catalog → user catalog（合理預設但每層可覆蓋）|
+| 14 | ROS2-by-default 雙邊（Isaac driver + sibling ament pkg），演算法跑標準 ROS2 |
+| 15 | ament_python + ament_cmake 兩種範本任選 app 語言 |
+| 24 | mount 下對 driver/scene/sensor 即時迭代，dev loop 緊 |
+
+### Persona: Framework Maintainer（開發 isaac_devkit 的人）
+| # | Story |
+|---|---|
+| 5 | mount 下改框架即時生效、免 rebuild |
+| 19 | isaac_devkit 是正規 Python package（pyproject + curated `__init__`），可測可 import |
+| 20 | 每模組 pure/Isaac 切分 + import-safety（hosted import 不漏 omni/pxr/isaacsim），框架邏輯免 GPU 可測 |
+| 21 | example 當唯一 end-to-end integration 對象，integration 覆蓋具體 |
+| 22 | 4 層強斷言（L1 prim/joint 數、L2 variant 綁定、L3 topic+frame_id+message、L4 boot/exit marker），測行為非實作 |
+| 23 | committed coverage baseline 且 ratchet（≥80%，無 PR 低於 baseline），品質只升不降 |
+| 25 | 零容忍 lint（ShellCheck/Hadolint/ruff/mypy/ament_lint）hosted 強制 |
+| 30 | successor ADR 記錄收斂決策（base化/mount/三檔scene/catalog/test契約），新架構有文件 |
+| 31 | 同一 change 對齊全部文件（4-lang README/CHANGELOG/TEST.md），文件不漂移 |
+| 32 | CI 分流（hosted unit/lint + self-hosted GPU smoke/integration），每類測試都跑且免付費 GPU hosted runner |
+
+### Persona: Scenario Owner（forklift 與未來情景，消費 base 的人）
+| # | Story |
+|---|---|
+| 16 | base 零 app-specific 內容，可信為乾淨基底 |
+| 17 | 框架修正經 submodule bump 傳播（mount 免 rebuild）|
+| 18 | ADR 分類（generic 留 / app-specific 搬），決策史在 split 後仍連貫 |
+| 26 | forklift 內容搬去 isaac-forklift，base 純化 |
+| 27 | app-specific ADR 跟內容一起搬，各 repo 自有其決策 |
+| 28 | 未來情景用跟 forklift 同樣方式消費 base，pattern 可重用 |
+| 29 | 搬走的 ADR 留 stub 指向 successor / 新家，traceability 不斷 |
 
 ## Implementation Decisions
 
@@ -61,7 +105,16 @@
 
 **ROS2 by default 雙邊**：Isaac 端 driver（`python.sh`，受 Isaac python 限制不能是 ament）跑 Isaac 容器；app 端 ament package 跑 sibling ROS2 Humble 容器。框架做雙向 bridge wiring，controller logic 留子類。
 
-**搬遷**：forklift 內容 + ADR 0001/0003/0004 → 新 `-research/isaac-forklift`（依 base 對齊 + submodule base）。base 留 ADR 0002/0005-0011/0014-0016（原號 + 搬走 stub）。successor ADR **作廢 0013、修訂 0012**，記錄 base 化 / mount / isaac_devkit / 三檔 scene / sensor catalog / ROS2 雙向 bridge / 新 test 契約。
+**搬遷**：forklift 內容 + ADR 0001/0003/0004 → 新 `-research/isaac-forklift`（依 base 對齊 + submodule base）。successor ADR **作廢 0013、修訂 0012**，記錄 base 化 / mount / isaac_devkit / 三檔 scene / sensor catalog / ROS2 雙向 bridge / 新 test 契約。
+
+**ADR 去 forklift 化（M3 純淨度 vs ADR append-only 的調和）**：保留 ADR 內仍含 forklift 詞彙（grep 實測：0008 L2/L3 vocab 26 處、0010 Dev Kit 12 處、0006 per-sensor yaml 6 處屬重度；0005/0007/0009/0015 各 2–4 處屬輕度），直接違反 M3。ADR 是 append-only 決策紀錄，不改寫歷史，分兩種處置：
+- **重度（0006/0008/0010）= supersede + stub + 搬原檔**：generic 決策由 successor ADR 用 generic 詞彙（example camera-bot 當範例）重述；原檔（含 Forklift_blocky/Model A 範例）整檔搬去 isaac-forklift 當歷史紀錄；base 只留指向 successor 的 stub。successor ADR 的 supersede 清單因此擴為「作廢 0013、修訂 0012、supersede 0006/0008/0010」。
+- **輕度（0005/0007/0009/0015）= 就地 editorial de-forklift**：把 incidental 範例詞 forklift→camera-bot，加 editorial footnote（原文留 git history），ADR 留 base。
+- **M3 grep scope**：掃 base 全樹，排除 stub 的 pointer 行（`grep -iE 'forklift|coresam|pallet|pushback|openbase'`，stub 指向行不計）。
+
+**CONTEXT.md split（同一把刀）**：現有 CONTEXT.md 混框架 generic（Isaac Dev Kit / L2 / L3 / Robot / Environment Object / Scene YAML / Action Graph）與 forklift 專屬（Model A/B / OpenBase / Chassis SE(2) Slide / push-back / cmd_vel sink deprecated）。切兩份：
+- `base/doc/CONTEXT.md`：留 generic 詞彙，L2/L3 範例「Forklift_blocky 預設 5 cube」改 example camera-bot。
+- `isaac-forklift/doc/CONTEXT.md`：Model A/B、OpenBase、Chassis SE(2) Slide、push-back、cmd_vel sink(deprecated) 全搬。
 
 ## Architecture
 
@@ -92,20 +145,22 @@ run():
 - **catalog（層1，完整 sensor spec、不含 mount）**：暴露所有 Isaac 可調參數（camera 解析度/fps/fov/光圈/焦距/clipping/projection、lidar profile/custom config、imu rate/filter）。SDF 有對應用 SDF 名，Isaac 獨有照 Isaac 名。內部 per-stream 覆寫鍵改名 `stream_overrides:`（避開 placement `overrides:` 衝突）。
 - **placement（層2，robot/object.yaml 巢狀 sensors）**：兩區塊——(1) mount：`sensor`(name) + `link`(URDF link，選填，預設 base_link) + `xyz`/`rpy`；(2) `overrides:` deep-merge 蓋 catalog。
 - **解析切面（誠實標）**：**pure** = 讀 yaml/驗 schema/deep-merge/依命名規則**算出預期 prim path 字串**（可測）；**Isaac** = 驗 link prim 真的存在 + 掛接（需 live stage）。
-- **two-tier**：name → custom catalog(`src/isaac/sim/config/sensor/`) 優先 → 否則 NV Isaac 內建 profile。沒給 topic override 時自動以 entity name 當 topic namespace 前綴（v1 stub 可後補）。
-- **錯誤契約**：link 不存在 → raise `LinkNotFoundError`；catalog 兩邊都 miss → `SensorNotFoundError`；deep-merge list 欄位 = replace（非 append）。未實作路徑 raise `NotImplementedError`。
+- **three-tier 解析（最高優先在上）**：user catalog(`src/isaac/sim/config/sensor/`) → **base repo 預設 catalog**（isaac_devkit 隨 mount 提供的 default catalog 層，這個 repo 自帶）→ NV Isaac 內建 profile。三層 deep-merge：base 預設覆蓋 NV，user 覆蓋 base 預設。沒給 topic override 時自動以 entity name 當 topic namespace 前綴（v1 stub 可後補）。
+  - base 預設 catalog 的家：`framework/isaac_devkit/`（隨框架 mount，bump submodule 即更新），消費端可不寫任何 catalog 就拿到合理預設；要改才在 `src/isaac/sim/config/sensor/` 覆蓋。
+- **錯誤契約**：link 不存在 → raise `LinkNotFoundError`；catalog 三層全 miss → `SensorNotFoundError`；deep-merge list 欄位 = replace（非 append）。未實作路徑 raise `NotImplementedError`。
 
 ### A5. 資料夾架構
-**base repo**（root = 消費端 `src/docker`）：`Dockerfile/compose/.base/apps/web_viewer` + `config/`(env 級 instances+ros2 fastdds) + `script/`(wrapper+hooks+`new-workspace.sh`) + `framework/`(pyproject+`isaac_devkit/{__init__,driver,model_import,materials,sensors,ros_io,scene}.py`) + `example/`(README i18n + `sim/`{model,config/sensor,scene,example_driver.py} + `ros2/src/`{ament_python,ament_cmake 各一}) + `doc/`(adr+changelog+test+readme) + `test/`(smoke/bats, unit/pytest+import-safety, integration/pytest example 端到端) + README。現有 root `src/` 整個移除。
+**base repo**（root = 消費端 `src/docker`）：`Dockerfile/compose/.base/apps/web_viewer` + `config/`(env 級 instances+ros2 fastdds) + `script/`(wrapper+hooks+`new-workspace.sh`) + `framework/`(pyproject+`isaac_devkit/{__init__,driver,model_import,materials,sensors,ros_io,scene}.py` + `isaac_devkit/` 內附 **base 預設 sensor catalog** 資料，three-tier 的中間層、隨 mount 提供) + `example/`(README i18n + `sim/`{model,config/sensor,scene,example_driver.py} + `ros2/src/`{ament_python,ament_cmake 各一}) + `doc/`(adr+changelog+test+readme) + `test/`(smoke/bats, unit/pytest+import-safety, integration/pytest example 端到端) + README。現有 root `src/` 整個移除。
 
 **消費端**：`my-robot-ws/`（WS_PATH，掛 `~/work`）→ `.env` + `src/{docker(submodule pin tag), isaac/{README+i18n, sim/{model,config/sensor,scene,<driver>.py}, ros2/src/<pkg>}}`。
 
 **isaac-forklift**：同消費端 shape，`src/isaac` 放 forklift 內容 + ADR 重編。
 
-### A6. Versioning / pin / stage / test 執行（pending base double-check）
-- **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。
+### A6. Versioning / pin / stage / test 執行
+- **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.40.0）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
+- **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1–6）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本）。
 - **Stage**：mount 下框架不進 image stage，devel/headless/stream 都從 mount 拿；ROS2 bridge extension function-local enable，與 ADR-0014 stage taxonomy 正交。
-- **Test 執行**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。base#493 CLOSED（機制應已 ship >v0.40.0），動作 = bump `.base` 解 isaac#74。消費端 test 騎同一條路。**不開新 issue**（已 cover）。
+- **Test 執行（外部 gated）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況訂正**：base#493 已 CLOSED（2026-06-01）但**尚未進任何 release**——最新 base tag 是 v0.40.0（2026-05-30，早於 #493）。isaac 現 `.base` = v0.40.0 不含修正，isaac#74 仍 **OPEN**。決策：**等 base 自然出 v0.41.0**（不為此專程切 release）→ isaac bump `.base` v0.40.0→v0.41.0 → 關 isaac#74。在此之前 **Issue #4 的 GPU integration test execution 外部 gated**（impl 可先做，見 Milestone 規劃 M2a/M2b）。**不另開新 issue**（isaac#74 已覆蓋此 bump）。
 
 ### A7. API 契約（committed interface 形狀）
 - `class IsaacDriver`: `SCENE: str`（class attr）；hooks `setup(stage)->None` / `main()->None` / `shutdown()->None`；helper `init_rclpy()->None`；entry `run()->None`。
@@ -159,11 +214,28 @@ run():
 
 每階段兩 repo 各自獨立綠燈、不留跨 repo 半截狀態（tracer-bullet：同 PR 內新增 base 端 + 調整來源端 skip-check）。
 
+**Release framing**：MVP（Issue 1–6，= 可消費 base repo）達標 → isaac-base 切 **v1.0.0**。P1（Issue 7a/7b/8，forklift 搬遷 + 清 base）為 v1.0.0 後的後續，不阻 v1.0.0 釋出（base 純淨度 M3 屬 P1 metric，因 depends on forklift 抽離）。
+
+## Milestone 規劃（GitHub Milestone + 階段性驗證 gate）
+
+執行原則：除「驗證 gate」與「外部 gate」外不做方向性確認，其餘 AFK 推進。HITL 停點 = #1（Isaac pipeline bring-up）/ #2（ADR 撰寫）/ #7a（建 repo）。
+
+| Milestone | Issues | 模式 | 驗證 / 外部 gate |
+|---|---|---|---|
+| **M0 — Pipeline prereq + ADR** | #1 camera→ROS2 headless smoke、#2 successor ADR | HITL | **R1 關鍵 gate**：camera topic 在 headless Isaac 真的 echo 出（此 pipeline 從沒在 Isaac 內跑通）+ ADR merge。過不了則下游全部無意義 |
+| **M1 — 框架抽出** | #3 抽 isaac_devkit + mount + 遷 unit test 1:1 + import-safety + coverage baseline | AFK | hosted CI 綠（M4 import-safety / M6 coverage），TEST.md 不降。免 GPU，輕 gate |
+| **M2a — Example 可乾淨收尾部分** | #4-impl(example camera+三檔scene+ExampleDriver+cmd_vel round-trip code)、#5 ament 範本、#6 new-workspace scaffold | AFK | scaffold→build→run→（手動）topic 綠；ament_lint/colcon build 綠。**零外部依賴，base 未出 v0.41.0 仍 100% 可關** |
+| **M2b — GPU integration（外部 gated）** | #4-test(GPU 自動 integration 強斷言，`run.sh -t test` path) | AFK | **外部 gated**：卡 base v0.41.0 release + isaac bump `.base`。base 未出前停在此 gate（M1/M2 metric 達標於此驗收）|
+| **M3 — Forklift 搬遷 + 清 base** | #7a 開 isaac-forklift（base 對齊）、#7b 搬內容/ADR + submodule、#8 清 base | #7a HITL / #7b#8 AFK | M3 純淨度 grep 0、M7 forklift boot smoke、M9 文件對齊 |
+
+**#4 拆 impl/test**：Issue #4 含「example camera 實作（code，#6 scaffold 驗收要用、手動 `make run` 可跑）」+「GPU 自動 integration 斷言（`run.sh -t test`，需 base v0.41.0 的 test stage 機制）」。前者進 M2a、後者進 M2b，M2a 才能零外部依賴乾淨收尾。
+
 ## Risks / Assumptions / Rollback
 - **R1 example pipeline 未驗**：camera→ROS2 在 Isaac 內從沒跑通（memory `project_isaac_rgbd_ros2_blockers`：#228 segfault、setup_camera 未驗）。**Mitigation**：Slice 0 prereq gate 先打通才執行後續。
 - **R2 框架抽出破壞 forklift**：**Mitigation**：base 化在 worktree/branch 進行，main monorepo 維持可用直到 isaac-forklift boot 驗證；rollback trigger = 「框架抽出後 forklift driver 無法 import」；新舊並存上限 1 個 milestone。
-- **R3 base double-check 推翻消費模型**（A6 pending）：**Mitigation**：消費機制/versioning 等 base 定案才 publish；submodule vs subtree 若翻盤，`new-workspace.sh` 與 A5 需改。
-- **Assumption**：base#493 機制 ship 於 base > v0.40.0（CLOSED 待確認版本）；Isaac 5.x + Humble 為主軸。
+- **R3 base double-check 推翻消費模型**（已大幅收斂）：消費機制定案 = **submodule**（A6，依本 repo `web_viewer` 先例），R3 殘留風險僅「`-docker/base` 自身慣例若大改」，低。`new-workspace.sh` 與 A5 以 submodule 為準。
+- **R4 base v0.41.0 release 時程（外部）**：#4-test（M2b）卡 base 出 v0.41.0；base 無 release 時 M2b 停在 gate。**Mitigation**：#4 拆 impl(M2a)/test(M2b)，MVP 其餘（#1-3、#4-impl、#5、#6）不受阻可全綠；v1.0.0 是否含 GPU 自動 integration 視 v0.41.0 是否到位（未到則 v1.0.0 以手動 run 驗收 + M2b 補在 v1.0.x）。
+- **Assumption**：base#493 已 CLOSED（2026-06-01）但**未進 release**（最新 v0.40.0 早於 #493）；等 base 自然出 v0.41.0 後 bump（isaac#74）。Isaac 5.x + Humble 為主軸。
 
 ## Out of Scope
 forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU integration / `make new-robot` codegen / workspace-template 一鍵 repo / controller abstraction（defer 第三 robot）/ 框架 baked 或 live-toggle（已定 mount）/ Gazebo `<gazebo>` tag→Isaac translator（無人維護）/ SDF→USD(gz-usd) model 轉換 / lidar・imu・zed 的 Isaac-side 實作（v1 stub，schema 已鎖）。
@@ -194,11 +266,12 @@ forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU in
 
 \* #1 size=S 指 smoke 本身；HITL 取得 Isaac pipeline 跑通的前置努力 variable（pipeline 從沒在 Isaac 內跑通，見 R1）。critical path = 3→4（框架→example，皆 L）。CI/政策（GPU runner pin、coverage ratchet vector、headless+timeout+retry）折進 #3/#4，不另開 infra issue。
 6. **M1 + timeout calibrate**：pin 指定 GPU runner spec 後，量 warm time-to-first-topic 與 boot budget，把 M1「<30s」與 integration timeout 落成具體數字（promote 為 hard pre-publish blocker）。
-7. **A2 兩層 versioning**（gated base double-check）：消費端 submodule pin tag ↔ base repo 內 `.base` subtree 版的連動規則。
-8. **base#493 ship 版本確認**（gated）：落成具體 base tag；查不到則退回開 issue（目前「不開新 issue」基於未證實假設）。
+7. **A2 兩層 versioning（已定案）**：消費端 submodule pin tag ↔ base repo 內 `.base` subtree 版，寫進 A6。
+8. **base#493 ship 版本（已查證）**：#493 CLOSED 2026-06-01 但未進 release（最新 v0.40.0 早於它）；決策 = 等 base 自然出 v0.41.0 後 bump（isaac#74 已覆蓋，不另開 issue）。M2b 外部 gated 於此。
 
 ## Open Dependencies / Further Notes
-- **base double-check**：`-docker/base` 定案後核對消費機制（subtree vs submodule）、目錄慣例、versioning、test 執行（base#493/isaac#74 bump `.base`），補進 PRD 再 publish。
-- **demo gate**：Slice 0 通過 + demo 拍完才執行 Slice 1+。
+- **base double-check（已收斂）**：消費機制定案 = submodule、兩層 versioning 已寫進 A6；殘留僅 `-docker/base` 自身目錄慣例若大改需回核，風險低。
+- **base v0.41.0（外部，未決時程）**：等 base 自然 release 含 #493 → isaac bump `.base` 解 isaac#74 → M2b 解鎖。
+- **demo gate**：M0（Slice 0/#1）通過 + demo 拍完才執行 M1+。
 - 所有 PR 走 worktree（`coreSAM_ws/worktree/isaac-<N>/`，submodule 內），不動主 checkout。
 - 框架核心（IsaacDriver lifecycle / sensor dispatch / scene loader）穩可先抽；controller 留 example 跟 forklift 演化，第三 robot 再上收。
