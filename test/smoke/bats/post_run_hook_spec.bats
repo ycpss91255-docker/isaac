@@ -91,3 +91,12 @@ teardown() {
   run --separate-stderr "${HOOK}" -t stream -d --instance foo
   [ "$status" -eq 1 ]
 }
+
+@test "post-run: viewer image is omniverse_web_viewer:serve, not stale owv:runtime (#121)" {
+  run --separate-stderr "${HOOK}" -t stream -d --instance foo
+  [ "$status" -eq 0 ]
+  # Image follows the compose naming ${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve.
+  echo "${output}" | grep -qE 'docker run .*alice/omniverse_web_viewer:serve'
+  # Regression guard (#121): the renamed/stale image must not be launched.
+  ! echo "${output}" | grep -qE 'owv:runtime'
+}
