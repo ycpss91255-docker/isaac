@@ -156,6 +156,8 @@ run():
 
 **isaac-forklift**：同消費端 shape，`src/isaac` 放 forklift 內容 + ADR 重編。
 
+**scaffold 預填（定案）**：`new-workspace.sh <name>` 把 base 的 `example/`（camera example 全套：model + 三檔 scene + ExampleDriver + ros2 pkg）**複製進 `src/isaac/`**，裝完直接 `make run` 即出 camera topic（M1/M5 字面成立，新手有可跑的 working reference，再在其上改/換 URDF）。`example/` 因此一物兩用 = integration 對象 + scaffold 模板（single source），故 Issue #6 blocked-by #4-impl/#5。
+
 ### A6. Versioning / pin / stage / test 執行
 - **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.40.0）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
 - **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1–6）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本）。
