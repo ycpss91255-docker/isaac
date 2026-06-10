@@ -15,6 +15,14 @@ if [[ -n "${_DOCKER_LIB_COMPOSE_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_COMPOSE_SOURCED=1
 
+# _compose delegates its DRY_RUN echo/exec split to log.sh's
+# _dry_run_cmd (#408-B), so pull log.sh in directly (idempotent via its
+# own double-source guard) -- mirrors config_summary.sh. Keeps compose.sh
+# self-sufficient when a caller sources it without the full _lib.sh.
+_compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=script/docker/lib/log.sh
+source "${_compose_dir}/log.sh"
+
 # _compute_project_name derives INSTANCE_SUFFIX and PROJECT_NAME for the
 # current invocation, and exports INSTANCE_SUFFIX so compose.yaml can resolve
 # ${INSTANCE_SUFFIX:-} when computing container_name.
@@ -42,15 +50,11 @@ _compute_project_name() {
 
 # _compose runs `docker compose` with the given args, or prints what it would
 # run if DRY_RUN=true. Use this instead of calling docker compose directly so
-# every script honors --dry-run uniformly.
+# every script honors --dry-run uniformly. Delegates the DRY_RUN echo/exec
+# split to log.sh's _dry_run_cmd (#408-B) so the dry-run format lives in one
+# place; output is byte-identical (`[dry-run] docker compose <%q args>`).
 _compose() {
-  if [[ "${DRY_RUN:-false}" == true ]]; then
-    printf '[dry-run] docker compose'
-    printf ' %q' "$@"
-    printf '\n'
-  else
-    docker compose "$@"
-  fi
+  _dry_run_cmd docker compose "$@"
 }
 
 # _compose_project runs `_compose` with -p / -f / --env-file pre-filled, so
@@ -58,11 +62,15 @@ _compose() {
 #
 # Requires:
 #   PROJECT_NAME : set by _compute_project_name
-#   FILE_PATH    : the repo root (where compose.yaml and .env live)
+#   FILE_PATH    : the repo root (where compose.yaml + .env.generated live)
+#
+# --env-file points at .env.generated (the derived interpolation cache,
+# #502). The hand-authored .env workload overlay reaches containers via
+# each service's `env_file: - .env` directive, not this CLI flag.
 _compose_project() {
   _compose -p "${PROJECT_NAME}" \
     -f "${FILE_PATH}/compose.yaml" \
-    --env-file "${FILE_PATH}/.env" \
+    --env-file "${FILE_PATH}/.env.generated" \
     "$@"
 }
 

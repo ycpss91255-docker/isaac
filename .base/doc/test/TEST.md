@@ -1,6 +1,6 @@
 # TEST.md
 
-Template self-tests: **1466 tests** total (1398 unit + 68 integration).
+Template self-tests: **1465 tests** total (1391 unit + 74 integration).
 
 > Counted scope is the `make -f Makefile.ci test` self-test suite —
 > what runs in the `Self Test` CI job. The 36 shared smoke tests under
@@ -47,7 +47,7 @@ Template self-tests: **1466 tests** total (1398 unit + 68 integration).
 | `_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)` | Color migration via _log_plain |
 | `_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)` | NO_COLOR precedence on summary |
 
-### test/unit/log_spec.bats (48)
+### test/unit/log_spec.bats (52)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -71,11 +71,12 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/unit/setup_spec.bats (309)
+### test/unit/setup_spec.bats (358)
 
 Covers core detection (user/hardware/docker/GPU/GUI), the INI parser
-(`_parse_ini_section`), setup.conf section merging (`_load_setup_conf`
-with replace strategy), image_name rule engine via `[image] rules`,
+(`_parse_ini_section` and its shared core `_ini_tokenize`), setup.conf
+section merging (`_load_setup_conf` with replace strategy), image_name
+rule engine via `[image] rules`,
 resolvers (`_resolve_gpu`, `_resolve_gui`), workspace path detection,
 conf hash computation, drift detection, `write_env` (now including
 runtime values + SETUP_* metadata), the `main()` CLI, and workspace
@@ -85,7 +86,8 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 |----------|-------|
 | `detect_user_info` / `detect_hardware` / `detect_docker_hub_user` / `detect_gpu` / `detect_gui` | 11 |
 | `_is_ssh_x11` / `_setup_ssh_x11_cookie` (#321: 6 detection cases + cookie rewrite via stubbed xauth + warn on missing xauth + write_env XAUTHORITY override on/off) | 10 |
-| `_parse_ini_section` (section isolation, comments, trim, missing) | 6 |
+| `_parse_ini_section` (section isolation, comments, trim, missing, dotted-section non-absorption, dotted section read, dup/reopened order) | 9 |
+| `_ini_tokenize` (per-entry owning section + header dedup, dotted keys verbatim) | 2 |
 | `_load_setup_conf` (SETUP_CONF env, per-repo, template, replace) | 4 |
 | `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-value skip) | 5 |
 | `_resolve_gpu` / `_resolve_gui` | 7 |
@@ -106,17 +108,20 @@ writeback (first-time bootstrap / user-edit respect / opt-out).
 | Per-repo setup.conf WARN on check-drift path (#157 / #186: missing → WARN, empty → WARN, partial → silent, zh-TW lang) | 4 |
 | `[additional_contexts]` parsing + compose emission (#199: omitted by default, devel/test block, runtime block, numeric sort, empty-slot skip, _setup_known_section) | 6 |
 | Per-section setup.conf parameter end-to-end coverage (#202: [deploy] gpu_mode/count/capabilities/runtime, [gui] mode, [network] mode/ipc/pid/network_name/port_*, [resources] shm_size, [environment] env_*, [tmpfs] tmpfs_*, [devices] device_*/cgroup_rule_*, [volumes] mount_2..N, [security] privileged) | 28 |
-| `_validate_stage_name` (#215: format / baseline / reserved exit codes) | 4 |
-| `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection) | 6 |
+| `_validate_stage_name` (#215: format / baseline / reserved exit codes; #493: accepts devel-test as emittable) | 5 |
+| `_parse_dockerfile_stages` (#215: extract, dedup, file-order, missing file, lowercase `as` rejection; #493: devel-test promoted out of baseline) | 7 |
 | `_compute_dockerfile_hash` (#215: stable / add / remove / non-FROM-AS edits / missing) | 5 |
 | `auto-emit` end-to-end (#215: #108 runtime regression, multi-stage emit, target/image/container_name shape, no-extras, baseline collision, reserved tag latest/v0, invalid format WARN+skip, SETUP_DOCKERFILE_HASH, drift on add, drift on remove) | 11 |
 | Per-stage overrides #220 helpers (`_parse_stage_sections`, `_load_stage_overrides`, `_validate_stage_override_key` allowlist, `_resolve_stage_scalar`, `_resolve_stage_list` append/replace + ordering + meta-key skip) | 20 |
-| Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error) | 7 |
+| Per-stage overrides #220 compose emit integration (zero-diff regression for stages w/o overrides, `gui.mode=off` strips X11, `network.mode=bridge` per-stage + ports, `volumes.mount_inherit=false` replaces, orphan `[stage:foo]` WARN, disallowed override-key WARN, `[stage:sys]` hard-error; #493: `[stage:devel-test]` GPU control surface on the test service) | 8 |
 | #285 `--quiet` / `-q` flag + success confirmation lines on set / add / remove / reset / apply (default-on confirmation with file: + next: hint on the 4 mutating subcommands; reset's existing `reset_done` line gated on `_quiet`; apply's existing 2-line summary gated on `_quiet`; mutation still writes to setup.conf under `--quiet`) | 11 |
 | #328 `[logging]` CLI orphan fix (`_setup_known_section` recognises `logging` + `logging.<svc>`; rightmost-dot spec parsing for `logging.<svc>.<key>`; `set/show/remove` round-trip on global + per-service keys; validators surface as `Invalid value` errors; whole-section `show logging` lists all 4 keys; per-service editing reaches devel / test / runtime through CLI subcommands) | 9 |
 | #338 apply CLI flags (`--gui auto|force|off` per-invocation override via print-resolved diff vs setup.conf; `--gui=force` short-form; invalid `--gui bogus` rejected; `--print-resolved` dumps key=value without writing `.env` / `compose.yaml`; `--no-x11-cookie` sets `X11_COOKIE_SKIP=1` in the dump; default `X11_COOKIE_SKIP=0`; `SETUP_GUI` env var overrides setup.conf when no CLI flag; CLI `--gui` wins over `SETUP_GUI` env var) | 9 |
+| #502 A2 file roles (`apply` writes the `.env.generated` cache, scaffolds the `.env` workload overlay when absent, never overwrites an existing overlay, `_scaffold_env_overlay` idempotent, legacy `.env` cache migrated to `.env.generated` + backed up, devel service emits `env_file: - .env`) | 6 |
+| #503 `_generate_runtime_dockerfile` ENV-bake primitive (injects `ENV` after `FROM ... AS runtime`, expands cross-refs, returns 1 with no runtime stage / empty `[environment]`) | 4 |
+| #504 `config/app/` dev bind-mount (`apply` binds `./config/app:/opt/app/config` when the dir is present, omits it when absent) | 2 |
 
-### test/unit/tui_spec.bats (106)
+### test/unit/tui_spec.bats (124)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -134,6 +139,9 @@ parsers, and setup.conf round-trip.
 | `_validate_additional_context` (#199: relative paths, BuildKit schemes, name punctuation, reject empty / missing pieces, reject invalid name shapes) | 5 |
 | Per-stage `[stage:NAME]` round-trip (#220: namespaced load, append new section, multi-section append, round-trip, in-place update of existing section) | 5 |
 | `_validate_log_*` (#328: driver name shape, max_size num+unit, max_file positive int, compress boolean; covers happy paths + rejection of empty / whitespace / wrong unit / decimals / case mismatches) | 7 |
+| `_edit_section_lifecycle` (#514: restart radiolist writes simple policy + default no; on-failure:N assembly; empty-N -> bare on-failure; invalid-N re-prompt then accept) | 5 |
+| `_edit_section_deploy` legacy runtime->gpu_runtime migration (#517: suggest msgbox when legacy [deploy] runtime present; silent when gpu_runtime already used; writes canonical gpu_runtime key) | 3 |
+| `_show_runtime_env_info` (#497: info-only msgbox points at the .env overlay; writes no override) | 1 |
 
 ### test/unit/tui_backend_spec.bats (28)
 
@@ -152,7 +160,7 @@ a canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
 | `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code) | 2 |
 | whiptail flag-spelling translation (#136: `--ok-button` / `--cancel-button` instead of `--*-label`, no `--extra-button`) + Save-button unification (#178: dialog also drops `--extra-button`) | 6 |
 
-### test/unit/tui_flow.bats (99)
+### test/unit/tui_flow.bats (100)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
@@ -498,7 +506,7 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/unit/run_sh_spec.bats (57)
+### test/unit/run_sh_spec.bats (65)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
 `docker ps` reads from a controllable stub file so tests can simulate
@@ -632,34 +640,42 @@ exists alongside the wrapper symlink; the documented "cannot find _lib.sh"
 error path still fires (with the new `.base/...` path in the diagnostic)
 when neither `.base/` nor the sibling fallback is present.
 
-### test/unit/makefile_user_spec.bats (32)
+### test/unit/justfile_user_spec.bats (7)
 
-Unit tests for the user-facing `script/docker/Makefile` rewritten in #330.
-Each named wrapper target is a thin 1:1 forward to `./script/<name>.sh`
-with positional sub-cmd args carried via `$(filter-out $@,$(MAKECMDGOALS))`
-and flags requiring the `--` separator. A `%:` catch-all rule no-ops the
-forwarded positional tokens so Make does not error on `make build test`.
-`.DEFAULT_GOAL := help` flips the bare-`make` invocation from build to
-help. Sandbox copies the Makefile into a fake repo, planting stub
-`script/*.sh` recorders that log their argv into stdout so each test
-can assert exactly which underlying script ran and with what args.
+Executable tests for the user-facing `script/docker/justfile` (#546 /
+ADR-00000005: `just` replaces the retired GNU make wrapper). Parity with
+the removed `makefile_user_spec`: sandboxes a repo with the justfile
+symlinked at root + stub `script/*.sh` recorders, and RUNS `just <verb>`
+to assert 1:1 forwarding with `{{args}}` passthrough. Skips when `just`
+is not yet in the test-tools image (pre-release GHCR pull -- see
+template_spec for the `apk add ... just` guard + the release smoke check).
 
-Covers: `.DEFAULT_GOAL` (bare `make` -> help, does not invoke wrappers);
-`make help` lists 11 user-facing targets; removed sub-cmd targets
-(`test` / `runtime` / `run-detach`) are absent from help; 1:1 invocation
-across all 11 targets (build / run / start / exec / stop / prune / setup /
-setup-tui / upgrade / upgrade-check / help); `make start` combined
-build+run (invokes build.sh then run.sh, correct execution order, args
-forwarded to build.sh only, visible in help); positional forwarding
-(`make build test`, `make build runtime`, `make upgrade v0.30.0`, `make
-setup foo`); `--` separator + flag forwarding (`make build -- --no-cache
-test`, `make run -- -d`, `make exec -- -t bats-src bash`); catch-all
-no-op (`make foo` succeeds silently, `make build foo bar` forwards
-multiple positional args); `VAR=VALUE` guard via `MAKEOVERRIDES` (single,
-multiple, after `--` separator — all abort with error); absolute
-container path forwarding (`/nonexistent/...`, `/root/demo/...`).
+| Test | Description |
+|------|-------------|
+| `just build forwards positional args` | `just build test` -> build.sh test |
+| `just build passes flags through verbatim` | no `--` separator needed |
+| `just exec passes = -bearing Kit-style args` | no EXEC_ARGS shim (#469) |
+| `just run / stop / prune / setup forward` | wrapper dispatch |
+| `just setup-tui forwards to setup_tui.sh` | hyphenated recipe |
+| `just upgrade forwards to .base/upgrade.sh` | upgrade dispatch |
+| `bare just lists recipes` | replaces `make help` |
 
-### test/unit/compose_gen_spec.bats (52)
+### test/unit/justfile_spec.bats (4)
+
+Static content checks for the user-facing `script/docker/justfile`
+(ADR-00000005, #545): `just` replaces the GNU make wrapper, with recipes
+forwarding 1:1 to `./script/<name>.sh` via `{{args}}` passthrough (no
+`MAKEOVERRIDES` / `--` / `EXEC_ARGS` workarounds). Asserted by grep, not
+execution -- `just` is not in the test-tools image; downstream installs it.
+
+| Test | Description |
+|------|-------------|
+| `justfile exists` | file present |
+| `declares args-passthrough recipes for every wrapper verb` | build/run/exec/stop/prune/setup/setup-tui/upgrade `*args` |
+| `recipes forward to ./script/<wrapper>.sh with {{args}}` | forwarding bodies |
+| `default recipe lists recipes (replaces make help)` | `default: @just --list` |
+
+### test/unit/compose_gen_spec.bats (85)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -698,6 +714,82 @@ env/volumes + extra volumes from `[volumes]` section.
 | `environment env_N unknown ${VAR} is left literal (refs #236)` | unknown stays literal |
 | `environment env_N supports multiple cross-references in one value (refs #236)` | multi-ref |
 | `environment env_N transitive cross-reference resolves through chain (refs #236)` | transitive |
+| `_resolve_docker_flags: no overrides => inherits all parent values (#505)` | inherit baseline |
+| `_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)` | gui force-off |
+| `_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)` | gui force-on |
+| `_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)` | gpu force-off |
+| `_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)` | gpu scalars |
+| `_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)` | runtime override |
+| `_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)` | runtime legacy alias |
+| `_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)` | runtime per-stage precedence |
+| `_resolve_docker_flags: network scalars + privileged override (#505)` | net + privileged |
+| `_resolve_docker_flags: list fields append to top by default (#505)` | list append |
+| `_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)` | list replace |
+| `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
+| `_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)` | per-stage caps append |
+| `generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)` | per-stage caps clear |
+| `generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append emit |
+
+### test/unit/deploy_spec.bats (47)
+
+Covers the S6 (#506) deploy-generator primitive `_emit_docker_run_flags`:
+the pure mapping from a resolved docker-flag record to a `docker run`
+argv fragment for the self-contained `deploy.sh` field launcher. Asserts
+each flag mapping plus the conditional gates that mirror the compose
+emit (shm only when ipc != host, ports only under bridge, gpu `all` vs
+`count=N,capabilities`, device propagation -> `-v`, runtime off/auto
+skipped, ipc `private` skipped) and the deliberate omissions
+(`[environment]` baked, gui dev-only).
+
+| Test | Description |
+|------|-------------|
+| `privileged=true emits --privileged` | privileged |
+| `gpu count=0 emits --gpus all` | gpu all |
+| `gpu count>0 emits count+capabilities spec` | gpu partition |
+| `gpu=false emits no --gpus` | gpu off |
+| `runtime=nvidia emits --runtime=nvidia` | runtime on |
+| `runtime off/auto/empty emits no --runtime` | runtime skip |
+| `net host emits --network=host` | net host |
+| `net bridge + name emits --network=<name>` | net named bridge |
+| `net bridge without name emits no --network` | default bridge |
+| `ipc host emits --ipc=host; private is skipped` | ipc gate |
+| `pid host emits --pid=host` | pid host |
+| `shm_size emitted only when ipc != host` | shm gate |
+| `restart emitted only when set and != no` | restart gate |
+| `volumes each emit -v` | volumes |
+| `ports emit -p only under bridge` | ports gate |
+| `plain device -> --device, propagation device -> -v` | device split |
+| `caps + security_opt map to docker run flags` | caps/secopt |
+| `dri_groups (space-sep) each map to --group-add` | group-add |
+| `cgroup_rules map to --device-cgroup-rule` | cgroup rules |
+| `environment and gui are NOT mapped (baked / dev-only)` | omissions |
+| `empty record emits nothing` | empty no-op |
+| `_resolve_deploy_context: resolves scalars + list strings from setup.conf` | full resolution |
+| `_resolve_deploy_context: applies effective defaults for a minimal repo conf` | template-merged defaults |
+| `_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode` | legacy alias |
+| `_resolve_deploy_context: dri_groups auto detects host GIDs via SETUP_DETECT_DRI_GROUPS` | dri auto |
+| `_resolve_deploy_context: dri_groups off yields empty` | dri off |
+| `_generate_deploy_sh: writes an executable launcher with the expected skeleton` | launcher skeleton |
+| `_generate_deploy_sh: inlines global [security] privileged + caps + devices` | global security/devices |
+| `_generate_deploy_sh: gpu force inlines --gpus count + capabilities + runtime` | gpu inline |
+| `_generate_deploy_sh: network host inlines --network=host` | network inline |
+| `_generate_deploy_sh: omits -e (env baked) and -v (no dev binds)` | env/volume omission |
+| `_generate_deploy_sh: [lifecycle] restart inlines --restart` | restart inline |
+| `_generate_deploy_sh: per-stage [stage:runtime] override is applied` | per-stage override |
+| `_generate_deploy_sh: per-stage security.cap_add_inherit=false clears inherited caps (#526)` | per-stage caps clear |
+| `_generate_deploy_sh: per-stage security.cap_add_N appends to inherited caps (#526)` | per-stage caps append |
+| `_generate_deploy_sh: generated launcher is ShellCheck-clean` | shellcheck-clean output |
+| `_bake_config_copy: splices COPY config/app into the target stage` | config COPY bake |
+| `_bake_config_copy: handles src == out in place` | in-place bake |
+| `_generate_deploy_bundle: dry-run plans build --target + save + tar.xz` | bundle plan |
+| `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set` | env-bake build |
+| `_generate_deploy_bundle: dry-run builds from the plain Dockerfile when no runtime bake applies` | plain build |
+| `_setup_deploy: --dry-run previews the launcher + prints the build plan` | deploy dry-run |
+| `_setup_deploy: refuses in a non-interactive shell without -y` | non-tty refuse |
+| `_setup_deploy: errors when the repo has no Dockerfile` | no-Dockerfile guard |
+| `_setup_deploy: rejects an unknown flag` | arg validation |
+| `_setup_deploy: --stage selects the target stage` | stage select |
+| `main deploy routes to _setup_deploy` | dispatch wiring |
 
 ### test/unit/compose_logging_spec.bats (32)
 
@@ -712,7 +804,7 @@ behaviour, and the two new setup.sh helpers `_parse_logging_svc_sections`
 |------|-------------|
 | `omits logging: block when both inputs empty (back-compat)` | Empty inputs no-op |
 | `emits logging: block on devel from global [logging]` | Global → devel |
-| `emits logging on test service` | Global → test |
+| `test service inherits global logging via extends:devel (#493)` | Global logging emitted once on devel; test inherits via extends |
 | `driver-only [logging] omits options: block` | No rotation keys |
 | `partial options emits only set keys` | Sparse override |
 | `per-svc [logging.<svc>] overrides global key on that svc` | Override semantics |
@@ -762,7 +854,7 @@ the host file content and the inherited stdout (preserving
 | `entrypoint_logging warns + continues when target is a directory (#328)` | Failure-mode fallback |
 | `entrypoint_logging captures stderr along with stdout (#328)` | 2>&1 redirect |
 
-### test/unit/template_spec.bats (147)
+### test/unit/template_spec.bats (143)
 
 | Test | Description |
 |------|-------------|
@@ -773,16 +865,12 @@ the host file content and the inherited stdout (preserving
 | `setup.sh exists and is executable` | File check |
 | `ci.sh exists and is executable` | File check |
 | `ci.sh uses set -euo pipefail` | Shell convention |
-| `Makefile exists (repo entry)` | File check |
-| `Makefile has build target` | Makefile target |
 | `Makefile.ci exists (template CI)` | File check |
 | `Makefile.ci has test target` | Makefile target |
 | `Makefile.ci has lint target` | Makefile target |
 | `Makefile.ci has upgrade target` | Makefile target |
 | `Makefile.ci upgrade target forwards optional VERSION variable` | VERSION arg passthrough |
-| `Makefile upgrade target uses ./template/upgrade.sh (not ./template/script/upgrade.sh)` | Regression: bad path in script/docker/Makefile |
-| `Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap exit 1 = success |
-| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: same wrap on Makefile.ci |
+| `Makefile.ci upgrade-check tolerates upgrade.sh exit 1 (update available)` | Regression #175: wrap on Makefile.ci |
 | `test/smoke/test_helper.bash exists` | Directory structure |
 | `test/smoke/script_help.bats exists` | Directory structure |
 | `test/smoke/display_env.bats exists` | Directory structure |
@@ -908,7 +996,7 @@ the host file content and the inherited stdout (preserving
 | `color_git_branch is called` | Function call |
 | `color_git_branch sets PS1` | PS1 setting |
 
-### test/unit/ci_spec.bats (17)
+### test/unit/ci_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -929,8 +1017,36 @@ the host file content and the inherited stdout (preserving
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
+| `main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1` | #523 single-file dispatch |
+| `main --bats-path: accepts a directory` | #523 directory path |
+| `main --bats-path: non-existent path dies with ci_bats_path_not_found` | #523 missing-path guard |
+| `main --bats-path: test/behavioural/ path dies with a clear hint` | #523 behavioural guard |
+| `main --bats-path + --coverage is rejected (ci_bats_path_coverage)` | #523 coverage-combo guard |
+| `main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE` | #523 filter-only dispatch |
+| `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
+| `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 
-### test/unit/init_spec.bats (22)
+### test/unit/lint_mixed_test_layout_spec.bats (8)
+
+Covers `script/ci/lint_mixed_test_layout.sh` (#495 / ADR-00000004): the
+WARNING-only lint that flags a `test/<category>/` directory mixing test
+runner families (`.bats` + `test_*.py`) at one level and suggests the
+`test/<category>/<tool>/` subdir split. Asserts the warn / silent cases,
+that non-test files are ignored, the non-blocking exit 0, the
+non-directory exit 2, and the `_runner_family` classifier.
+
+| Test | Description |
+|------|-------------|
+| `warns when a category mixes bats and python at one level` | mixed -> WARN |
+| `silent for a single-tool (bats-only) category` | bats-only silent |
+| `silent for a single-tool (python-only) category` | python-only silent |
+| `warns only for the mixed category among several` | per-category scoping |
+| `non-test files do not trigger a warning` | helper / docs ignored |
+| `is non-blocking: exits 0 even when it warns` | advisory exit 0 |
+| `exits 2 when given a non-directory root` | usage error |
+| `_runner_family classifies bats / python / other` | classifier unit |
+
+### test/unit/init_spec.bats (29)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -951,7 +1067,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
 | `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
-| `_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)` | 7 wrappers under script/ with ../ targets; Makefile at root |
+| `_create_symlinks: places 7 wrapper symlinks under script/ (#330)` | 7 wrappers under script/ with ../ targets; justfile at root, no Makefile |
+| `_create_symlinks: places justfile at root with the direct .base/ target (#545)` | root justfile -> .base/script/docker/justfile |
+| `_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)` | Makefile retired; stale symlink dropped on upgrade |
 | `_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)` | Re-init over stale file at script/build.sh |
 | `_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)` | Migration: plant 7 root symlinks, re-run, all gone + script/ created |
 | `_create_symlinks: keeps custom .hadolint.yaml when it differs` | Custom-hadolint preservation |
@@ -1043,7 +1161,7 @@ Exercises the runtime assertion helpers shipped in
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/unit/upgrade_spec.bats (35)
+### test/unit/upgrade_spec.bats (38)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -1057,7 +1175,11 @@ the three safety guards added after the v0.9.7 Jetson incident
 `_verify_subtree_intact` with rollback), structural invariants that
 pin call-ordering in `_upgrade` (identity check runs before subtree
 pull, integrity verification runs after, pre-pull HEAD is snapshotted
-for rollback), and the SemVer §11-aware `_semver_cmp` + `_check`
+for rollback), the R1+ rewrite of `_verify_subtree_intact` (#477)
+that replaces the hard-coded marker list with a path-agnostic
+structural invariant + target-version match (catches destructive
+fast-forward, empty subtree, malformed `.version`, and wrong-tag
+pulls), and the SemVer §11-aware `_semver_cmp` + `_check`
 behavior added for issue #156 (prerelease ahead of latest stable
 must not be reported as "needing downgrade").
 
@@ -1075,11 +1197,14 @@ must not be reported as "needing downgrade").
 | `_require_clean_merge_state succeeds in clean repo` | Happy path |
 | `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
 | `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
-| `_verify_subtree_intact succeeds when all markers present` | Happy path |
+| `_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)` | R1+ happy path |
 | `_verify_subtree_intact rolls back when template/.version is missing` | Destructive-FF rollback |
-| `_verify_subtree_intact rolls back when template/script/docker/setup.sh is missing` | Marker rollback |
+| `_verify_subtree_intact rolls back when template/ dir is missing (#477 destructive-FF detector)` | R1+ dir-missing rollback |
+| `_verify_subtree_intact rolls back when template/ dir is empty (#477)` | R1+ empty-dir rollback |
+| `_verify_subtree_intact rolls back when .version content is not semver (#477)` | R1+ semver-shape guard |
+| `_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)` | R1+ wrong-tag detector |
 | `upgrade.sh calls _require_git_identity before subtree pull` | Pre-flight ordering |
-| `upgrade.sh calls _verify_subtree_intact after subtree pull` | Post-flight ordering |
+| `upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)` | Post-flight ordering + R1+ caller integration |
 | `upgrade.sh snapshots pre-pull HEAD for rollback` | Rollback anchor |
 | `_semver_cmp: equal versions return 0` | Equality |
 | `_semver_cmp: lower core returns 1` | Behind core |
@@ -1147,7 +1272,7 @@ which has access to a Docker daemon on the host runner.
 | `new repo: doc/test/TEST.md exists` | TEST.md gen |
 | `new repo: doc/changelog/CHANGELOG.md exists` | CHANGELOG gen |
 | `new repo: build.sh symlink lives under script/, not root (#330)` | symlink target moved to script/build.sh |
-| `new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)` | symlink set: 7 wrappers + Makefile root |
+| `new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)` | symlink set: 7 wrappers + justfile root, no Makefile |
 | `new repo: config/ is an empty placeholder (template#254 layered override)` | config placeholder |
 | `new repo: init.sh preserves pre-existing config/ directory (no clobber)` | config preservation |
 | `new repo: init.sh drops stale config symlink before creating placeholder` | config-symlink drop |
@@ -1191,6 +1316,27 @@ invocation — `build.sh --dry-run`).
 | `fresh clone with stale absolute mount_1: build.sh auto-migrates + generates local .env` | Stale-path auto-migrate |
 | `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
 
+### test/integration/wrapper_compose_dispatch_spec.bats (6)
+
+Behavioural assertion (#490) that every wrapper routes its `docker compose`
+calls through the `-p`-injecting dispatcher. Reuses the
+`fresh_clone_portability_spec.bats` fixture pattern (cp `/source` -> `.base/`,
+symlink the wrappers from the repo root, materialize `.env` + `compose.yaml`
+via `build.sh --dry-run`), then runs each wrapper with `--dry-run` and
+inspects the planned `[dry-run] docker compose -p <project> <verb>` line.
+Immune to internal renames (replaces the old name-coupled `_compose_project` /
+`_app_cleanup` greps in `template_spec.bats`) and catches a raw-`docker
+compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
+
+| Test | Description |
+|------|-------------|
+| `build.sh --dry-run dispatches compose build with -p project flag` | build dispatch |
+| `run.sh --dry-run (default devel) dispatches compose up + exec with -p` | run devel up+exec |
+| `exec.sh --dry-run dispatches compose exec with -p` | exec dispatch |
+| `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
+| `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
+| `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
+
 ### test/integration/upgrade_spec.bats (16)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
@@ -1216,8 +1362,8 @@ lint-stage auto-patch that heals downstream Dockerfiles missing the
 | `upgrade.sh patches stale COPY *.sh /lint/ even when COPY script/*.sh /lint/script/ exists (#403)` | Regression: /lint/script/ must not false-positive |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
-| `make upgrade-check (downstream Makefile): exit 0 when update available (#175)` | Regression #175: make wraps exit 1 |
-| `make upgrade-check (downstream Makefile): exit 0 when up-to-date` | Up-to-date path stays green |
+| `just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
+| `just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |

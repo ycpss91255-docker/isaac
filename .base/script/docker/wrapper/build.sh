@@ -3,79 +3,28 @@
 
 set -euo pipefail
 
-# Default FILE_PATH = the user's repo root. Invocation paths we need to
-# cover, all of which must resolve FILE_PATH to the repo root so that
-# ${FILE_PATH}/.base/, ${FILE_PATH}/config/, ${FILE_PATH}/.env, etc.
-# work:
-#   - <repo>/build.sh                       # pre-#330 root-symlink layout
-#   - <repo>/script/build.sh                # post-#330 script/-subfolder layout
-#   - <repo>/.base/script/docker/build.sh   # direct invocation
-#   - /lint/build.sh                        # Dockerfile test stage
-# Heuristic: if our invocation directory has a .base/ sibling, we are at
-# the repo root already; if the parent has .base/ we are one level deeper
-# (the post-#330 script/ subfolder) and step up; otherwise (direct or
-# test-stage call) fall back to the invocation directory and rely on the
-# sibling _lib.sh lookup below.
-# `-C <dir>` / `--chdir <dir>` overrides this so the wrapper operates on
-# a different repo without changing the caller's cwd. Critical for
-# Claude Code's sandbox `excludedCommands` matching: top-level command
-# stays `./build.sh ...` rather than `(cd <dir> && ...)` or
-# `bash -c "cd <dir> && ..."`, neither of which the bash AST parser
-# unwraps into the `./build.sh *` prefix (refs docker_harness#53). The
-# pre-pass runs before _lib.sh is sourced so all path-dependent
-# operations (including the _lib.sh lookup) honor the override.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-else
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-fi
-unset _FILE_PATH_INVOKE_DIR
-_chdir_i=1
-while (( _chdir_i <= $# )); do
-  case "${!_chdir_i}" in
-    -C|--chdir)
-      _chdir_next=$((_chdir_i + 1))
-      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
-        printf '[build] ERROR: -C/--chdir requires a value\n' >&2
-        exit 2
-      fi
-      _chdir_arg="${!_chdir_next}"
-      if [[ ! -d "${_chdir_arg}" ]]; then
-        printf '[build] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
-        exit 2
-      fi
-      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
-      _chdir_i=$((_chdir_next + 1))
-      ;;
-    *)
-      _chdir_i=$((_chdir_i + 1))
-      ;;
-  esac
+# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
+# and source _lib.sh -- all in lib/bootstrap.sh. Locate it from this
+# wrapper's real path (readlink -f follows the consumer-repo symlink),
+# trying the canonical ../lib/ split then the flat /lint lib/ sibling.
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+for _bootstrap_cand in \
+  "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  if [[ -f "${_bootstrap_cand}" ]]; then
+    # shellcheck source=script/docker/lib/bootstrap.sh
+    source "${_bootstrap_cand}"
+    break
+  fi
 done
-unset _chdir_i _chdir_next _chdir_arg
-readonly FILE_PATH
-# _lib.sh lives at .base/script/docker/lib/_lib.sh in normal consumer
-# repos, OR alongside build.sh when the Dockerfile `test` stage COPYs
-# scripts + helpers into /lint/. Issue #104 deduplicated the previously
-# inlined fallback `_detect_lang`; we now always have i18n.sh via
-# _lib.sh's sibling load.
-if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
-elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/lib/_lib.sh"
-else
-  printf "[build] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
+unset _bootstrap_self _bootstrap_cand
+if ! declare -F _bootstrap >/dev/null 2>&1; then
+  printf '[build] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+_bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
@@ -92,19 +41,19 @@ _msg_bootstrap() {
 
 _msg_drift() {
   case "${_LANG}:${1:?}" in
-    zh-TW:regen)  echo "重新產生 .env / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:regen)  echo "重新生成 .env / compose.yaml（setup.conf 已变更）" ;;
-    ja:regen)     echo ".env / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:regen)      echo "regenerating .env / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:regen)  echo "重新產生 .env.generated / compose.yaml（setup.conf 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env.generated / compose.yaml（setup.conf 已变更）" ;;
+    ja:regen)     echo ".env.generated / compose.yaml を再生成中（setup.conf が変更されました）" ;;
+    *:regen)      echo "regenerating .env.generated / compose.yaml (setup.conf drifted)" ;;
   esac
 }
 
 _msg_errors() {
   case "${_LANG}:${1:?}" in
-    zh-TW:no_env)       echo "setup 未產生 .env。" ;;
-    zh-CN:no_env)       echo "setup 未生成 .env。" ;;
-    ja:no_env)          echo "setup が .env を生成しませんでした。" ;;
-    *:no_env)           echo "setup did not produce .env." ;;
+    zh-TW:no_env)       echo "setup 未產生 .env.generated。" ;;
+    zh-CN:no_env)       echo "setup 未生成 .env.generated。" ;;
+    ja:no_env)          echo "setup が .env.generated を生成しませんでした。" ;;
+    *:no_env)           echo "setup did not produce .env.generated." ;;
     zh-TW:rerun_setup)  echo "請改以 './build.sh --setup' 重新執行以開啟編輯器。" ;;
     zh-CN:rerun_setup)  echo "请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
     ja:rerun_setup)     echo "'./build.sh --setup' で再実行してエディタを開いてください。" ;;
@@ -433,7 +382,7 @@ main() {
   # the fresh conf.
   if [[ "${RESET_CONF}" == true ]]; then
     local _conf="${FILE_PATH}/config/docker/setup.conf"
-    local _env="${FILE_PATH}/.env"
+    local _env="${FILE_PATH}/.env.generated"
     if [[ -f "${_conf}" || -f "${_env}" ]]; then
       if [[ "${ASSUME_YES}" != true && "${DRY_RUN}" != true ]]; then
         printf "[build] --reset-conf will overwrite:\n" >&2
@@ -448,11 +397,7 @@ main() {
         esac
       fi
     fi
-    if [[ "${DRY_RUN}" == true ]]; then
-      printf "[dry-run] %s/.base/init.sh --gen-conf --force\n" "${FILE_PATH}"
-    else
-      bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
-    fi
+    _dry_run_cmd bash "${FILE_PATH}/.base/init.sh" --gen-conf --force
     # Force a fresh setup.sh run so .env + compose.yaml follow the new conf.
     RUN_SETUP=true
   fi
@@ -493,7 +438,7 @@ main() {
   # Direct setup.sh guarantees .env + compose.yaml are generated.
   if [[ "${RUN_SETUP}" == true ]]; then
     _run_interactive
-  elif [[ ! -f "${FILE_PATH}/.env" ]] \
+  elif [[ ! -f "${FILE_PATH}/.env.generated" ]] \
       || [[ ! -f "${FILE_PATH}/config/docker/setup.conf" ]] \
       || [[ ! -f "${FILE_PATH}/compose.yaml" ]]; then
     _log_info build build_bootstrap "display=$(_msg bootstrap info)"
@@ -520,14 +465,14 @@ main() {
   # Defensive: setup above should always produce .env. If it didn't
   # (user cancelled an interactive TUI, setup.sh crashed, ...), surface
   # a useful error instead of letting _load_env fail on a missing file.
-  if [[ ! -f "${FILE_PATH}/.env" ]]; then
+  if [[ ! -f "${FILE_PATH}/.env.generated" ]]; then
     _log_err  build build_no_env "display=$(_msg errors no_env)"
     _log_info build build_rerun_setup "display=$(_msg errors rerun_setup)"
     exit 1
   fi
 
   # Load .env for project name
-  _load_env "${FILE_PATH}/.env"
+  _load_env "${FILE_PATH}/.env.generated"
   _compute_project_name ""
 
   # Pre-build snapshot so first-time users see which files drove this

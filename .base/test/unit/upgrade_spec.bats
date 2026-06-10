@@ -38,6 +38,7 @@ EOS
   sed -n '/^_require_git_identity() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_require_clean_merge_state() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_verify_subtree_intact() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_rollback_subtree_pull() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
@@ -215,14 +216,14 @@ _mk_subtree_repo() {
   git -C "${_dir}" commit -q -m "initial"
 }
 
-@test "_verify_subtree_intact succeeds when all markers present" {
+@test "_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)" {
   local _git_dir="${TEMP_DIR}/intact_ok"
-  _mk_subtree_repo "${_git_dir}"
+  _mk_subtree_repo "${_git_dir}"  # writes .version=v0.9.5
   run bash -c "
     cd '${_git_dir}'
     _pre=\$(git rev-parse HEAD)
     source '${HARNESS}'
-    _verify_subtree_intact \"\${_pre}\"
+    _verify_subtree_intact \"\${_pre}\" 'v0.9.5'
   "
   assert_success
 }
@@ -238,7 +239,7 @@ _mk_subtree_repo() {
   run bash -c "
     cd '${_git_dir}'
     source '${HARNESS}'
-    _verify_subtree_intact '${_pre}'
+    _verify_subtree_intact '${_pre}' 'v0.9.5'
   "
   assert_failure
   assert_output --partial "integrity check failed"
@@ -247,21 +248,78 @@ _mk_subtree_repo() {
   [ -f "${_git_dir}/.base/.version" ]
 }
 
-@test "_verify_subtree_intact rolls back when .base/script/docker/wrapper/setup.sh is missing" {
-  local _git_dir="${TEMP_DIR}/intact_nosetup"
+@test "_verify_subtree_intact rolls back when .base/ dir is missing (#477 destructive-FF detector)" {
+  local _git_dir="${TEMP_DIR}/intact_nodir"
   _mk_subtree_repo "${_git_dir}"
   local _pre
   _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
-  rm "${_git_dir}/.base/script/docker/wrapper/setup.sh"
+  rm -rf "${_git_dir}/.base"
 
   run bash -c "
     cd '${_git_dir}'
     source '${HARNESS}'
-    _verify_subtree_intact '${_pre}'
+    _verify_subtree_intact '${_pre}' 'v0.9.5'
   "
   assert_failure
-  assert_output --partial ".base/script/docker/wrapper/setup.sh"
-  [ -f "${_git_dir}/.base/script/docker/wrapper/setup.sh" ]
+  assert_output --partial "subtree dir missing"
+  # Post-condition: rollback restored the dir.
+  [ -d "${_git_dir}/.base" ]
+}
+
+@test "_verify_subtree_intact rolls back when .base/ dir is empty (#477)" {
+  local _git_dir="${TEMP_DIR}/intact_emptydir"
+  _mk_subtree_repo "${_git_dir}"
+  local _pre
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
+  # Empty the dir but keep it as a directory.
+  rm -rf "${_git_dir}/.base"/* "${_git_dir}/.base"/.[!.]*
+
+  run bash -c "
+    cd '${_git_dir}'
+    source '${HARNESS}'
+    _verify_subtree_intact '${_pre}' 'v0.9.5'
+  "
+  assert_failure
+  assert_output --partial "subtree dir is empty"
+  # Post-condition: contents restored.
+  [ -f "${_git_dir}/.base/.version" ]
+}
+
+@test "_verify_subtree_intact rolls back when .version content is not semver (#477)" {
+  local _git_dir="${TEMP_DIR}/intact_notsemver"
+  _mk_subtree_repo "${_git_dir}"
+  local _pre
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
+  # Corrupt .version with non-semver content.
+  echo "garbage-not-a-version" > "${_git_dir}/.base/.version"
+
+  run bash -c "
+    cd '${_git_dir}'
+    source '${HARNESS}'
+    _verify_subtree_intact '${_pre}' 'v0.9.5'
+  "
+  assert_failure
+  assert_output --partial "not semver"
+  assert_output --partial "garbage-not-a-version"
+  # Post-condition: original .version content restored.
+  run cat "${_git_dir}/.base/.version"
+  assert_output "v0.9.5"
+}
+
+@test "_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)" {
+  local _git_dir="${TEMP_DIR}/intact_wrongtag"
+  _mk_subtree_repo "${_git_dir}"  # writes v0.9.5
+  local _pre
+  _pre="$(git -C "${_git_dir}" rev-parse HEAD)"
+
+  run bash -c "
+    cd '${_git_dir}'
+    source '${HARNESS}'
+    _verify_subtree_intact '${_pre}' 'v0.8.0'
+  "
+  assert_failure
+  assert_output --partial "v0.9.5"
+  assert_output --partial "v0.8.0"
 }
 
 # ── upgrade.sh structural invariants (safety guards) ───────────────────────
@@ -276,10 +334,12 @@ _mk_subtree_repo() {
   (( _id_line < _pull_line ))
 }
 
-@test "upgrade.sh calls _verify_subtree_intact after subtree pull" {
+@test "upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)" {
   local _pull_line _verify_line
   _pull_line="$(grep -n 'git subtree pull' "${UPGRADE}" | head -1 | cut -d: -f1)"
-  _verify_line="$(grep -n '_verify_subtree_intact "\${_pre_head}"' "${UPGRADE}" | head -1 | cut -d: -f1)"
+  # Caller must pass both _pre_head AND target_ver so the wrong-tag
+  # detector (#477 R1+) is armed in production, not just in tests.
+  _verify_line="$(grep -n '_verify_subtree_intact "\${_pre_head}" "\${target_ver}"' "${UPGRADE}" | head -1 | cut -d: -f1)"
   [ -n "${_pull_line}" ]
   [ -n "${_verify_line}" ]
   (( _verify_line > _pull_line ))
