@@ -14,6 +14,17 @@ setup() {
 
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
+  # #493 (A1'-b): the `test` service is emitted from the `devel-test`
+  # baseline stage via the per-stage loop, so generate_compose_yaml now
+  # needs a Dockerfile that declares it. Ship a minimal baseline so the
+  # default (no custom Dockerfile) path still produces devel + test.
+  # Tests that need extra stages overwrite this file.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
 }
 
 teardown() {
@@ -30,6 +41,119 @@ teardown() {
     "false" "false" "0" "gpu" _extras
   run head -n 1 "${COMPOSE_OUT}"
   assert_output --partial "AUTO-GENERATED"
+}
+
+@test "generate_compose_yaml emits top-level name: with literal compose vars (#472)" {
+  # Top-level name: lets non-wrapper tools (lazydocker / docker compose ps /
+  # IDE panels) resolve the same project name the wrapper pins via -p. The
+  # vars are literal so compose interpolates them from .env at parse time.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F 'name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml top-level name: precedes services: (#472)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  local _name_ln _svc_ln
+  _name_ln="$(grep -n '^name:' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  _svc_ln="$(grep -n '^services:' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+  [ -n "${_name_ln}" ]
+  [ -n "${_svc_ln}" ]
+  (( _name_ln < _svc_ln ))
+}
+
+@test "generate_compose_yaml emits exactly one top-level name: (#472)" {
+  # Even with stage variants, name: is a single top-level key, never
+  # per-service / per-stage.
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -c '^name:' "${COMPOSE_OUT}"
+  assert_output "1"
+}
+
+# ── #482 top-level volumes: (Option A / D-Strict) ───────────────────────────
+
+@test "generate_compose_yaml named volume mount emits top-level volumes: stub (#482)" {
+  local _extras=('my_state:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^  my_state:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- my_state:/srv/state' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml bind mounts never enter top-level volumes: (#482)" {
+  # /, ./, ~/, ${ prefixes are all binds -> no top-level volumes block.
+  local _extras=('/var/log:/log' './data:/data' '~/.ssh:/home/u/.ssh:ro' '${WS_PATH}:/work')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml bind-only repo is zero-diff (no top-level volumes:) (#482)" {
+  # Critical: bind-only output must be unchanged for the 17 downstream repos.
+  local _extras=('${WS_PATH}:/home/${USER_NAME}/work')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+@test "generate_compose_yaml named volume with :mode strips mode from top-level name (#482)" {
+  local _extras=('my_state:/srv/state:rw')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # top-level stub has the bare name, no :rw
+  run grep -E '^  my_state:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^  my_state:rw' "${COMPOSE_OUT}"
+  assert_failure
+  # service level keeps the mode
+  run grep -F -- '- my_state:/srv/state:rw' "${COMPOSE_OUT}"
+  assert_success
+}
+
+@test "generate_compose_yaml dedups a named volume referenced twice (#482)" {
+  local _extras=('my_state:/srv/state' 'my_state:/srv/other:rw')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -c '^  my_state:$' "${COMPOSE_OUT}"
+  assert_output "1"
+}
+
+@test "generate_compose_yaml top-level volumes: stub has no driver/labels (#482)" {
+  local _extras=('my_state:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  # the line after `  my_state:` must not be an indented driver/labels key
+  run grep -A1 '^  my_state:$' "${COMPOSE_OUT}"
+  refute_output --partial "driver"
+  refute_output --partial "labels"
+}
+
+@test "generate_compose_yaml emits volumes: before networks: (#482)" {
+  # network on -> both top-level blocks present; volumes precedes networks.
+  local _extras=('my_state:/srv/state')
+  NETWORK_MODE=bridge NETWORK_NAME=mynet \
+    generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+      "false" "false" "0" "gpu" _extras
+  if grep -qE '^networks:$' "${COMPOSE_OUT}"; then
+    local _vol_ln _net_ln
+    _vol_ln="$(grep -n '^volumes:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+    _net_ln="$(grep -n '^networks:$' "${COMPOSE_OUT}" | head -1 | cut -d: -f1)"
+    (( _vol_ln < _net_ln ))
+  else
+    skip "networks: not emitted in this invocation shape"
+  fi
 }
 
 @test "generate_compose_yaml emits workspace mount when present in extras" {
@@ -379,6 +503,58 @@ teardown() {
   assert_failure
 }
 
+@test "generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:probe]
+security.cap_add_inherit = false
+security.security_opt_inherit = false
+CONF
+  local _extras=()
+  local _cap_add _sec_opt
+  printf -v _cap_add '%s' "SYS_ADMIN"
+  printf -v _sec_opt '%s' "seccomp:unconfined"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "${_cap_add}" "" "${_sec_opt}"
+  # devel inherits the top-level caps.
+  run awk '/^  devel:/{f=1} f&&/cap_add:/{print; exit}' "${COMPOSE_OUT}"
+  assert_output --partial "cap_add:"
+  # probe (cleared) carries no cap_add / security_opt.
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  refute [ -n "$(grep -F 'SYS_ADMIN' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F 'seccomp:unconfined' <<< "${_probe_block}")" ]
+}
+
+@test "generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS flash
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:flash]
+security.cap_add_1 = MKNOD
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" "SYS_ADMIN" "" ""
+  local _flash_block
+  _flash_block="$(awk '/^  flash:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F 'SYS_ADMIN' <<< "${_flash_block}")" ]
+  assert [ -n "$(grep -F 'MKNOD' <<< "${_flash_block}")" ]
+}
+
 @test "generate_compose_yaml emits network_mode/ipc/privileged via env var" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -435,17 +611,19 @@ teardown() {
   assert_success
 }
 
-@test "generate_compose_yaml emits TARGETARCH line in both services when target_arch set" {
+@test "generate_compose_yaml emits TARGETARCH build arg on devel (test inherits via extends, #493)" {
   local _extras=()
   # Positional args up to #21 are optional (defaults via ${N:-}); pos #22 is target_arch.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "arm64"
-  # Must appear under both devel + test service build.args blocks.
+  # #493 (A1'-b): the test service is now an extends:devel stage with no
+  # override, so it does not re-emit its own build.args — it inherits
+  # devel's TARGETARCH at compose-merge time. The line appears once.
   run grep -cF 'TARGETARCH: ${TARGET_ARCH}' "${COMPOSE_OUT}"
   assert_success
-  assert_output "2"
+  assert_output "1"
 }
 
 @test "generate_compose_yaml omits TARGETARCH line when target_arch empty (BuildKit auto-fill)" {
@@ -457,17 +635,18 @@ teardown() {
   assert_failure
 }
 
-@test "generate_compose_yaml emits build.network line in both services when build_network set" {
+@test "generate_compose_yaml emits build.network on devel (test inherits via extends, #493)" {
   local _extras=()
   # Pos #23 is build_network.
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras \
     "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "host"
-  # Must appear under both devel + test service build blocks.
+  # #493 (A1'-b): test is an extends:devel stage with no override, so the
+  # build.network line is emitted once on devel and inherited by test.
   run grep -cE '^      network: host$' "${COMPOSE_OUT}"
   assert_success
-  assert_output "2"
+  assert_output "1"
 }
 
 @test "generate_compose_yaml omits build.network line when build_network empty" {
@@ -755,6 +934,8 @@ CMD ["bash"]
 
 FROM devel AS runtime
 CMD ["/app"]
+
+FROM devel AS devel-test
 DOCK
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -812,5 +993,309 @@ DOCK
   run grep -c 'propagation: rslave' "${COMPOSE_OUT}"
   [[ "${output}" -ge 1 ]]
   run grep -E '^  runtime:' "${COMPOSE_OUT}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _resolve_docker_flags — single per-stage flag-resolution layer (#505)
+#
+# Resolves one stage's effective docker flags from its [stage:*]
+# overrides (already filtered to the allowlist) layered over the parent
+# (devel / top-level) already-resolved values. The ONE resolution layer
+# both the compose renderer (generate_compose_yaml per-stage loop) and
+# the deploy renderer (S6 #506, runtime stage) call, so the two never
+# drift. Modes (gui/gpu) inherit the parent's resolved boolean unless
+# the stage forces off/force — no per-stage hardware re-detection.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_resolve_docker_flags: no overrides => inherits all parent values (#505)" {
+  local -a _k=() _v=()
+  local -A _parent=(
+    [gui]="true" [gpu]="true" [gpu_count]="2" [gpu_caps]="gpu compute"
+    [runtime]="nvidia" [net_mode]="bridge" [ipc_mode]="host"
+    [pid_mode]="private" [net_name]="mynet"
+    [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]=$'9000:9000'
+  )
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "true"
+  assert_equal "${_eff[gpu]}" "true"
+  assert_equal "${_eff[gpu_count]}" "2"
+  assert_equal "${_eff[gpu_caps]}" "gpu compute"
+  assert_equal "${_eff[runtime]}" "nvidia"
+  assert_equal "${_eff[net_mode]}" "bridge"
+  assert_equal "${_eff[ipc_mode]}" "host"
+  assert_equal "${_eff[pid_mode]}" "private"
+  assert_equal "${_eff[net_name]}" "mynet"
+  assert_equal "${_eff[privileged]}" ""
+  assert_equal "${_eff[volumes]}" "./a:/a"
+  assert_equal "${_eff[environment]}" "TOP=1"
+  assert_equal "${_eff[ports]}" "9000:9000"
+}
+
+@test "_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)" {
+  local -a _k=("gui.mode") _v=("off")
+  local -A _parent=([gui]="true" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "false"
+}
+
+@test "_resolve_docker_flags: gui.mode=force overrides parent gui=false (#505)" {
+  local -a _k=("gui.mode") _v=("force")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gui]}" "true"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_mode=off overrides parent gpu=true (#505)" {
+  local -a _k=("deploy.gpu_mode") _v=("off")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="2" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gpu]}" "false"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_count + gpu_capabilities overrides win (#505)" {
+  local -a _k=("deploy.gpu_count" "deploy.gpu_capabilities") _v=("4" "compute utility")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="1" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[gpu_count]}" "4"
+  assert_equal "${_eff[gpu_caps]}" "compute utility"
+}
+
+@test "_resolve_docker_flags: deploy.gpu_runtime override wins (#505/#481)" {
+  local -a _k=("deploy.gpu_runtime") _v=("nvidia")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy deploy.runtime alias used when gpu_runtime absent (#505/#481)" {
+  local -a _k=("deploy.runtime") _v=("nvidia")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "nvidia"
+}
+
+@test "_resolve_docker_flags: legacy deploy.runtime overrides gpu_runtime at per-stage scope (resolved last, #505/#481)" {
+  # Pre-existing per-stage precedence preserved byte-for-byte by the #505
+  # refactor: when BOTH keys appear under [stage:*], deploy.gpu_runtime is
+  # resolved first (with the parent as fallback), then the legacy
+  # deploy.runtime is resolved with that result as ITS fallback -- so a
+  # present deploy.runtime wins. (This per-stage edge case differs from the
+  # global resolution where gpu_runtime wins; left unchanged here because
+  # S5 is a byte-identical refactor, not a behaviour change.)
+  local -a _k=("deploy.gpu_runtime" "deploy.runtime") _v=("nvidia" "off")
+  local -A _parent=([gui]="false" [gpu]="true" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[runtime]}" "off"
+}
+
+@test "_resolve_docker_flags: network scalars + privileged override (#505)" {
+  local -a _k=("network.mode" "network.ipc" "network.pid" "network.network_name" "security.privileged") \
+           _v=("bridge" "private" "host" "altnet" "true")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="default" [volumes_top]="" [env_top]="" [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[net_mode]}" "bridge"
+  assert_equal "${_eff[ipc_mode]}" "private"
+  assert_equal "${_eff[pid_mode]}" "host"
+  assert_equal "${_eff[net_name]}" "altnet"
+  assert_equal "${_eff[privileged]}" "true"
+}
+
+@test "_resolve_docker_flags: list fields append to top by default (#505)" {
+  local -a _k=("volumes.mount_1" "environment.env_1" "network.port_1") \
+           _v=("./b:/b" "STAGE=1" "8080:80")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="bridge" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]=$'9000:9000')
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[volumes]}" $'./a:/a\n./b:/b'
+  assert_equal "${_eff[environment]}" $'TOP=1\nSTAGE=1'
+  assert_equal "${_eff[ports]}" $'9000:9000\n8080:80'
+}
+
+@test "_resolve_docker_flags: list *_inherit=false switches to replace mode (#505)" {
+  local -a _k=("volumes.mount_inherit" "volumes.mount_1" "environment.env_inherit" "environment.env_1") \
+           _v=("false" "./only:/only" "false" "ONLY=1")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]=$'./a:/a' [env_top]=$'TOP=1' [ports_top]="")
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[volumes]}" "./only:/only"
+  assert_equal "${_eff[environment]}" "ONLY=1"
+}
+
+@test "_resolve_docker_flags: security cap_add / cap_drop / security_opt append to top by default (#526)" {
+  local -a _k=("security.cap_add_1" "security.cap_drop_1" "security.security_opt_1") \
+           _v=("MKNOD" "NET_RAW" "apparmor:unconfined")
+  local -A _parent=([gui]="false" [gpu]="false" [gpu_count]="0" [gpu_caps]="gpu" [runtime]="" [net_mode]="host" [ipc_mode]="host" [pid_mode]="private" [net_name]="" [volumes_top]="" [env_top]="" [ports_top]="" [cap_add_top]=$'SYS_ADMIN' [cap_drop_top]=$'ALL' [sec_opt_top]=$'seccomp:unconfined')
+  local -A _eff=()
+  _resolve_docker_flags _k _v _parent _eff
+  assert_equal "${_eff[cap_add]}" $'SYS_ADMIN\nMKNOD'
+  assert_equal "${_eff[cap_drop]}" $'ALL\nNET_RAW'
+  assert_equal "${_eff[security_opt]}" $'seccomp:unconfined\napparmor:unconfined'
+}
+
+@test "generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)" {
+  # Full-file golden master guarding the #505 refactor: the per-stage
+  # resolution now flows through the single _resolve_docker_flags layer.
+  # The fixture exercises a [stage:headless] override hitting every
+  # branch -- gui off, gpu off, ipc override (shm emit), privileged
+  # override, runtime inherit, net inherit, env replace, volume replace,
+  # port append -- so any drift in the assembled compose.yaml fails here.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS headless
+DOCK
+  mkdir -p "${TEMP_DIR}/config/docker"
+  cat > "${TEMP_DIR}/config/docker/setup.conf" <<'CONF'
+[stage:headless]
+gui.mode = off
+deploy.gpu_mode = off
+network.ipc = private
+security.privileged = true
+volumes.mount_inherit = false
+volumes.mount_1 = ./hl-data:/data
+environment.env_inherit = false
+environment.env_1 = HEADLESS=1
+network.port_1 = 8080:80
+CONF
+  local _extras=('./ws:/workspace' 'state_vol:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "true" "true" "1" "gpu compute" \
+    _extras "mynet" \
+    "" \
+    $'TOP_ENV=1' "" $'9000:9000' \
+    "256m" "bridge" "host" "private" \
+    "" "" "" \
+    "" \
+    "" \
+    "" \
+    "host" \
+    "nvidia" \
+    "" \
+    "" \
+    "" \
+    "no" \
+    ""
+  cat > "${TEMP_DIR}/expected.yaml" <<'GOLDEN'
+# AUTO-GENERATED BY setup.sh — DO NOT EDIT.
+# Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
+name: ${DOCKER_HUB_USER}-${IMAGE_NAME}${INSTANCE_SUFFIX:-}
+services:
+  devel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel
+      network: host
+      args:
+        APT_MIRROR_UBUNTU: ${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: ${TZ:-Asia/Taipei}
+        USER_NAME: ${USER_NAME}
+        USER_GROUP: ${USER_GROUP}
+        USER_UID: ${USER_UID}
+        USER_GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER:-local}/myrepo:devel
+    container_name: ${USER_NAME}-myrepo${INSTANCE_SUFFIX:-}
+    privileged: ${PRIVILEGED}
+    ipc: ${IPC_MODE}
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    runtime: nvidia
+    networks:
+      - mynet
+    environment:
+      - DISPLAY=${DISPLAY:-}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
+      - XAUTHORITY=${XAUTHORITY:-}
+      - TOP_ENV=1
+    ports:
+      - "9000:9000"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}:rw
+      - ${XAUTHORITY:-/dev/null}:${XAUTHORITY:-/dev/null}:ro
+      - ./ws:/workspace
+      - state_vol:/srv/state
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute]
+
+  test:
+    extends:
+      service: devel
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel-test
+    image: ${DOCKER_HUB_USER:-local}/myrepo:test
+    container_name: ${USER_NAME}-myrepo-test${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - test
+
+  headless:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: headless
+      network: host
+      args:
+        APT_MIRROR_UBUNTU: ${APT_MIRROR_UBUNTU:-archive.ubuntu.com}
+        APT_MIRROR_DEBIAN: ${APT_MIRROR_DEBIAN:-deb.debian.org}
+        TZ: ${TZ:-Asia/Taipei}
+        USER_NAME: ${USER_NAME}
+        USER_GROUP: ${USER_GROUP}
+        USER_UID: ${USER_UID}
+        USER_GID: ${USER_GID}
+    image: ${DOCKER_HUB_USER:-local}/myrepo:headless
+    container_name: ${USER_NAME}-myrepo-headless${INSTANCE_SUFFIX:-}
+    stdin_open: false
+    tty: false
+    profiles:
+      - headless
+    env_file:
+      - .env
+    privileged: true
+    ipc: private
+    runtime: nvidia
+    networks:
+      - mynet
+    environment:
+      - HEADLESS=1
+    ports:
+      - "9000:9000"
+      - "8080:80"
+    volumes:
+      - ./hl-data:/data
+    shm_size: 256m
+
+volumes:
+  state_vol:
+
+networks:
+  mynet:
+    driver: bridge
+GOLDEN
+  run diff -u "${TEMP_DIR}/expected.yaml" "${COMPOSE_OUT}"
   assert_success
 }

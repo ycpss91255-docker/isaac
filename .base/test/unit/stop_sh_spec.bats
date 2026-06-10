@@ -29,7 +29,7 @@ setup() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -247,7 +247,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
     echo "DOCKER_HUB_USER=altuser"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
 
   run bash "${SANDBOX}/stop.sh" -C "${ALT}" --dry-run
   assert_success
@@ -267,7 +267,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
     echo "DOCKER_HUB_USER=altuser2"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
 
   run bash "${SANDBOX}/stop.sh" --chdir "${ALT}" --dry-run
   assert_success

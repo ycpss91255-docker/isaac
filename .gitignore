@@ -24,3 +24,5 @@ config/host.yaml
 /instance/
 
 runtime.env
+
+.env.generated

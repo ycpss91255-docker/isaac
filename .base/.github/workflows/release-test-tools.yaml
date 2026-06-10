@@ -118,6 +118,9 @@ jobs:
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
           docker run --rm "${image}" make --version
+          # just (#546): the justfile entry point replaces the Makefile;
+          # downstream + CI run `just <verb>`, so the image must carry it.
+          docker run --rm "${image}" just --version
           # `git subtree --help` would invoke `man git-subtree`, but alpine
           # ships no man viewer in the test-tools image (and we don't want
           # to install one just for this smoke check). Confirm the binary

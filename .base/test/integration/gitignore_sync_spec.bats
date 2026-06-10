@@ -28,10 +28,10 @@ teardown() {
 # init.sh new-repo path: .gitignore is created via lib (single source)
 # ════════════════════════════════════════════════════════════════════
 
-@test "init.sh new-repo: .gitignore contains all canonical entries (#462: + runtime.env)" {
+@test "init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)" {
   bash .base/init.sh
   local _entry
-  for _entry in .env .env.bak runtime.env compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
+  for _entry in .env .env.generated .env.bak compose.yaml setup.conf.bak setup.conf.local coverage/ .Dockerfile.generated; do
     run grep -xF "${_entry}" "${REPO_DIR}/.gitignore"
     assert_success
   done
@@ -174,7 +174,7 @@ _seed_upgrade_fixture() {
   for _f in build.sh run.sh exec.sh stop.sh setup_tui.sh; do
     : > "${TMPL_WORK}/script/docker/wrapper/${_f}"
   done
-  : > "${TMPL_WORK}/script/docker/Makefile"
+  : > "${TMPL_WORK}/script/docker/justfile"
   : > "${TMPL_WORK}/.hadolint.yaml"
   chmod +x "${TMPL_WORK}/init.sh" "${TMPL_WORK}/upgrade.sh" \
            "${TMPL_WORK}/script/docker/wrapper/setup.sh"

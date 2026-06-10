@@ -1,0 +1,61 @@
+# User-facing container-ops entry point (just). Symlinked from the
+# downstream repo root as `justfile`; run `just <verb> [args...]`.
+#
+# ADR-00000005: `just` replaces the GNU make wrapper. Each recipe forwards
+# 1:1 to ./script/<wrapper>.sh with full `{{args}}` passthrough, so
+# docker-native flags / sub-commands reach the script verbatim -- no
+# MAKEOVERRIDES guard (#414), no mandatory `--` separator (#448), and no
+# EXEC_ARGS env shim (#469); make's argv quirks simply do not apply.
+#
+#   just build test                 -> ./script/build.sh test
+#   just build --no-cache test      -> ./script/build.sh --no-cache test
+#   just run -d                      -> ./script/run.sh -d
+#   just exec -t bats-src bash       -> ./script/exec.sh -t bats-src bash
+#   EXEC_ARGS-style Kit args pass through directly: just exec -t cli --/app/k=v
+#
+# `Makefile.ci` (the CI lint/test entry) is unrelated and stays on make.
+
+# Default: list available recipes (replaces `make help`).
+default:
+    @just --list
+
+# Build devel image (e.g. just build test  |  just build --no-cache)
+build *args:
+    ./script/build.sh {{args}}
+
+# Run container interactively (e.g. just run  |  just run -d)
+run *args:
+    ./script/run.sh {{args}}
+
+# Build + run in one step (e.g. just start  |  just start --no-cache)
+start *args:
+    ./script/build.sh {{args}}
+    ./script/run.sh
+
+# Exec into a running container (e.g. just exec -t bats-src bash)
+exec *args:
+    ./script/exec.sh {{args}}
+
+# Stop and remove containers
+stop *args:
+    ./script/stop.sh {{args}}
+
+# Prune build cache / dangling images
+prune *args:
+    ./script/prune.sh {{args}}
+
+# Regenerate .env + compose.yaml from setup.conf
+setup *args:
+    ./script/setup.sh {{args}}
+
+# Interactive TUI to edit setup.conf
+setup-tui *args:
+    ./script/setup_tui.sh {{args}}
+
+# Upgrade base subtree (e.g. just upgrade v0.30.0)
+upgrade *args:
+    ./.base/upgrade.sh {{args}}
+
+# Check for base updates (exit 0 up-to-date or update available; non-1 is a real error)
+upgrade-check:
+    @./.base/upgrade.sh --check || [ $? -eq 1 ]

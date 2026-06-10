@@ -29,6 +29,7 @@ xauth_rewrite_failed
 xauth_empty_cookie
 conf_image_name_default
 conf_image_name_unknown
+conf_runtime_key_deprecated
 conf_no_repo_conf
 conf_empty_repo_conf
 conf_template_missing
@@ -37,6 +38,11 @@ conf_reset_needs_yes
 conf_mount_stale_path
 stage_devel_reserved
 env_drift_detail
+deploy_no_dockerfile
+deploy_needs_yes
+deploy_aborted
+deploy_failed
+deploy_done
 
 # build.sh
 build_started
@@ -90,6 +96,7 @@ upgrade_started
 upgrade_completed
 upgrade_subtree_pull_failed
 upgrade_version_bumped
+upgrade_version_mismatch
 upgrade_rollback
 
 # init.sh
@@ -107,6 +114,11 @@ ci_empty_shard
 ci_no_docker_socket
 ci_no_docker_cli
 ci_unknown_option
+ci_bats_path_not_found
+ci_bats_path_behavioural
+ci_bats_path_coverage
+ci_mixed_test_layout
+ci_lint_bad_root
 
 # general
 dry_run_cmd

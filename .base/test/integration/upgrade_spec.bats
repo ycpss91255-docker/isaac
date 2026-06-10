@@ -289,30 +289,32 @@ EOF
   assert_output --partial "Update available"
 }
 
-@test "make upgrade-check (downstream Makefile): exit 0 when update available (#175)" {
-  # Regression #175: the Makefile recipe wraps upgrade.sh so make doesn't
-  # mistake exit 1 (update available) for a build failure. The downstream
-  # Makefile is symlinked into every consumer repo via init.sh; copy it
-  # here because the seeded subtree fixture omits the Makefile (only the
-  # markers upgrade.sh's post-flight check needs are seeded).
+@test "just upgrade-check (downstream justfile): exit 0 when update available (#175, #546)" {
+  # Regression #175: the upgrade-check recipe wraps upgrade.sh so the
+  # runner does not mistake exit 1 (update available) for a build failure.
+  # #546 moved the recipe from Makefile -> justfile; copy the justfile here
+  # because the seeded subtree fixture omits it. Skips when `just` is not
+  # yet in the test-tools image (pre-release GHCR pull) -- the guard keeps
+  # the suite green until test-tools ships with just.
+  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/Makefile Makefile
+  cp /source/script/docker/justfile justfile
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
   assert_success
   assert_output --partial "Local:  v0.9.5"
   assert_output --partial "Latest: v0.9.7"
   assert_output --partial "Update available"
-  refute_output --partial "Error 1"
 }
 
-@test "make upgrade-check (downstream Makefile): exit 0 when up-to-date" {
+@test "just upgrade-check (downstream justfile): exit 0 when up-to-date (#546)" {
+  command -v just >/dev/null 2>&1 || skip "just not installed in this test-tools image"
   cd "${DOWN_DIR}"
-  cp /source/script/docker/Makefile Makefile
+  cp /source/script/docker/justfile justfile
 
   env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/upgrade.sh v0.9.7 >/dev/null
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" make upgrade-check
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just upgrade-check
   assert_success
   assert_output --partial "Already up to date."
 }
@@ -399,7 +401,10 @@ STUB
 
   assert_failure
   assert_output --partial "integrity check failed"
-  assert_output --partial ".base/.version"
+  # R1+ (#477) detects destructive FF via subtree dir missing, ahead of the
+  # later .version / version-mismatch checks. The legacy assertion against
+  # ".base/.version" missing was specific to the pre-R1+ marker list.
+  assert_output --partial "subtree dir missing"
   assert_output --partial "Rolling back"
   assert_output --partial "upgrade aborted"
 

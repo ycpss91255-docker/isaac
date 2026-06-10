@@ -31,7 +31,7 @@ setup() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -289,7 +289,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg"
     echo "DOCKER_HUB_USER=altuser"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
 
   # Make `docker ps` claim the alt container is running so exec proceeds.
   echo "altuser-altimg" > "${DOCKER_PS_FILE}"
@@ -313,7 +313,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=altimg2"
     echo "DOCKER_HUB_USER=altuser2"
-  } > "${ALT}/.env"
+  } > "${ALT}/.env.generated"
   echo "altuser2-altimg2" > "${DOCKER_PS_FILE}"
 
   run bash "${SANDBOX}/exec.sh" --chdir "${ALT}" --dry-run

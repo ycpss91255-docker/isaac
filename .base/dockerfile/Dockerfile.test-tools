@@ -37,11 +37,11 @@ RUN apk add --no-cache curl xz && \
       arm64)  sc_arch="aarch64"; hd_arch="arm64"  ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
         "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.${sc_arch}.tar.xz" \
         | tar -xJ -C /tmp && \
     mv "/tmp/shellcheck-v0.10.0/shellcheck" /usr/local/bin/shellcheck && \
-    curl -fsSL -o /usr/local/bin/hadolint \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
         "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 
@@ -77,7 +77,7 @@ RUN apk add --no-cache curl xz && \
 # compose service is invoked (it mounts the host docker.sock); the
 # default `ci` service ignores docker even when CLI is present.
 FROM alpine:${ALPINE_VERSION}
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make docker-cli docker-cli-buildx
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils make just docker-cli docker-cli-buildx
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats

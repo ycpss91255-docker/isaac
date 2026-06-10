@@ -54,8 +54,8 @@ _create_symlinks() {
   _log "Creating symlinks:"
   # #330: the seven user-facing wrappers live under script/ now, with
   # link targets relative to the link's directory ("../" prefix).
-  # Root keeps `Makefile` as the elevated user entry; flag / sub-cmd
-  # forwarding is documented in script/docker/Makefile itself.
+  # #546: the root user entry is the `justfile` (the container-ops
+  # Makefile was retired); recipes forward to ./script/<verb>.sh.
   mkdir -p script
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/build.sh" "script/build.sh"
   _symlink "../${TEMPLATE_REL}/script/docker/wrapper/run.sh" "script/run.sh"
@@ -69,14 +69,20 @@ _create_symlinks() {
   # [[ -L X ]] guard makes the loop idempotent on already-migrated
   # repos and silent on very old forks that never carried setup.sh /
   # setup_tui.sh at root.
+  # Migration hygiene also drops the retired root `Makefile` symlink
+  # (#546 / ADR-00000005 phase 2): base no longer ships a container-ops
+  # Makefile, so an upgrading repo's stale root symlink must go or it
+  # dangles. (`Makefile.ci` is unrelated and never lived at root.)
   local _stale
-  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh; do
+  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh Makefile; do
     if [[ -L "${_stale}" ]]; then
       rm -f "${_stale}"
-      _log "  Removed stale root symlink ${_stale} (moved to script/)"
+      _log "  Removed stale root symlink ${_stale}"
     fi
   done
-  _symlink "${TEMPLATE_REL}/script/docker/Makefile" "Makefile"
+  # ADR-00000005: `just` is the user-facing entry. justfile sits at root
+  # with the direct .base/ target. (The Makefile was retired in #546.)
+  _symlink "${TEMPLATE_REL}/script/docker/justfile" "justfile"
 
   if [[ ! -f .hadolint.yaml ]] \
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/.hadolint.yaml" \

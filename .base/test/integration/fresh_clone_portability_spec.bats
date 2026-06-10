@@ -76,7 +76,7 @@ _seed_stale_setup_conf() {
   _seed_stale_setup_conf "/nonexistent/contributor-a/repo"
 
   assert [ -f "${REPO_DIR}/config/docker/setup.conf" ]
-  assert [ ! -f "${REPO_DIR}/.env" ]
+  assert [ ! -f "${REPO_DIR}/.env.generated" ]
   assert [ ! -f "${REPO_DIR}/compose.yaml" ]
 
   # --dry-run so build.sh stops before invoking docker (the docker
@@ -90,8 +90,8 @@ _seed_stale_setup_conf() {
   # .env carries THIS machine's WS_PATH, never the seeded stale path —
   # apply re-detects ws_path from template's portable mount_1 (no
   # .local override exists) instead of trusting the stale snapshot.
-  assert [ -f "${REPO_DIR}/.env" ]
-  run grep '^WS_PATH=' "${REPO_DIR}/.env"
+  assert [ -f "${REPO_DIR}/.env.generated" ]
+  run grep '^WS_PATH=' "${REPO_DIR}/.env.generated"
   assert_success
   refute_output --partial "WS_PATH=/nonexistent/contributor-a/repo"
 
@@ -118,6 +118,6 @@ _seed_stale_setup_conf() {
   assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
 
   # .env populated with this machine's WS_PATH (non-empty, absolute).
-  run grep '^WS_PATH=' "${REPO_DIR}/.env"
+  run grep '^WS_PATH=' "${REPO_DIR}/.env.generated"
   assert_output --regexp '^WS_PATH=/[^[:space:]]+'
 }

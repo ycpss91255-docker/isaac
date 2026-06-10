@@ -459,3 +459,52 @@ setup() {
   run grep -q '"json": true' /source/script/docker/lib/log.lnav-format.json
   assert_success
 }
+
+# ── _dry_run_cmd (#408-B) ──────────────────────────────────────────
+#
+# Unifies the wrapper dry-run dispatch: under DRY_RUN=true it prints the
+# planned command (`[dry-run]` + %q-quoted argv) and does NOT execute;
+# otherwise it runs the command verbatim. Plain command echo (NOT a
+# structured log event) so the `[dry-run] docker compose -p ...` line
+# the wrapper-dispatch specs assert stays byte-stable.
+
+@test "_dry_run_cmd: DRY_RUN=true prints [dry-run] argv and does not execute" {
+  local _marker="${BATS_TEST_TMPDIR}/dry_run_marker"
+  run bash -c "
+    source ${LOG_SH}
+    DRY_RUN=true _dry_run_cmd touch '${_marker}'
+  "
+  assert_success
+  assert_output "[dry-run] touch ${_marker}"
+  [[ ! -e "${_marker}" ]] || { echo "command executed under DRY_RUN"; return 1; }
+}
+
+@test "_dry_run_cmd: DRY_RUN=false executes the command" {
+  local _marker="${BATS_TEST_TMPDIR}/dry_run_exec"
+  run bash -c "
+    source ${LOG_SH}
+    DRY_RUN=false _dry_run_cmd touch '${_marker}'
+  "
+  assert_success
+  [[ -e "${_marker}" ]] || { echo "command not executed when DRY_RUN=false"; return 1; }
+}
+
+@test "_dry_run_cmd: DRY_RUN unset defaults to executing" {
+  local _marker="${BATS_TEST_TMPDIR}/dry_run_default"
+  run bash -c "
+    source ${LOG_SH}
+    unset DRY_RUN
+    _dry_run_cmd touch '${_marker}'
+  "
+  assert_success
+  [[ -e "${_marker}" ]] || { echo "command not executed when DRY_RUN unset"; return 1; }
+}
+
+@test "_dry_run_cmd: DRY_RUN=true %q-quotes args containing spaces" {
+  run bash -c "
+    source ${LOG_SH}
+    DRY_RUN=true _dry_run_cmd echo 'a b' c
+  "
+  assert_success
+  assert_output "[dry-run] echo a\\ b c"
+}

@@ -70,7 +70,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac

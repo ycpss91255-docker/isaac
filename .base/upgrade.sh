@@ -84,21 +84,49 @@ _require_clean_merge_state() {
 #   markers, and hard-reset back to <pre_head_sha> if integrity is lost.
 _verify_subtree_intact() {
   local _pre_head="$1"
-  local _markers=(
-    "${TEMPLATE_REL}/.version"
-    "${TEMPLATE_REL}/init.sh"
-    "${TEMPLATE_REL}/script/docker/wrapper/setup.sh"
-  )
-  local _marker
-  for _marker in "${_markers[@]}"; do
-    if [[ ! -f "${_marker}" ]]; then
-      _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${_marker}' missing." "marker=${_marker}"
-      _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively."
-      _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
-      git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
-      _error "upgrade aborted; repo restored to pre-upgrade state"
-    fi
-  done
+  local _target_ver="${2:-}"
+
+  # R1+ structural invariant (#477): instead of asserting specific
+  # files exist at hard-coded paths (which broke on the v0.39.0
+  # `script/docker/setup.sh` -> `wrapper/setup.sh` reorg), check that
+  # the subtree directory exists, is non-empty, and carries a
+  # well-formed `.version`. Then verify the pulled version matches
+  # the target the caller asked for (catches wrong-tag / wrong-remote
+  # cases that pass the structural check but deliver the wrong thing).
+  # Sibling path-coupling regions in upgrade.sh are intentionally not
+  # covered here -- tracked in #492.
+  if [[ ! -d "${TEMPLATE_REL}" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/' subtree dir missing." "marker=${TEMPLATE_REL}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+  if [[ -z "$(ls -A "${TEMPLATE_REL}" 2>/dev/null)" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/' subtree dir is empty." "marker=${TEMPLATE_REL}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+  if [[ ! -f "${TEMPLATE_REL}/.version" ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/.version' missing." "marker=${TEMPLATE_REL}/.version"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+
+  local _pulled_ver
+  _pulled_ver="$(tr -d '[:space:]' < "${TEMPLATE_REL}/.version")"
+  if [[ ! "${_pulled_ver}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+    _log_err upgrade upgrade_subtree_pull_failed "display=post-pull integrity check failed -- '${TEMPLATE_REL}/.version' content is not semver: '${_pulled_ver}'." "pulled=${_pulled_ver}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+
+  if [[ -n "${_target_ver}" ]] && [[ "${_pulled_ver#v}" != "${_target_ver#v}" ]]; then
+    _log_err upgrade upgrade_version_mismatch "display=pulled ${_pulled_ver}, expected ${_target_ver}" "pulled=${_pulled_ver}" "expected=${_target_ver}"
+    _rollback_subtree_pull "${_pre_head}"
+  fi
+}
+
+_rollback_subtree_pull() {
+  local _pre_head="$1"
+  _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
+  _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
+  git reset --hard "${_pre_head}" >/dev/null 2>&1 || true
+  _error "upgrade aborted; repo restored to pre-upgrade state"
 }
 
 # ── Get versions ─────────────────────────────────────────────────────────────
@@ -265,7 +293,7 @@ _upgrade() {
 
   # Step 2: post-pull integrity check (rolls back on corruption)
   _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
-  _verify_subtree_intact "${_pre_head}"
+  _verify_subtree_intact "${_pre_head}" "${target_ver}"
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
   _log "Step 3/5: re-run init.sh to sync symlinks"

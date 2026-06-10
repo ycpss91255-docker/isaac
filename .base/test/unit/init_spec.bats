@@ -53,7 +53,7 @@ EOF
   for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
     : > "${TMP_REPO}/.base/script/docker/wrapper/${_f}"
   done
-  : > "${TMP_REPO}/.base/script/docker/Makefile"
+  : > "${TMP_REPO}/.base/script/docker/justfile"
   : > "${TMP_REPO}/.base/.hadolint.yaml"
 
   cd "${TMP_REPO}"
@@ -215,7 +215,7 @@ REMOTE
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_symlinks: places 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
+@test "_create_symlinks: places 7 wrapper symlinks under script/ (#330)" {
   _source_init
   _create_symlinks
   # Seven wrappers under script/ with ../.base/script/docker/wrapper/<name>.sh targets.
@@ -226,10 +226,31 @@ REMOTE
     # And must NOT exist at root.
     assert [ ! -e "${TMP_REPO}/${_f}" ]
   done
-  # Makefile keeps the root location with the direct .base/ target.
-  assert [ -L "${TMP_REPO}/Makefile" ]
-  run readlink "${TMP_REPO}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  # #546: the root user entry is the justfile, not a Makefile.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+}
+
+@test "_create_symlinks: places justfile at root with the direct .base/ target (#545)" {
+  _source_init
+  _create_symlinks
+  # ADR-00000005: just is the new user-facing entry; the justfile symlink
+  # sits at root (like Makefile) so `just <verb>` runs from the repo root.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
+}
+
+@test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
+  # ADR-00000005 phase 2: the Makefile is retired in favour of `just`.
+  # _create_symlinks must no longer create a root Makefile, and an
+  # upgrading repo's pre-existing root Makefile symlink must be dropped
+  # (init.sh resync) so it does not dangle once .base/ no longer ships one.
+  _source_init
+  ln -sf ".base/script/docker/Makefile" "${TMP_REPO}/Makefile"   # legacy symlink from an older base
+  _create_symlinks
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+  assert [ ! -L "${TMP_REPO}/Makefile" ]
 }
 
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
@@ -354,13 +375,13 @@ REMOTE
   # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
   # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/wrapper/build.sh
   # (sub-folder link target is relative to the link's directory), and
-  # Makefile / .hadolint.yaml at root keep the direct .base/ target.
+  # justfile / .hadolint.yaml at root keep the direct .base/ target.
   source "${TMP_REPO}/.base/init.sh"
   _create_symlinks
   run readlink "${TMP_REPO}/script/build.sh"
   assert_output "../.base/script/docker/wrapper/build.sh"
-  run readlink "${TMP_REPO}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
   run readlink "${TMP_REPO}/.hadolint.yaml"
   assert_output ".base/.hadolint.yaml"
 }

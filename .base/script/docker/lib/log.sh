@@ -175,6 +175,27 @@ _log_warn()  { _log_dispatch WARN 13 2 "$@"; }
 _log_err()   { _log_dispatch ERROR 17 2 "$@"; }
 _log_fatal() { _log_dispatch FATAL 21 2 "$@"; }
 
+# ── Dry-run dispatch ───────────────────────────────────────────────
+#
+# _dry_run_cmd <cmd> [args...]
+#
+# Under DRY_RUN=true, print the planned command (`[dry-run]` + %q-quoted
+# argv) to stdout WITHOUT executing it; otherwise run it verbatim. This
+# is a plain command echo, NOT a structured log event -- the wrapper
+# dispatch specs assert the literal `[dry-run] <cmd>` line, so it must
+# stay byte-stable (no timestamp / level / JSON). Unifies the inline
+# `if DRY_RUN; then printf '[dry-run] ...'` blocks the wrappers used to
+# duplicate. Refs #408 (sub-task B).
+_dry_run_cmd() {
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    printf '[dry-run]'
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    "$@"
+  fi
+}
+
 # ── TRACEPARENT scoped wrappers ────────────────────────────────────
 
 _log_with_trace() {

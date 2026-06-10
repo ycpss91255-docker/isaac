@@ -398,11 +398,12 @@ jobs:
           bash .base/init.sh
 
           # Sanity: verify symlinks resolve and core files exist.
-          # Post-#330: wrappers live under script/; Makefile stays at root.
+          # Post-#330: wrappers live under script/; #546: the root user
+          # entry is the justfile (the container-ops Makefile was retired).
           test -L script/build.sh && test -L script/run.sh \
             && test -L script/exec.sh && test -L script/stop.sh
           test -L script/setup_tui.sh
-          test -L Makefile
+          test -L justfile
           test -f Dockerfile && test -f compose.yaml && test -f config/docker/setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"

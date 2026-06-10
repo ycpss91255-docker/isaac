@@ -65,7 +65,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac
@@ -118,7 +118,7 @@ teardown() {
   assert_success
   assert_output --partial "First run"
   assert [ -f "${MOCK_SETUP_LOG}" ]
-  assert [ -f "${SANDBOX}/.env" ]
+  assert [ -f "${SANDBOX}/.env.generated" ]
 }
 
 @test "build.sh auto-regens .env / compose.yaml when drift detected" {
@@ -130,7 +130,7 @@ teardown() {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   # Patch the mock so check-drift subcommand reports drift (exit 1).
@@ -161,7 +161,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac
@@ -182,7 +182,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -200,7 +200,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   rm -f "${SANDBOX}/config/docker/setup.conf"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -219,7 +219,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -329,7 +329,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
     echo "TARGET_ARCH=arm64"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -344,7 +344,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -362,7 +362,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
     echo "BUILD_NETWORK=host"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -377,7 +377,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
@@ -454,7 +454,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock compose" > "${SANDBOX}/compose.yaml"
 
   bash "${SANDBOX}/build.sh"
@@ -474,7 +474,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   echo "# mock compose" > "${SANDBOX}/compose.yaml"
 
   TEST_TOOLS_IMAGE=test-tools:local bash "${SANDBOX}/build.sh"
@@ -516,7 +516,7 @@ EOS
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
   : > "${SANDBOX}/config/docker/setup.conf"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/.base/script/docker/wrapper/setup.sh" <<'EOS'
@@ -542,7 +542,7 @@ case "${_subcmd}" in
       echo "USER_NAME=tester"
       echo "IMAGE_NAME=mockimg"
       echo "DOCKER_HUB_USER=mockuser"
-    } > "${_base}/.env"
+    } > "${_base}/.env.generated"
     echo "# mock compose" > "${_base}/compose.yaml"
     ;;
 esac
@@ -563,7 +563,7 @@ EOS
   assert_failure
   # Level keyword is now English-only (#283); zh-TW body still localised.
   assert_output --partial "[build] ERROR:"
-  assert_output --partial "setup 未產生 .env"
+  assert_output --partial "setup 未產生 .env.generated"
 }
 
 @test "build.sh --lang ja prints Japanese err_no_env on failed bootstrap" {
@@ -576,7 +576,7 @@ EOS
   assert_failure
   # Level keyword is now English-only (#283); ja body still localised.
   assert_output --partial "[build] ERROR:"
-  assert_output --partial "setup が .env を生成"
+  assert_output --partial "setup が .env.generated を生成"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -604,7 +604,7 @@ EOS
 @test "build.sh --reset-conf with no existing setup.conf / .env skips prompt" {
   # Nothing to overwrite → no confirmation needed, --dry-run just prints
   # the init.sh call and exits cleanly.
-  rm -f "${SANDBOX}/config/docker/setup.conf" "${SANDBOX}/.env"
+  rm -f "${SANDBOX}/config/docker/setup.conf" "${SANDBOX}/.env.generated"
   run bash "${SANDBOX}/build.sh" --reset-conf --dry-run
   assert_success
   refute_output --partial "proceed?"

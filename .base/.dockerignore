@@ -1,0 +1,51 @@
+# .dockerignore - trim build-context bloat (refs #499).
+#
+# The only build whose context is the repo root (`docker build ... .`)
+# is dockerfile/Dockerfile.test-tools, and it copies NOTHING from the
+# context (every COPY is `COPY --from=<stage>`). Dockerfile.example is
+# only ever built against a synthesized consumer repo (integration-e2e
+# job copies the template into a temp repo's .base/ and builds there),
+# never against base's own root. So nothing the root-context build
+# needs is excluded below.
+#
+# We still KEEP the source/template trees (script/, test/, config/,
+# .base/, dockerfile/, Dockerfile, .hadolint.yaml, entrypoints) so this
+# stays forward-safe: Dockerfile.example's lint/smoke stages COPY those
+# paths, and the file doubles as the downstream template.
+
+# ── VCS / repo metadata ──────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Docs (no build COPYs them) ───────────────────────────────────────
+doc/
+README*
+LICENSE
+
+# ── CI / lint config not consumed by any root-context build ──────────
+.github/
+.codecov.yaml
+
+# ── Derived / generated artifacts (see script/docker/lib/gitignore.sh
+#    _canonical_gitignore_entries) ──────────────────────────────────
+.env
+.env.bak
+runtime.env
+compose.yaml
+setup.conf.bak
+setup.conf.local
+coverage/
+.Dockerfile.generated
+.docker.xauth
+
+# ── Editor / OS / backup cruft ───────────────────────────────────────
+*.bak
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
+
+# ── Local Claude Code session state ──────────────────────────────────
+.claude
+CLAUDE.md
