@@ -1,0 +1,127 @@
+# log-events.txt - Registered body enum for _log_* (#423, #438).
+#
+# One event name per line. _log_* with an unregistered body is a fatal
+# error (strict enforcement, #438). Adding a new event requires a
+# same-PR addition here.
+
+# setup.sh
+env_regenerated
+env_drift_detected
+conf_parsed
+conf_set
+conf_added
+conf_removed
+conf_reset
+conf_invalid_value
+conf_key_not_found
+conf_section_not_found
+conf_unknown_subcmd
+conf_unknown_arg
+stage_baseline_collision
+stage_reserved_tag
+stage_invalid_format
+stage_override_key_not_allowed
+stage_unknown_referenced
+gui_override_invalid
+ssh_x11_no_xauth
+ssh_x11_network_mismatch
+xauth_rewrite_failed
+xauth_empty_cookie
+conf_image_name_default
+conf_image_name_unknown
+conf_runtime_key_deprecated
+conf_no_repo_conf
+conf_empty_repo_conf
+conf_template_missing
+conf_reset_aborted
+conf_reset_needs_yes
+conf_mount_stale_path
+stage_devel_reserved
+env_drift_detail
+deploy_no_dockerfile
+deploy_needs_yes
+deploy_aborted
+deploy_failed
+deploy_done
+
+# build.sh
+build_started
+build_bootstrap
+build_drift_regen
+build_prune_displaced
+build_prune_skip_tagged
+build_no_env
+build_rerun_setup
+
+# run.sh
+run_started
+run_bootstrap
+run_drift_regen
+run_already_running
+run_no_env
+run_build_image_missing
+run_build_delegating
+run_rerun_setup
+run_build_invoking
+run_detach_cmd_rejected
+run_instance_overlay
+
+# exec.sh
+exec_not_running
+
+# stop.sh
+stop_teardown
+stop_no_containers
+stop_prune_images
+stop_prune_networks
+
+# prune.sh
+prune_buildx
+prune_images
+prune_networks
+prune_volumes
+prune_worktree_scan
+prune_worktree_candidates
+prune_worktree_none
+prune_skip_bare
+prune_skip_other_owner
+prune_nothing_selected
+prune_aborted
+prune_volume_aborted
+prune_no_workspace
+prune_unknown_flag
+
+# upgrade.sh
+upgrade_started
+upgrade_completed
+upgrade_subtree_pull_failed
+upgrade_version_bumped
+upgrade_version_mismatch
+upgrade_rollback
+
+# init.sh
+init_started
+init_completed
+init_missing_required_arg
+init_progress
+
+# ci.sh
+ci_apt_update_failed
+ci_apt_install_failed
+ci_bats_mock_clone_failed
+ci_invalid_shard
+ci_empty_shard
+ci_no_docker_socket
+ci_no_docker_cli
+ci_unknown_option
+ci_bats_path_not_found
+ci_bats_path_behavioural
+ci_bats_path_coverage
+ci_mixed_test_layout
+ci_lint_bad_root
+
+# general
+dry_run_cmd
+summary_line
+section_header
+divider

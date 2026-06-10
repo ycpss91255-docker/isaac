@@ -1,22 +1,13 @@
-# managed by template (do not remove)
-.env
-.env.bak
-compose.yaml
-setup.conf.bak
-setup.conf.local
 coverage/
-.Dockerfile.generated
+.env
+multi_run/
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
 
-.docker.xauth
-
-# Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
-isaac_ws/
-
-# Per-host deployment config (use config/host.yaml.example as template)
-config/host.yaml
-
-# Per-instance state — created by init_instance.sh, machine-specific.
-/config/docker/instances/
-/instance/
-
-runtime.env
+# Claude Code session state when launched inside this sub-repo.
+# Workspace-level Claude config lives in ycpss91255-docker/claude-workspace.
+.claude
+CLAUDE.md

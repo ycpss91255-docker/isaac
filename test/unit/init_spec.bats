@@ -1,0 +1,460 @@
+#!/usr/bin/env bats
+#
+# Unit tests for init.sh helpers. Complements the Level-1 integration test
+# in test/integration/init_new_repo_spec.bats — which already covers
+# end-to-end init.sh runs — by exercising individual helpers against
+# edge cases that are hard to trigger from a real `bash .base/init.sh`
+# invocation (e.g. network-down version detection, main.yaml @ref
+# fallback, _create_version_file with no argument).
+
+setup() {
+  export LOG_FORMAT=text
+  load "${BATS_TEST_DIRNAME}/test_helper"
+  create_mock_dir
+
+  # Mimic the integration-test layout so `init.sh` resolves TEMPLATE_DIR /
+  # REPO_ROOT to a writable temp tree instead of /source. Symlinking
+  # init.sh back to the real source keeps all edits in one place.
+  TMP_REPO="$(mktemp -d)"
+  mkdir -p "${TMP_REPO}/.base/dockerfile" \
+           "${TMP_REPO}/.base/config" \
+           "${TMP_REPO}/.base/script/docker/lib" \
+           "${TMP_REPO}/.base/script/docker/runtime"
+  ln -s /source/init.sh "${TMP_REPO}/.base/init.sh"
+  # init.sh sources lib/gitignore.sh on load (#172). Symlink the real
+  # lib so its functions are available to tests that hit _create_new_repo.
+  ln -s /source/script/docker/lib/gitignore.sh \
+        "${TMP_REPO}/.base/script/docker/lib/gitignore.sh"
+  # init.sh sources _lib.sh on load (#278: routes _log / _error through
+  # _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh sub-libs
+  # (#284), so symlink all three surfaces.
+  ln -s /source/script/docker/lib/_lib.sh \
+        "${TMP_REPO}/.base/script/docker/lib/_lib.sh"
+  ln -s /source/script/docker/lib/i18n.sh \
+        "${TMP_REPO}/.base/script/docker/lib/i18n.sh"
+  for _sl in log env conf conf_logging compose config_summary hook; do
+    ln -s "/source/script/docker/lib/${_sl}.sh" \
+          "${TMP_REPO}/.base/script/docker/lib/${_sl}.sh"
+  done
+  unset _sl
+  ln -s /source/script/docker/lib/log-events.txt \
+        "${TMP_REPO}/.base/script/docker/lib/log-events.txt"
+  cp /source/script/docker/runtime/entrypoint.sh \
+     "${TMP_REPO}/.base/script/docker/runtime/entrypoint.sh"
+
+  # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
+  cat > "${TMP_REPO}/.base/dockerfile/Dockerfile.example" <<'EOF'
+FROM alpine
+EOF
+
+  # Stub scripts referenced by _create_symlinks — empty files are fine
+  # because symlinks only need a valid target path, not a valid payload.
+  mkdir -p "${TMP_REPO}/.base/script/docker/wrapper"
+  for _f in build.sh run.sh exec.sh stop.sh setup.sh setup_tui.sh; do
+    : > "${TMP_REPO}/.base/script/docker/wrapper/${_f}"
+  done
+  : > "${TMP_REPO}/.base/script/docker/justfile"
+  : > "${TMP_REPO}/.base/.hadolint.yaml"
+
+  cd "${TMP_REPO}"
+}
+
+teardown() {
+  cleanup_mock_dir
+  rm -rf "${TMP_REPO}"
+}
+
+# Source init.sh within a `bash -c` so the test controls when functions
+# are loaded and can mutate PATH / cwd before invocation. `bash -c ... "$0"`
+# pattern via `run` is awkward — we wrap in a helper.
+_source_init() {
+  # shellcheck disable=SC1091
+  source "${TMP_REPO}/.base/init.sh"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _detect_template_version
+# ════════════════════════════════════════════════════════════════════
+
+@test "_detect_template_version: parses newest vX.Y.Z tag from git ls-remote" {
+  # Mock emits refs in the order the real `--sort=-v:refname` would produce
+  # (newest-first). _detect_template_version trusts the sort and just
+  # takes `head -1`.
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+def456  refs/tags/v0.7.2
+ghi789  refs/tags/v0.7.1
+abc123  refs/tags/v0.7.0
+REMOTE
+      exit 0
+    fi
+    exit 0'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v0.7.2"
+}
+
+@test "_detect_template_version: returns empty when git ls-remote fails" {
+  mock_cmd "git" 'exit 128'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" ""
+}
+
+@test "_detect_template_version: returns empty when no v*.*.* tags exist" {
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+abc123  refs/heads/main
+def456  refs/tags/latest
+REMOTE
+      exit 0
+    fi
+    exit 0'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" ""
+}
+
+@test "_detect_template_version: ignores non-semver tags (e.g. rc suffixes)" {
+  # --sort=-v:refname would rank v0.8.0-rc2 > v0.7.2-rc1 > v0.7.0, but
+  # the regex strips the rc variants, leaving v0.7.0 as the only valid
+  # vX.Y.Z entry.
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+ghi789  refs/tags/v0.8.0-rc2
+def456  refs/tags/v0.7.2-rc1
+abc123  refs/tags/v0.7.0
+REMOTE
+      exit 0
+    fi
+    exit 0'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v0.7.0"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _detect_template_version: reads .version file
+# ════════════════════════════════════════════════════════════════════
+
+@test "_detect_template_version: reads .version file when present (no network)" {
+  echo "v1.5.0" > "${TMP_REPO}/.base/.version"
+  # Mock git to fail (simulate offline)
+  mock_cmd "git" 'exit 128'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
+}
+
+@test "_detect_template_version: .version file takes priority over git ls-remote" {
+  echo "v1.5.0" > "${TMP_REPO}/.base/.version"
+  mock_cmd "git" '
+    if [[ "$1" == "ls-remote" ]]; then
+      cat <<REMOTE
+abc123  refs/tags/v2.0.0
+REMOTE
+      exit 0
+    fi
+    exit 0'
+  _source_init
+  local result
+  result="$(_detect_template_version)"
+  assert_equal "${result}" "v1.5.0"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _create_new_repo: ref threading into main.yaml
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_new_repo: main.yaml uses given ref in workflow @ref" {
+  _source_init
+  _create_new_repo "v9.9.9"
+  assert [ -f "${TMP_REPO}/.github/workflows/main.yaml" ]
+  run grep -E 'build-worker\.yaml@v9\.9\.9' \
+    "${TMP_REPO}/.github/workflows/main.yaml"
+  assert_success
+  run grep -E 'release-worker\.yaml@v9\.9\.9' \
+    "${TMP_REPO}/.github/workflows/main.yaml"
+  assert_success
+}
+
+@test "_create_new_repo: main.yaml falls back to @main when ref arg omitted" {
+  _source_init
+  _create_new_repo
+  run grep -E 'build-worker\.yaml@main' \
+    "${TMP_REPO}/.github/workflows/main.yaml"
+  assert_success
+  run grep -E 'release-worker\.yaml@main' \
+    "${TMP_REPO}/.github/workflows/main.yaml"
+  assert_success
+}
+
+@test "_create_new_repo: main.yaml falls back to @main when ref arg is empty" {
+  _source_init
+  _create_new_repo ""
+  run grep -E 'build-worker\.yaml@main' \
+    "${TMP_REPO}/.github/workflows/main.yaml"
+  assert_success
+}
+
+@test "_create_new_repo: does NOT generate .env.example (image name via setup.conf)" {
+  _source_init
+  _create_new_repo "main"
+  [[ ! -f "${TMP_REPO}/.env.example" ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _create_symlinks
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_symlinks: places 7 wrapper symlinks under script/ (#330)" {
+  _source_init
+  _create_symlinks
+  # Seven wrappers under script/ with ../.base/script/docker/wrapper/<name>.sh targets.
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ -L "${TMP_REPO}/script/${_f}" ]
+    run readlink "${TMP_REPO}/script/${_f}"
+    assert_output "../.base/script/docker/wrapper/${_f}"
+    # And must NOT exist at root.
+    assert [ ! -e "${TMP_REPO}/${_f}" ]
+  done
+  # #546: the root user entry is the justfile, not a Makefile.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+}
+
+@test "_create_symlinks: places justfile at root with the direct .base/ target (#545)" {
+  _source_init
+  _create_symlinks
+  # ADR-00000005: just is the new user-facing entry; the justfile symlink
+  # sits at root (like Makefile) so `just <verb>` runs from the repo root.
+  assert [ -L "${TMP_REPO}/justfile" ]
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
+}
+
+@test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
+  # ADR-00000005 phase 2: the Makefile is retired in favour of `just`.
+  # _create_symlinks must no longer create a root Makefile, and an
+  # upgrading repo's pre-existing root Makefile symlink must be dropped
+  # (init.sh resync) so it does not dangle once .base/ no longer ships one.
+  _source_init
+  ln -sf ".base/script/docker/Makefile" "${TMP_REPO}/Makefile"   # legacy symlink from an older base
+  _create_symlinks
+  assert [ ! -e "${TMP_REPO}/Makefile" ]
+  assert [ ! -L "${TMP_REPO}/Makefile" ]
+}
+
+@test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
+  # Pretend an earlier run left a regular file where the symlink should go.
+  # Post-#330 the symlinks live under script/, so the stale-replacement
+  # logic in _symlink runs against script/build.sh, not root build.sh.
+  mkdir -p "${TMP_REPO}/script"
+  echo "stale" > "${TMP_REPO}/script/build.sh"
+  _source_init
+  _create_symlinks
+  assert [ -L "${TMP_REPO}/script/build.sh" ]
+}
+
+@test "_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)" {
+  # Plant the seven root-level symlinks an older init.sh would have made;
+  # the post-#330 loop must drop them all so the user-facing entry is the
+  # `script/` subfolder + root `Makefile`.
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    ln -sf ".base/script/docker/${_f}" "${TMP_REPO}/${_f}"
+  done
+  _source_init
+  _create_symlinks
+  for _f in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
+    assert [ ! -e "${TMP_REPO}/${_f}" ]
+    assert [ -L "${TMP_REPO}/script/${_f}" ]
+  done
+}
+
+@test "_create_symlinks: keeps custom .hadolint.yaml when it differs" {
+  echo "# repo-specific rules" > "${TMP_REPO}/.hadolint.yaml"
+  # Template's stub is empty — force a difference
+  _source_init
+  run _create_symlinks
+  assert_success
+  assert_output --partial "Keeping custom .hadolint.yaml"
+  # Custom file should still be a regular file, not a symlink
+  assert [ ! -L "${TMP_REPO}/.hadolint.yaml" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _gen_setup_conf --force (reset path, issue #124 / #60)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
+  mkdir -p "${TMP_REPO}/.base/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "existing user config" > "${TMP_REPO}/config/docker/setup.conf"
+  _source_init
+  run _gen_setup_conf "false"
+  assert_failure
+  assert_output --partial "already exists"
+}
+
+@test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
+  mkdir -p "${TMP_REPO}/.base/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "old user conf" > "${TMP_REPO}/config/docker/setup.conf"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  # new setup.conf must come from template
+  run cat "${TMP_REPO}/config/docker/setup.conf"
+  assert_output --partial "rules = @basename"
+  # backup must contain the pre-overwrite user content
+  assert [ -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
+  run cat "${TMP_REPO}/config/docker/setup.conf.bak"
+  assert_output "old user conf"
+}
+
+@test "_gen_setup_conf --force also backs up .env to .env.bak" {
+  mkdir -p "${TMP_REPO}/.base/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  mkdir -p "${TMP_REPO}/config/docker"
+  echo "user conf" > "${TMP_REPO}/config/docker/setup.conf"
+  echo "USER_NAME=existing" > "${TMP_REPO}/.env"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  assert [ -f "${TMP_REPO}/.env.bak" ]
+  run cat "${TMP_REPO}/.env.bak"
+  assert_output "USER_NAME=existing"
+}
+
+@test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
+  # No pre-existing setup.conf → first-time provision, nothing to back up.
+  mkdir -p "${TMP_REPO}/.base/config/docker"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/config/docker/setup.conf"
+  rm -f "${TMP_REPO}/config/docker/setup.conf" "${TMP_REPO}/.env"
+  _source_init
+  run _gen_setup_conf "true"
+  assert_success
+  assert [ ! -f "${TMP_REPO}/config/docker/setup.conf.bak" ]
+  assert [ ! -f "${TMP_REPO}/.env.bak" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# TEMPLATE_REL subtree-prefix auto-detection (#262 / #263 prep)
+# ════════════════════════════════════════════════════════════════════
+#
+# init.sh derives TEMPLATE_REL from `basename ${TEMPLATE_DIR}` (which is
+# itself `dirname BASH_SOURCE[0]`). The conventional prefix is `.base/`
+# but a downstream rename (e.g. `.base/`, planned for #263 fanout) is
+# picked up without code changes: the symlink targets and gen-conf paths
+# follow whatever directory init.sh lives in.
+
+@test "TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/" {
+  _source_init
+  assert_equal "${TEMPLATE_REL}" ".base"
+}
+
+@test "TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable" {
+  # Post-#263 the subtree always lives at `.base/`; re-sourcing init.sh
+  # from that location must consistently derive TEMPLATE_REL = ".base"
+  # so downstream symlinks point through the new prefix.
+  source "${TMP_REPO}/.base/init.sh"
+  assert_equal "${TEMPLATE_REL}" ".base"
+}
+
+@test "_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)" {
+  # Companion to the auto-detect test above: when TEMPLATE_REL is `.base`,
+  # `_create_symlinks` must wire script/build.sh -> ../.base/script/docker/wrapper/build.sh
+  # (sub-folder link target is relative to the link's directory), and
+  # justfile / .hadolint.yaml at root keep the direct .base/ target.
+  source "${TMP_REPO}/.base/init.sh"
+  _create_symlinks
+  run readlink "${TMP_REPO}/script/build.sh"
+  assert_output "../.base/script/docker/wrapper/build.sh"
+  run readlink "${TMP_REPO}/justfile"
+  assert_output ".base/script/docker/justfile"
+  run readlink "${TMP_REPO}/.hadolint.yaml"
+  assert_output ".base/.hadolint.yaml"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _create_new_repo .gitignore covers the *.bak siblings
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_new_repo: .gitignore includes setup.conf.bak and .env.bak" {
+  _source_init
+  _create_new_repo "main"
+  run grep -Fxq setup.conf.bak "${TMP_REPO}/.gitignore"
+  assert_success
+  run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# #440: _create_hook_stubs — 14 stubs (7 wrappers x 2 phases)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _kind _wrapper _file
+  for _kind in pre post; do
+    for _wrapper in build run exec stop prune setup setup_tui; do
+      _file="${TMP_REPO}/script/hooks/${_kind}/${_wrapper}.sh"
+      [[ -f "${_file}" ]] || { echo "missing ${_file}"; return 1; }
+      [[ -x "${_file}" ]] || { echo "not executable: ${_file}"; return 1; }
+    done
+  done
+}
+
+@test "_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file
+  for _file in "${TMP_REPO}/script/hooks/pre/run.sh" \
+               "${TMP_REPO}/script/hooks/post/build.sh"; do
+    run head -n 1 "${_file}"
+    assert_output "#!/usr/bin/env bash"
+    run tail -n 1 "${_file}"
+    assert_output "exit 0"
+  done
+}
+
+@test "_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)" {
+  _source_init
+  _create_hook_stubs
+  local _file="${TMP_REPO}/script/hooks/pre/run.sh"
+  # Simulate user editing their hook
+  printf '#!/usr/bin/env bash\necho USER_CONTENT\nexit 0\n' > "${_file}"
+  chmod +x "${_file}"
+  # Re-run init's stub creator
+  _create_hook_stubs
+  run grep -F "USER_CONTENT" "${_file}"
+  assert_success
+}
+
+@test "_create_new_repo: includes hook stubs in new-repo layout (#440)" {
+  _source_init
+  _create_new_repo "main"
+  [[ -x "${TMP_REPO}/script/hooks/pre/run.sh" ]] || { echo "missing pre/run.sh"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/run.sh" ]] || { echo "missing post/run.sh"; return 1; }
+}
+
+@test "_init_existing_repo: creates missing hook stubs on upgrade (#440)" {
+  _source_init
+  # Simulate an existing repo on pre-#440 template — no hooks/ dir yet
+  [[ ! -d "${TMP_REPO}/script/hooks" ]] || rm -rf "${TMP_REPO}/script/hooks"
+  : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
+  _init_existing_repo
+  [[ -x "${TMP_REPO}/script/hooks/pre/build.sh" ]] || { echo "missing pre/build.sh after upgrade"; return 1; }
+  [[ -x "${TMP_REPO}/script/hooks/post/setup_tui.sh" ]] || { echo "missing post/setup_tui.sh after upgrade"; return 1; }
+}
