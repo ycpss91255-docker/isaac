@@ -28,7 +28,7 @@
 ### Success Metrics（數字為 draft，calibrate 於指定 GPU runner）
 | # | 指標 | 量測 / 門檻 |
 |---|---|---|
-| M1 | Time-to-first-topic | cached image 下 `new-workspace.sh`→`make run`→`ros2 topic echo` 出第一筆 camera frame **< 30s（warm）**；cold `make build` 另計（分鐘級）。綁定指定 GPU runner spec。 |
+| M1 | Time-to-first-topic | cached image 下 `new-workspace.sh`→`just run`→`ros2 topic echo` 出第一筆 camera frame **< 30s（warm）**；cold `just build` 另計（分鐘級）。綁定指定 GPU runner spec。（wrapper 入口自 base v0.41.0 起為 `just`，非 `make`）|
 | M2 | Example 可重現 | example 端到端 integration 連跑 3 次 100% 綠、無 flake。 |
 | M3 | base repo 純淨度 | CI lint：`grep -iE 'forklift|coresam|pallet|pushback|openbase'`（排除 ADR stub）= 0 命中。 |
 | M4 | 框架可獨立 import | hosted（無 Isaac）import 全部 `isaac_devkit.*` 後 `sys.modules` 不含 `omni`/`pxr`/`isaacsim`。 |
@@ -53,7 +53,7 @@
 | # | Story |
 |---|---|
 | 1 | scaffold 一鍵：`new-workspace.sh <name>` 一行搭好 `.env` + `src/docker` submodule + `src/isaac` 骨架，不必手組結構 |
-| 2 | warm image 下 `make run` **<30s** 出第一筆 camera ROS2 topic（M1）|
+| 2 | warm image 下 `just run` **<30s** 出第一筆 camera ROS2 topic（M1）|
 | 3 | 4 語言 step-by-step、可複製貼上的 README，新手照走不用問人 |
 | 4 | driver 裡乾淨 `import isaac_devkit`（真 library，非散落 script）|
 | 6 | `import_urdf()` 把 URDF 轉 USD 且回可驗的 prim/joint summary（L1 確定性）|
@@ -160,10 +160,10 @@ run():
 
 **isaac-forklift**：同消費端 shape，`src/isaac` 放 forklift 內容 + ADR 重編。
 
-**scaffold 預填（定案）**：`new-workspace.sh <name>` 把 base 的 `example/`（camera example 全套：model + 三檔 scene + ExampleDriver + ros2 pkg）**複製進 `src/isaac/`**，裝完直接 `make run` 即出 camera topic（M1/M5 字面成立，新手有可跑的 working reference，再在其上改/換 URDF）。`example/` 因此一物兩用 = integration 對象 + scaffold 模板（single source），故 Issue #6 blocked-by #4/#5。
+**scaffold 預填（定案）**：`new-workspace.sh <name>` 把 base 的 `example/`（camera example 全套：model + 三檔 scene + ExampleDriver + ros2 pkg）**複製進 `src/isaac/`**，裝完直接 `just run` 即出 camera topic（M1/M5 字面成立，新手有可跑的 working reference，再在其上改/換 URDF）。`example/` 因此一物兩用 = integration 對象 + scaffold 模板（single source），故 Issue #6 blocked-by #4/#5。
 
 ### A6. Versioning / pin / stage / test 執行
-- **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.40.0）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
+- **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.41.0，PR #124 bump 中）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
 - **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1,2,3,4,4-int,5,6,6b）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本；base v0.41.0 已 release，#4-int 不再外部 gated、回歸 MVP）。
 - **Stage**：mount 下框架不進 image stage，devel/headless/stream 都從 mount 拿；ROS2 bridge extension function-local enable，與 ADR-0014 stage taxonomy 正交。
 - **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10 更新）**：**base 已 release v0.41.0（2026-06-10）含 base#493 機制**；isaac bump `.base` v0.40.0→v0.41.0 已在 **PR #124**（auto-merge，CI 跑中）。init-vs-upgrade parity 驗證相符（runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。**#124 merge 後 #4-int 的 GPU 自動 integration 即可跑、isaac#74 即可解**。原「外部 gated 等 base release」前提已消除——剩餘相依僅 #124 落地（即將）。**不另開新 issue**（isaac#74 已覆蓋此 bump）。
@@ -226,7 +226,7 @@ run():
 | **M2 — Example + scaffold + GPU integration** | #4(example camera+三檔scene+ExampleDriver+cmd_vel code)、#4-int(GPU 自動 integration 強斷言，`run.sh -t test`)、#5 ament 範本+4-lang README、#6 new-workspace scaffold、#6b onboarding agent-proxy | AFK（#4→#4-int；#4→#5→#6→#6b 序）| scaffold→build→run→topic 綠；ament_lint/colcon 綠；agent-proxy 過；**GPU 自動 integration 綠（126 跨 runner 完整聚合 + M1/M2 metric 於此驗收）**。#4-int 依 **PR #124（`.base` v0.40→v0.41 bump）** merge——v0.41.0 已 release（2026-06-10），非無限期外部 gate。**user review**：端到端範例跑通 + GPU integration 綠、新手/agent 能 scaffold→run→swap = **MVP 完成點** |
 | **M3 — Forklift 搬遷 + 清 base** | #7a 開 isaac-forklift（base 對齊）、#7b 搬內容/ADR + submodule + 「3b」variant refactor、#8 清 base | #7a HITL / #7b#8 AFK | M3 純淨度 grep 0、M7 forklift boot smoke、M9 文件對齊。**user review**：forklift 搬完 boot 綠、base 純淨 → **tag v1.0.0** |
 
-**#4 / #4-int 拆分**：兩者皆在 **M2**。**#4**（example camera 實作 code，#6 scaffold 驗收要用、手動 `make run`/`just run` 可跑）；**#4-int**（GPU 自動 integration 斷言，`run.sh -t test`，用 base v0.41.0 的 test stage 機制）。拆分理由 = impl vs GPU-auto-test 可分（非外部 gate——v0.41.0 已 release）；#4-int blocked-by #4 + PR #124 merge。
+**#4 / #4-int 拆分**：兩者皆在 **M2**。**#4**（example camera 實作 code，#6 scaffold 驗收要用、手動 `just run` 可跑）；**#4-int**（GPU 自動 integration 斷言，`run.sh -t test`，用 base v0.41.0 的 test stage 機制）。拆分理由 = impl vs GPU-auto-test 可分（非外部 gate——v0.41.0 已 release）；#4-int blocked-by #4 + PR #124 merge。
 
 ## Risks / Assumptions / Rollback
 - **R1 example pipeline 未驗**：camera→ROS2 在 Isaac 內從沒跑通（memory `project_isaac_rgbd_ros2_blockers`：#228 segfault、setup_camera 未驗）。**Mitigation**：M0（#1）prereq gate 先打通才執行後續。
@@ -255,7 +255,7 @@ forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU in
 | 1 | camera→ROS2 topic headless smoke（`custom.yaml` 繞 #228）= demo 基礎 + 首條 integration | HITL | — | M0 | S* | 2,14 |
 | 2 | successor ADR（base化/mount/三檔scene/sensor catalog/test契約；**amend 0013 重推導 / 修訂 0012 / supersede 0006/0008/0010** + de-forklift + CONTEXT.md split + ADR stub）| HITL | — | M0 | S | 12,18,24,29,30 |
 | 3 | 抽 isaac_devkit 框架（mount，機械=「3a」）+ PORT pytest + **pytest-baseline=126 gate** + import-safety + coverage baseline（variant single-owner「3b」折進 #7b）| AFK | 2 | M1 | L | 4,5,11,13,19,20,23,32 |
-| 4 | example `sim/`（camera impl + 三檔scene + ExampleDriver + cmd_vel round-trip code；#6 scaffold / 手動 `make run` 驗收要用）| AFK | 1,3 | M2 | L | 6,7,8,9,10,21 |
+| 4 | example `sim/`（camera impl + 三檔scene + ExampleDriver + cmd_vel round-trip code；#6 scaffold / 手動 `just run` 驗收要用）| AFK | 1,3 | M2 | L | 6,7,8,9,10,21 |
 | 4-int | example GPU 自動 integration 強斷言（headless/timeout/retry，`run.sh -t test` path）| AFK | 4, PR #124 merge | M2 | M | 22 |
 | 5 | example `ros2/`（ament_python + ament_cmake 範本）+ ament_lint/colcon build（hosted ros:humble）+ **4-lang README authored + sync-hook 綠** | AFK | 4 | M2 | M | 14,15 |
 | 6 | `new-workspace.sh` scaffold（emit 檔案樹 + 預填 example）+ smoke（scaffold→build→run→topic）+ **M8 bump-傳播 demo** | AFK | 4,5 | M2 | M | 1,3,17 |
