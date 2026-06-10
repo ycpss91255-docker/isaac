@@ -28,7 +28,7 @@ setup() {
 
   # prune.sh doesn't load .env, but a seed file keeps the sandbox layout
   # uniform with stop_sh_spec / exec_sh_spec.
-  : > "${SANDBOX}/.env"
+  : > "${SANDBOX}/.env.generated"
 
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
@@ -193,7 +193,7 @@ teardown() {
   cp /source/script/docker/lib/_lib.sh "${ALT}/.base/script/docker/lib/_lib.sh"
   cp /source/script/docker/lib/i18n.sh "${ALT}/.base/script/docker/lib/i18n.sh"
   cp /source/script/docker/lib/* "${ALT}/.base/script/docker/lib/"
-  : > "${ALT}/.env"
+  : > "${ALT}/.env.generated"
   run bash "${SANDBOX}/prune.sh" -C "${ALT}" --networks --dry-run
   assert_success
   assert_output --partial "docker network prune"
@@ -266,7 +266,7 @@ EOS
   {
     printf 'WS_PATH=%s\n' "${_ws}"
     printf 'DOCKER_HUB_USER=%s\n' "${_owner}"
-  } > "${SANDBOX}/.env"
+  } > "${SANDBOX}/.env.generated"
 }
 
 @test "prune.sh --worktree-orphans on empty image list → no rmi" {
@@ -384,7 +384,7 @@ tester/foo-99:devel"
 
 @test "prune.sh --worktree-orphans without --workspace + empty .env → exit 2" {
   # No WS_PATH in .env, no --workspace flag → must error out.
-  : > "${SANDBOX}/.env"
+  : > "${SANDBOX}/.env.generated"
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
 exit 0

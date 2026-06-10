@@ -48,25 +48,9 @@ setup() {
   assert_success
 }
 
-@test "Makefile exists (repo entry)" {
-  assert [ -f /source/script/docker/Makefile ]
-}
-
-@test "Makefile has build target" {
-  run grep -E '^build:' /source/script/docker/Makefile
-  assert_success
-}
-
-@test "Makefile upgrade target uses ./.base/upgrade.sh (not ./.base/script/upgrade.sh)" {
-  # Regression: the Makefile symlinked into every downstream repo has
-  # called `./.base/script/upgrade.sh` since v0.10.x, but upgrade.sh
-  # actually lives at template root (`./.base/upgrade.sh`). The
-  # broken target produced "No such file or directory" on `make upgrade`
-  # / `make upgrade-check` for fresh consumer repos.
-  run grep -E '^[[:space:]]+\./.base/upgrade\.sh' /source/script/docker/Makefile
-  assert_success
-  refute_output --partial "./.base/script/upgrade.sh"
-}
+# #546: the container-ops Makefile is retired for `just`; its existence /
+# build-target / upgrade-path checks moved to justfile_spec.bats (static)
+# + justfile_user_spec.bats (executable). Makefile.ci (CI entry) stays.
 
 @test "Makefile.ci exists (template CI)" {
   assert [ -f /source/Makefile.ci ]
@@ -92,18 +76,6 @@ setup() {
   # point. The recipe must pass $(VERSION) to ./upgrade.sh so an empty
   # VERSION resolves to "latest" and a set VERSION pins a specific tag.
   run grep -E '^[[:space:]]+\./upgrade\.sh \$\(VERSION\)' /source/Makefile.ci
-  assert_success
-}
-
-@test "Makefile upgrade-check tolerates upgrade.sh exit 1 (update available)" {
-  # Regression #175: `upgrade.sh --check` exits 1 when an update is
-  # available (documented shell convention so `if ./upgrade.sh --check;
-  # then ...` works). The Makefile recipe must wrap the call so make
-  # treats exit 1 as success — the check itself succeeded, the user-
-  # facing message already conveys the result. Exit codes ≥2 (genuine
-  # failures) still propagate.
-  run grep -E '\./.base/upgrade\.sh --check \|\| \[ \$\$\? -eq 1 \]' \
-      /source/script/docker/Makefile
   assert_success
 }
 
@@ -228,30 +200,13 @@ setup() {
   assert_success
 }
 
-@test "lib/compose.sh _compose_project wraps -p with PROJECT_NAME" {
-  run grep -E '\-p .*PROJECT_NAME' /source/script/docker/lib/compose.sh
-  assert_success
-}
-
-@test "build.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/build.sh
-  assert_success
-}
-
-@test "run.sh routes compose calls through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "exec.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/exec.sh
-  assert_success
-}
-
-@test "stop.sh routes compose call through _compose_project" {
-  run grep -E '_compose_project ' /source/script/docker/wrapper/stop.sh
-  assert_success
-}
+# Wrapper -> compose dispatch is asserted behaviourally in
+# test/integration/wrapper_compose_dispatch_spec.bats (#490): each wrapper
+# is run with --dry-run and the planned `docker compose -p <project> <verb>`
+# is checked (incl. the -p flag, catching a raw-`docker compose` bypass).
+# The old name-coupled greps for `_compose_project` here were removed —
+# they broke on every internal rename (#480 shim, #484 rename) and could
+# not catch a bypass.
 
 @test "exec.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/script/docker/wrapper/exec.sh
@@ -300,27 +255,10 @@ setup() {
   assert_success
 }
 
-@test "run.sh foreground installs trap to auto-down on exit (#440 renamed _app_cleanup)" {
-  # #386: trap installed centrally before the dispatch block so both devel
-  # and non-devel foreground paths get the cleanup; -d / --no-rm opt out.
-  # #440: renamed from _compose_cleanup to _app_cleanup since the handler
-  # now also runs the post-run hook before compose down.
-  run grep -E 'trap _app_cleanup EXIT' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-}
-
-@test "run.sh _app_cleanup uses --remove-orphans + short timeout (#440)" {
-  # #386: aligned with stop.sh's _down_one so worktree-removed-before-stop
-  # network leaks get caught. -t 0 skips the default 10s SIGTERM grace
-  # period (user already exited the foreground shell — nothing to drain).
-  # #440: function renamed; behaviour unchanged.
-  run grep -E '_app_cleanup\(\)' /source/script/docker/wrapper/run.sh
-  assert_success
-  run grep -E 'down --remove-orphans -t 0|down -t 0 --remove-orphans' /source/script/docker/wrapper/run.sh
-  assert_success
-}
+# run.sh foreground EXIT-trap cleanup (auto compose-down with
+# --remove-orphans -t 0) is asserted behaviourally in
+# wrapper_compose_dispatch_spec.bats (#490) via the dry-run output, instead
+# of grepping the `_app_cleanup` identifier (renamed in #440).
 
 @test "run.sh non-devel TARGET uses compose up (#458)" {
   # #458: non-devel stages unified to `compose up` so container_name takes
@@ -472,7 +410,7 @@ setup() {
   # without docker on PATH so the precheck fails (no container can be found).
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=missing-image-$$
@@ -494,7 +432,7 @@ EOF
 @test "exec.sh --dry-run skips precheck and prints compose command" {
   local _tmp
   _tmp="$(mktemp -d)"
-  cat > "${_tmp}/.env" <<EOF
+  cat > "${_tmp}/.env.generated" <<EOF
 USER_NAME=alice
 DOCKER_HUB_USER=alice
 IMAGE_NAME=ghost-$$
@@ -526,6 +464,14 @@ EOF
   assert_success
 }
 
+@test "Dockerfile.test-tools installs just (#546: justfile entry-point execution in CI)" {
+  # #546 retires the Makefile for `just`; the test-tools image must carry
+  # `just` so justfile_user_spec / upgrade-check can exercise the entry
+  # point for real (mirroring the old executable Makefile tests).
+  run grep -E 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  assert_success
+}
+
 @test "Dockerfile.test-tools declares ARG TARGETARCH" {
   run grep -E '^ARG TARGETARCH' /source/dockerfile/Dockerfile.test-tools
   assert_success
@@ -543,6 +489,18 @@ EOF
   # consume the BuildKit-injected value.
   run grep -E '^ARG TARGETARCH$' /source/dockerfile/Dockerfile.test-tools
   assert_success
+}
+
+@test "Dockerfile.test-tools curl release downloads retry on transient failure (#550)" {
+  # The shellcheck + hadolint binaries are fetched from github.com release
+  # CDN at build time; a transient 504 there used to fail the whole build
+  # first-hit (no retry). Every curl that pulls a release must use
+  # --retry-all-errors so a 504/timeout retries transparently instead of
+  # blocking every code PR's CI on a release-CDN hiccup.
+  local _n
+  _n="$(grep -cE 'curl .*--retry-all-errors' /source/dockerfile/Dockerfile.test-tools)"
+  # both the shellcheck tarball and the hadolint binary downloads
+  [ "${_n}" -ge 2 ]
 }
 
 @test "Dockerfile.test-tools branches case for amd64 and arm64" {
@@ -642,17 +600,18 @@ _stage_lint_layout() {
   rm -rf "${_tmp}"
 }
 
-@test "build.sh errors with a clear diagnostic when _lib.sh missing from both paths (issue #104)" {
-  # No .base/script/docker/lib/_lib.sh nor sibling _lib.sh → explicit
-  # non-zero exit + error message pointing the user at the two
-  # expected paths. Better UX than the old silent inline fallback
-  # that hid the absence.
+@test "build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)" {
+  # build.sh copied alone (no lib/bootstrap.sh, no _lib.sh) -> explicit
+  # non-zero exit + a clear broken-install diagnostic. Post-#408 the
+  # shared preamble lives in lib/bootstrap.sh (which in turn sources
+  # _lib.sh), so the first missing dependency reported is bootstrap.sh.
+  # Better UX than a cryptic `_bootstrap: command not found`.
   local _tmp
   _tmp="$(mktemp -d)"
   cp /source/script/docker/wrapper/build.sh "${_tmp}/build.sh"
   run bash "${_tmp}/build.sh" -h
   assert_failure
-  assert_output --partial "cannot find _lib.sh"
+  assert_output --partial "cannot find lib/bootstrap.sh"
   rm -rf "${_tmp}"
 }
 

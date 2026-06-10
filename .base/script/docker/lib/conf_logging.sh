@@ -27,9 +27,9 @@ fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
 # _parse_logging_svc_sections depends on the caller having sourced
-# _parse_ini_section (lives in setup.sh today; will move to a shared
-# lib later if more parsers need it). Same with _SETUP_SCRIPT_DIR for
-# the template fallback in _collect_logging.
+# _parse_ini_section (in lib/conf.sh since #402; full INI handling
+# consolidated there in #411). Same with _SETUP_SCRIPT_DIR for the
+# template fallback in _collect_logging.
 
 # _parse_logging_svc_sections <file> <out_array>
 #

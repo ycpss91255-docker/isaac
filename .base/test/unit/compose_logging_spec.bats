@@ -15,6 +15,16 @@ setup() {
   TEMP_DIR="$(mktemp -d)"
   COMPOSE_OUT="${TEMP_DIR}/compose.yaml"
   CONF_FILE="${TEMP_DIR}/setup.conf"
+  # #493 (A1'-b): the `test` service is emitted from the devel-test
+  # baseline stage via the per-stage loop, so generate_compose_yaml
+  # needs a Dockerfile declaring it for the test service (and its
+  # logging) to appear. Tests that need extra stages overwrite this.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
 }
 
 teardown() {
@@ -55,17 +65,24 @@ teardown() {
   assert_success
 }
 
-@test "generate_compose_yaml emits logging on test service" {
+@test "generate_compose_yaml test service inherits global logging via extends:devel (#493)" {
   local _extras=()
   local _global="driver=local"
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
     "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "private" \
     "" "" "" "" "" "" "" "" "" "${_global}" ""
-  # The test service block sits after devel; assert the logging line
-  # appears at least twice (once for devel, once for test).
+  # #493 (A1'-b): the test service is now a normal extends:devel stage.
+  # A global [logging] block (no per-svc divergence) is emitted once on
+  # devel; the test service inherits it through `extends: devel` rather
+  # than duplicating the block.
   run grep -c -E '^    logging:$' "${COMPOSE_OUT}"
   assert_success
-  [[ "${output}" -ge 2 ]]
+  assert_output "1"
+  # The test service block carries the extends relationship that pulls
+  # devel's logging in at compose-merge time.
+  run bash -c "awk '/^  test:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${COMPOSE_OUT}'"
+  assert_success
+  assert_output --partial "service: devel"
 }
 
 @test "generate_compose_yaml driver-only [logging] omits options: block" {
@@ -311,6 +328,7 @@ EOF
 FROM ubuntu:24.04 AS sys
 FROM sys AS devel
 FROM devel AS runtime
+FROM devel AS devel-test
 EOF
   local _extras=()
   local _global
