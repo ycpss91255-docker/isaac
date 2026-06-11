@@ -329,6 +329,14 @@ USER "${USER}"
 
 RUN bats /smoke_test/
 
+# [isaac #127] Idle on startup so the `test` compose service survives
+# `compose up -d` and `./script/run.sh -t test -- <cmd>` (up -d + exec)
+# can run GPU pytest inside it. The inherited devel CMD ["bash"] exits
+# immediately because the emitted test service sets stdin_open/tty to
+# false ("container is not running", PR #84). Same idle pattern as the
+# headless / stream stages below.
+CMD ["sleep", "infinity"]
+
 ############################## headless ##############################
 # [isaac] Pure simulation, no streaming. Idles on startup; driver
 # scripts are exec'd in and read ISAAC_LIVESTREAM=0 to skip streaming.
