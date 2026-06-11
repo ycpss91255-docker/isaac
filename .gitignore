@@ -34,8 +34,10 @@ __pycache__/
 .coverage.*
 .pytest_cache/
 htmlcov/
-
 # colcon build artifacts (example/ros2 ament packages, #133)
 build/
 install/
 log/
+
+# GPU integration JUnit report (assert_pytest_baseline.sh --gpu, M2 gate, #132)
+test/.gpu-pytest-report.xml

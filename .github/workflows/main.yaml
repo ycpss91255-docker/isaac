@@ -58,29 +58,24 @@ jobs:
       - name: Hosted unit pytest + baseline + coverage gate
         run: ./test/assert_pytest_baseline.sh
 
+      - name: Generate .env + compose.yaml (devel-test GPU override)
+        run: ./script/setup.sh apply
+
       - name: Build test image (devel-test stage, cached if unchanged)
         run: ./script/build.sh -t test
 
-      - name: Run GPU integration pytest in test container
-        run: |
-          set -euo pipefail
-          # GPU integration auto-execution in CI is still deferred,
-          # tracked in #85 (#78 follow-up) and the PRD's #4-int (GPU
-          # auto-integration assertions). The hosted-unit M1 gate above
-          # already runs for real. What changed with #127: the local GPU
-          # invocation works -- base v0.41.0's [stage:devel-test]
-          # override (setup.conf: deploy.gpu_mode = force) gives the
-          # `test` compose service a GPU reservation plus the
-          # devel-inherited workspace mount, so on the GPU host
-          #   ./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
-          #     test/integration/pytest/test_camera_ros2_headless.py
-          # boots headless Isaac and runs the camera->ROS2 integration
-          # smoke for real (marker-line pass criterion, see TEST.md). The
-          # full cross-runner aggregate (hosted unit + GPU integration =
-          # the AGGREGATE_TARGET in test/pytest-baseline.txt) is asserted
-          # at M2 with #132 / #4-int.
-          echo "GPU integration CI auto-run deferred -- tracked in #85 / PRD #4-int. Hosted-unit M1 gate runs above; local GPU invocation works since #127, see TEST.md."
-          exit 0
+      # M2 GPU integration gate (PRD #4-int / isaac#132): boots headless
+      # Isaac for real on the self-hosted GPU runner and runs the example
+      # strong-assertion suite (L1-L4 + cmd_vel round-trip) plus the #127
+      # camera smoke. assert_pytest_baseline.sh --gpu enforces: the GPU
+      # suite actually RAN (passed > 0 -- a skipped GPU job is NOT green),
+      # collected >= GPU_INTEGRATION_BASELINE (ratchet), and the
+      # cross-runner aggregate (HOSTED_UNIT + GPU_INTEGRATION) >=
+      # AGGREGATE_TARGET (the PRD 126 parity floor). The repo is checked
+      # out at the workspace mount root, so the in-container test path is
+      # test/integration/pytest/ (the default).
+      - name: GPU integration pytest + aggregate gate (M2)
+        run: ./test/assert_pytest_baseline.sh --gpu
 
   call-release:
     needs: call-docker-build
