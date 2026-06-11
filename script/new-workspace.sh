@@ -73,7 +73,13 @@ _info() {
 }
 
 _usage() {
-  sed -n '2,60p' "${SCRIPT_SELF}" | sed 's/^# \{0,1\}//'
+  # Print the Usage + Options block of the header comment (stop at the
+  # first non-comment line so code never leaks into the help text).
+  awk '
+    /^# Usage:/ { show = 1 }
+    show && /^[^#]/ { exit }
+    show { sub(/^# ?/, ""); print }
+  ' "${SCRIPT_SELF}"
 }
 
 # ---------------------------------------------------------------------------
