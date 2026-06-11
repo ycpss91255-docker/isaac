@@ -41,3 +41,7 @@ log/
 
 # GPU integration JUnit report (assert_pytest_baseline.sh --gpu, M2 gate, #132)
 test/.gpu-pytest-report.xml
+
+# Scaffold GPU-smoke throwaway workspace (test_scaffold_smoke.py, #134).
+# The fixture writes + cleans this up; ignored as defense if a run aborts.
+test/.scaffold-smoke/
