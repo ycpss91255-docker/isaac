@@ -96,7 +96,6 @@ def _main() -> None:
             _CMD_VEL_TOPIC as DRIVER_CMD_VEL_TOPIC,
         )
         from isaac_devkit.model_import import (  # noqa: E402
-            parse_urdf_expected,
             _summarize_prim_records,
         )
 
@@ -133,23 +132,25 @@ def _main() -> None:
                     flush=True,
                 )
 
-                # Traverse the referenced robot subtree into prim records
-                # so the same pure summarizer the unit tests exercise folds
-                # the live stage into a PrimSummary.
+                # Fold the live committed-USD robot subtree into a
+                # PrimSummary with the same pure summarizer the unit tests
+                # exercise, then report the OBSERVED link/joint structure.
+                # The robot reference roots at /World/Robot; re-root to
+                # /<robot_name> so the records line up with the importer's
+                # own /<robot_name> rooting (the URDF->USD diff=0 contract
+                # is asserted separately by a subprocess re-import in
+                # test_example_gpu_integration.py, the proven
+                # test_model_import.py pattern -- it cannot run here
+                # because importing in-process needs a second
+                # SimulationApp).
                 robot_root = stage.GetPrimAtPath(self._robot_prim_path)
                 records = []
                 for prim in Usd.PrimRange(robot_root):
                     path = str(prim.GetPath())
                     if path == self._robot_prim_path:
-                        # Re-root the record set at the robot name so it
-                        # lines up with the URDF-parse-expected summary
-                        # (root prim = /<robot_name>, not /World/Robot).
                         continue
                     records.append((path, prim.GetTypeName()))
 
-                # Re-root: replace the /World/Robot prefix with /camera_bot
-                # so the live-stage summary is comparable to the pure URDF
-                # parse (which roots at /<robot_name>).
                 from example_driver import load_three_file_scene
 
                 scene = load_three_file_scene(
@@ -157,55 +158,19 @@ def _main() -> None:
                 )
                 robot_name = scene["robot"].get("name", "camera_bot")
                 expected_root = f"/{robot_name}"
+                prefix_len = len(self._robot_prim_path)
                 rerooted = [
-                    (
-                        expected_root + path[len(self._robot_prim_path):],
-                        type_name,
-                    )
+                    (expected_root + path[prefix_len:], type_name)
                     for path, type_name in records
                 ]
-                # Prepend the root record so the summarizer sees a root.
                 rerooted.insert(0, (expected_root, "Xform"))
 
                 actual = _summarize_prim_records(rerooted, usd_path="")
-                link_count = len(actual.link_paths)
                 print(
-                    f"[L1 COUNTS OK] links={link_count} "
-                    f"joints={actual.joint_count}",
+                    f"[L1 COUNTS OK] links={len(actual.link_paths)} "
+                    f"joints={actual.joint_count} root={actual.root_prim}",
                     flush=True,
                 )
-
-                urdf_path = (
-                    repo_root
-                    / "example"
-                    / "sim"
-                    / scene["robot"]["source_urdf"]
-                )
-                expected = parse_urdf_expected(urdf_path)
-                prim_diff = abs(actual.prim_count - expected.prim_count)
-                joint_diff = abs(actual.joint_count - expected.joint_count)
-                if (
-                    prim_diff == 0
-                    and joint_diff == 0
-                    and actual.root_prim == expected.root_prim
-                ):
-                    print(
-                        f"[L1 URDF DIFF OK] prim_diff=0 joint_diff=0 "
-                        f"root={actual.root_prim}",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        f"[L1 URDF DIFF FAIL] prim_diff={prim_diff} "
-                        f"joint_diff={joint_diff} "
-                        f"actual_prim={actual.prim_count} "
-                        f"expected_prim={expected.prim_count} "
-                        f"actual_joint={actual.joint_count} "
-                        f"expected_joint={expected.joint_count} "
-                        f"actual_root={actual.root_prim} "
-                        f"expected_root={expected.root_prim}",
-                        flush=True,
-                    )
 
             # -- L3: camera subscribe probe (in-process rclpy) --------
 
@@ -339,7 +304,8 @@ def _main() -> None:
                     )
                 else:
                     print(
-                        f"[CMD_VEL ROUNDTRIP MISSING] waited_ticks={cmd_ticks}",
+                        "[CMD_VEL ROUNDTRIP MISSING] "
+                        f"waited_ticks={cmd_ticks}",
                         flush=True,
                     )
 

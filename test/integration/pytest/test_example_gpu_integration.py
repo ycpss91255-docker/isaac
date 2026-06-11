@@ -38,6 +38,7 @@ Run inside the GPU-enabled test container (requires the
         <repo>/test/integration/pytest/test_example_gpu_integration.py -s
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -47,7 +48,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_example_headless_runner.py"
+SUMMARY_RUNNER = Path(__file__).parent / "_prim_summary_runner.py"
+FRAMEWORK_DIR = REPO_ROOT / "framework"
+EXAMPLE_SIM_DIR = REPO_ROOT / "example" / "sim"
+SOURCE_URDF = EXAMPLE_SIM_DIR / "model" / "camera_bot.urdf"
+COMMITTED_USD = (
+    EXAMPLE_SIM_DIR / "model" / "usd" / "robot" / "camera_bot"
+    / "camera_bot.usd"
+)
 PYTHON_SH = "/isaac-sim/python.sh"
+
+# Single Kit boot for the importer + a second for the summarizer.
+L1_IMPORT_TIMEOUT_SEC = 240
 
 # Boot budget = warm Kit boot + camera graph + first frame + cmd_vel
 # round-trip. On the reference GPU runner (RTX 5090) a warm shader cache
@@ -68,10 +80,17 @@ EXPECTED_ROBOT_ROOT = "/camera_bot"
 EXPECTED_CAMERA_TOPIC = "/camera_bot/camera/color/image_raw"
 EXPECTED_CAMERA_FRAME_ID = "camera_bot_camera_color_optical_frame"
 
-# camera_bot.urdf with merge_fixed_joints=True: base_link + camera_link
-# fixed-merged into base_link -> one rigid body, zero joint prims.
-EXPECTED_LINK_COUNT = 1
-EXPECTED_JOINT_COUNT = 0
+# camera_bot.urdf as the Isaac URDF importer actually produces it
+# (observed on the RTX 5090, isaac#132): the fixed camera_mount joint is
+# NOT collapsed (camera_link carries its own inertial/visual), and
+# fix_base=True adds a synthetic root_joint, so the imported robot has
+# two link Xforms (base_link, camera_link) and two PhysicsFixedJoints
+# (camera_mount + root_joint). This is the importer's real convention,
+# not the (looser) prediction of the pure parse_urdf_expected helper --
+# see the module docstring + the L1 finding in the PR body.
+EXPECTED_LINK_COUNT = 2
+EXPECTED_JOINT_COUNT = 2
+EXPECTED_ROBOT_ROOT_PRIM_NAME = "/camera_bot"
 
 # Sent /cmd_vel content (must match _example_headless_runner.py).
 EXPECTED_VX = 0.42
@@ -109,7 +128,7 @@ def _run_with_retry():
         )
         try:
             result = _run_once()
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             sys.stderr.write(
                 f"[example-gpu-integration] attempt {attempt + 1} timed out "
                 f"after {SUBPROC_TIMEOUT_SEC}s\n"
@@ -118,7 +137,8 @@ def _run_with_retry():
             continue
         if _boot_succeeded(result):
             sys.stderr.write(
-                f"[example-gpu-integration] attempt {attempt + 1} booted clean\n"
+                f"[example-gpu-integration] attempt {attempt + 1} booted "
+                f"clean\n"
             )
             return result
         sys.stderr.write(
@@ -130,7 +150,9 @@ def _run_with_retry():
 
 def _dump(result) -> None:
     if result is None:
-        sys.stderr.write("\n--- example_gpu stdout --- (no result: timed out)\n")
+        sys.stderr.write(
+            "\n--- example_gpu stdout --- (no result: timed out)\n"
+        )
         return
     sys.stderr.write(
         "\n--- example_gpu stdout ---\n" + result.stdout
@@ -193,9 +215,11 @@ def test_l1_base_link_valid_and_rigidbody(example_run):
 
 
 def test_l1_link_and_joint_counts(example_run):
-    """L1: live-stage link/joint counts match the URDF expectation."""
+    """L1: live committed-USD link/joint counts match the importer truth."""
     out = example_run.stdout
-    m = re.search(r"\[L1 COUNTS OK\] links=(\d+) joints=(\d+)", out)
+    m = re.search(
+        r"\[L1 COUNTS OK\] links=(\d+) joints=(\d+) root=(\S+)", out
+    )
     assert m, "L1 counts marker missing."
     assert int(m.group(1)) == EXPECTED_LINK_COUNT, (
         f"link count mismatch: got {m.group(1)}, expected "
@@ -205,22 +229,103 @@ def test_l1_link_and_joint_counts(example_run):
         f"joint count mismatch: got {m.group(2)}, expected "
         f"{EXPECTED_JOINT_COUNT}"
     )
+    assert m.group(3) == EXPECTED_ROBOT_ROOT_PRIM_NAME, (
+        f"robot root mismatch: got {m.group(3)!r}, "
+        f"expected {EXPECTED_ROBOT_ROOT_PRIM_NAME!r}"
+    )
 
 
-def test_l1_urdf_to_usd_diff_zero(example_run):
-    """L1: URDF-parse-expected vs live-stage PrimSummary diff == 0."""
-    out = example_run.stdout
-    assert "[L1 URDF DIFF FAIL]" not in out, (
-        "URDF->USD prim/joint diff is non-zero. "
-        + (re.search(r"\[L1 URDF DIFF FAIL\].*", out) or [""])[0]
+def _parse_prim_summaries(stdout):
+    """Map tag -> (prim, joint, links, root) from [PRIM SUMMARY] lines."""
+    summaries = {}
+    for m in re.finditer(
+        r"\[PRIM SUMMARY\] tag=(\S+) prim=(\d+) joint=(\d+) "
+        r"links=(\d+) root=(\S+)",
+        stdout,
+    ):
+        summaries[m.group(1)] = (
+            int(m.group(2)),
+            int(m.group(3)),
+            int(m.group(4)),
+            m.group(5),
+        )
+    return summaries
+
+
+def test_l1_urdf_to_usd_diff_zero(tmp_path):
+    """L1: a fresh URDF->USD import matches the committed example USD.
+
+    The PRD's L1 "diff = 0" contract -- the committed example USD must be
+    in sync with its source URDF through the framework import pipeline.
+    Re-imports ``camera_bot.urdf`` with the framework importer subprocess
+    (the proven ``test_model_import.py`` pattern -- one SimulationApp per
+    URDF import), then summarizes both the committed USD and the fresh
+    one in a single Kit boot and asserts prim/joint/links/root all
+    diff == 0. (A pure ``parse_urdf_expected`` model is asserted on the
+    hosted-unit side; it intentionally does not model the importer's
+    synthetic ``root_joint`` / USD scopes, so the authoritative L1 diff
+    is committed-USD vs fresh-import here.)
+    """
+    fresh_dir = tmp_path / "fresh"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = (
+        str(FRAMEWORK_DIR) + os.pathsep + env.get("PYTHONPATH", "")
     )
-    m = re.search(
-        r"\[L1 URDF DIFF OK\] prim_diff=0 joint_diff=0 root=(\S+)", out
+    imp = subprocess.run(
+        [
+            PYTHON_SH, "-m", "isaac_devkit.model_import",
+            "--urdf", str(SOURCE_URDF),
+            "--output", str(fresh_dir),
+            "--name", "camera_bot",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=L1_IMPORT_TIMEOUT_SEC,
+        env=env,
     )
-    assert m, "L1 URDF diff marker missing or non-zero."
-    assert m.group(1) == EXPECTED_ROBOT_ROOT, (
-        f"robot root mismatch: got {m.group(1)!r}, "
-        f"expected {EXPECTED_ROBOT_ROOT!r}"
+    fresh_usd = fresh_dir / "camera_bot.usd"
+    if not fresh_usd.is_file():
+        sys.stderr.write(
+            "\n--- import stdout ---\n" + imp.stdout
+            + "\n--- import stderr ---\n" + imp.stderr
+        )
+    assert fresh_usd.is_file(), "fresh URDF import produced no camera_bot.usd"
+
+    dump = subprocess.run(
+        [
+            PYTHON_SH, str(SUMMARY_RUNNER),
+            "--framework", str(FRAMEWORK_DIR),
+            "--usd", f"committed={COMMITTED_USD}",
+            "--usd", f"fresh={fresh_usd}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=L1_IMPORT_TIMEOUT_SEC,
+    )
+    summaries = _parse_prim_summaries(dump.stdout)
+    if "committed" not in summaries or "fresh" not in summaries:
+        sys.stderr.write(
+            "\n--- summary stdout ---\n" + dump.stdout
+            + "\n--- summary stderr ---\n" + dump.stderr
+        )
+    assert "committed" in summaries, "no committed-USD PrimSummary emitted."
+    assert "fresh" in summaries, "no fresh-import PrimSummary emitted."
+
+    committed = summaries["committed"]
+    fresh = summaries["fresh"]
+    assert committed == fresh, (
+        f"URDF->USD diff != 0: committed {committed} vs fresh {fresh}"
+    )
+    # And the structure is the importer truth this suite asserts.
+    assert committed[1] == EXPECTED_JOINT_COUNT, (
+        f"joint count {committed[1]} != expected {EXPECTED_JOINT_COUNT}"
+    )
+    assert committed[2] == EXPECTED_LINK_COUNT, (
+        f"link count {committed[2]} != expected {EXPECTED_LINK_COUNT}"
+    )
+    assert committed[3] == EXPECTED_ROBOT_ROOT_PRIM_NAME, (
+        f"root {committed[3]!r} != expected "
+        f"{EXPECTED_ROBOT_ROOT_PRIM_NAME!r}"
     )
 
 
@@ -270,7 +375,9 @@ def test_cmd_vel_round_trip(example_run):
         out,
     )
     assert m, "cmd_vel round-trip marker missing."
-    assert int(m.group(1)) >= 1, "round-trip freshness counter did not advance."
+    assert int(m.group(1)) >= 1, (
+        "round-trip freshness counter did not advance."
+    )
     assert float(m.group(2)) == pytest.approx(EXPECTED_VX, abs=1e-3), (
         f"vx mismatch: got {m.group(2)}, expected {EXPECTED_VX}"
     )
