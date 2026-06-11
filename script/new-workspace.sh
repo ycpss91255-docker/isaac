@@ -301,9 +301,23 @@ else
   _info "adding src/docker submodule: ${REMOTE} @ ${PIN}"
   git -C "${WS}" init -q
   git -C "${WS}" submodule add -q "${REMOTE}" src/docker
-  git -C "${WS}" -C src/docker checkout -q "${PIN}" \
+  git -C "${WS}/src/docker" checkout -q "${PIN}" \
     || _die "could not check out pin ${PIN} in src/docker"
-  git -C "${WS}" submodule update -q --init --recursive
+  # Record the pin as the superproject's gitlink (so the consumer's repo
+  # tracks the intended ref, not whatever `submodule add` checked out).
+  git -C "${WS}" add src/docker
+  # Recurse into the base repo's own nested submodules (e.g. web_viewer)
+  # best-effort -- run from INSIDE src/docker so it does not reset the pin
+  # we just checked out (a superproject `submodule update` would restore
+  # the recorded gitlink). The framework -- the thing the consumer needs
+  # to run -- lives at the top level of src/docker and is already checked
+  # out, so a nested-submodule fetch failure (offline, or a viewer the
+  # consumer does not need) must not abort the scaffold.
+  if ! git -C "${WS}/src/docker" submodule update -q --init --recursive; then
+    _info "WARN: nested submodules under src/docker did not all fetch " \
+      "(framework is present; run 'git -C src/docker submodule update " \
+      "--init --recursive' to complete)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
