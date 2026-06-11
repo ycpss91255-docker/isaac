@@ -1,5 +1,12 @@
 # Isaac Dev Kit: 4-Layer Standardized Development Environment
 
+> **Superseded by [ADR-0017](./0017-isaac-base-repo-convergence-contract.md) (2026-06-11).**
+> The 4-layer separation and the scene-YAML idea survive as the mounted `isaac_devkit`
+> module set, the three-file scene, and the sensor catalog/placement schema (ADR-0017
+> sections 3-5 and the "From ADR-0010" restatement). This file is retained unmodified below
+> as the historical record and migrates to `ycpss91255-research/isaac-forklift` together
+> with the application content it exemplifies (tracked in #136).
+
 4 individual driver scripts, multiple robot/object USD models, and a single-sensor-type camera setup (ADR-0006) have grown organically without a unifying framework. Adding new robots (MR12, MR1533), environment objects (push-back with sliding joint, pallet with color variants), and additional sensor types (3D/2D LiDAR, IMU) under the current ad-hoc approach would multiply copy-paste boilerplate and create inconsistent conventions across the workspace.
 
 **Decision**: Build a **robot-agnostic 4-layer development framework** ("Isaac Dev Kit") with a declarative Scene YAML composition layer on top. Each layer has a single responsibility and a clear config-driven interface. First validation target: OpenBase + push-back + pallet scene.

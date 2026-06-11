@@ -7,7 +7,7 @@ Viewing the sim D455 RGB-D topics from a remote workstation (`nb`, `10.2.32.57`)
 - **rviz QoS**: the rviz Image display defaults to `Reliable`, which cannot match the camera's `Best Effort` publisher → "No Image" even when data is available.
 - **Depth display**: Isaac depth is `32FC1` with ~52% of pixels `inf` (open space, no surface); rviz `Normalize Range` computes `max = inf` → everything maps to ~0 → all black.
 
-**Decision**: For cross-subnet remote viewing of large image topics, use **Fast DDS TCP transport** — a TCP listener on the Isaac (publisher) side and a TCP client connector on the viewer side — instead of UDP. View with `Best Effort` QoS; for depth, turn `Normalize Range` off with fixed `Min=0 / Max=8`. This is a **development / debug-only** path: production CoreSAM returns masks (`mask_rle`, small RLE), not raw images, so raw-image cross-network streaming is never on the product data path.
+**Decision**: For cross-subnet remote viewing of large image topics, use **Fast DDS TCP transport** — a TCP listener on the Isaac (publisher) side and a TCP client connector on the viewer side — instead of UDP. View with `Best Effort` QoS; for depth, turn `Normalize Range` off with fixed `Min=0 / Max=8`. This is a **development / debug-only** path: the downstream perception product returns compact RLE masks, not raw images, so raw-image cross-network streaming is never on the product data path.
 
 ## Considered Options
 
@@ -28,12 +28,16 @@ TCP keeps the standard ROS 2 / rviz workflow (no extra apps, no browser, no rmw 
 - Two profiles land with this ADR: `config/ros2/fastdds_tcp_server.xml` (listener, port 42100) and `config/ros2/fastdds_tcp_client.xml` (connector → `10.2.23.83:42100`). The driver is launched with `FASTRTPS_DEFAULT_PROFILES_FILE` pointing at the server profile.
 - The driver becomes **TCP-only** (`useBuiltinTransports=false`): same-host UDP siblings can no longer discover it. Same-host tooling must use the TCP profile too, or run as a separate UDP session.
 - `config/rviz/coresam_d455.rviz` pins `Best Effort` on both Image displays and `Normalize Range` off / `Min=0` / `Max=8` on depth. `script/view_isaac_camera.sh` wraps the client side (writes the client profile, loads the rviz config).
-- **Architectural boundary reaffirmed**: raw-image streaming across the network is dev-only. CoreSAM's product output is `mask_rle` (small), kept on the wire small by design. Do not architect the product around cross-network raw-image transport.
+- **Architectural boundary reaffirmed**: raw-image streaming across the network is dev-only. The downstream perception product's output is a compact RLE mask, kept on the wire small by design. Do not architect the product around cross-network raw-image transport.
 - Depth carries ~50% `inf` (open space); downstream `mask x depth -> 3D` must filter `inf`/`0`. D455 depth fidelity (clip to ~0.4-6 m, out-of-range -> 0 not inf) is tracked separately.
 
 ## References
 
 - `ros2_cross_network.md` — full debug log + both-side code snippets (kept on the dev workstation).
-- CLAUDE.md — CoreSAM returns `mask_rle`, not raw images.
+- Workspace harness CLAUDE.md — the perception product returns RLE masks, not raw images.
 - [Fast DDS transports (UDP/TCP/SHM)](https://fast-dds.docs.eprosima.com/en/latest/fastdds/transport/transport.html)
-- ADR-0006 (per-sensor-type camera config), ADR-0014 (sim-runtime stage taxonomy).
+- ADR-0006 (per-sensor-type camera config; superseded by ADR-0017), ADR-0014 (sim-runtime stage taxonomy).
+
+## Editorial note (2026-06-11)
+
+Incidental application-specific prose in this ADR was replaced with generic wording as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged; the original wording is preserved in git history. Literal committed artifact paths (e.g. `config/rviz/coresam_d455.rviz`) are left untouched until the content migration (#136 / #137).

@@ -40,3 +40,27 @@ Out of scope for this ADR. If we later want docker repo's smoke job to gate work
 - `ycpss91255-docker/isaac#63` — first PR carrying the layout (bats moved + skip-check rewritten).
 - `ycpss91255-research/isaac#46` — this PR (workspace CI workflows).
 - `ycpss91255-research/isaac#38` / `#39` / `#40` / `#41` — implementation PRs migrating to `test/unit/pytest/`.
+
+## Update (2026-06-11) -- re-derivation under the mount model (ADR-0017), not voiding
+
+This ADR rejected "the docker repo owns all test categories" (Considered Option (b)) on two
+grounds: (1) moving pure-Python unit tests into the docker repo costs every contributor a
+container build to iterate on a one-line change, and (2) locality inversion -- tests should
+sit next to the code they exercise, which lived in the research workspace.
+
+Both premises have since changed, and re-deriving from this ADR's own principles now lands on
+the opposite ownership:
+
+- **The mount model voids (1).** Under ADR-0017 the framework is mounted into the container,
+  not baked into the image; unit and import-safety tests run hosted, pure, with zero Isaac
+  dependency and zero container build. The contributor cost this ADR was protecting against
+  no longer exists.
+- **The monorepo merge flips (2).** The research -> docker merge (`ycpss91255-docker/isaac#78`)
+  moved the framework code into this repo, so "tests follow code" -- this ADR's own locality
+  principle -- now points at the base repo, not away from it.
+
+Framework tests (unit + import-safety, hosted) and the example end-to-end tests (integration,
+GPU) living in this repo is therefore a **continuation** of this ADR's reasoning, not a
+violation of it. The `test/<category>/<tool>/` sublayer decision is untouched and remains the
+layout for the converged repo. See ADR-0017 ("Amendment: ADR-0013") for the successor
+contract this re-derivation feeds.

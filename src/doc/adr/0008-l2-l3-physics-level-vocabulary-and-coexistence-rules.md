@@ -1,5 +1,13 @@
 # L2 / L3 Physics Level Vocabulary and Coexistence Rules
 
+> **Superseded by [ADR-0017](./0017-isaac-base-repo-convergence-contract.md) (2026-06-11).**
+> The generic decision (L2/L3 two-level physics vocabulary, the PhysX kinematic/dynamic
+> coexistence rules, and the `<model>_<suffix>` variant naming) remains in force and is
+> restated in generic vocabulary in ADR-0017 ("From ADR-0008" section, camera-bot example).
+> This original file, whose running example is application-specific, is retained unmodified
+> below as the historical record and migrates to `ycpss91255-research/isaac-forklift`
+> (tracked in #136).
+
 ADR-0004 picked "kinematic forklift 5 cube + dynamic environment" but never named the pattern formally. Future Model A variants (升 mast 到 joint-drive、加 wheel 視覺旋轉、openbase 改寫 etc.) 都需要一個 per-body physics level vocabulary 來描述要動哪格、不動哪格,以及描述 PhysX 對 mixed scene 的官方保證。
 
 **Decision**: 採 **L2 (Kinematic) + L3 (Dynamic + Joint) 兩階詞彙**,不引入 L0 (Xform-only)。USD variant 用 `<model>_<suffix>` 命名(`forklift_blocky_kin` / `forklift_blocky_kin_fork_dyn` 等),不再延用 Model A/B/C/D 字母序。任何 body 升 L3 即跨入 ADR-0003 的 **Motion-Control Simulation** 軌(Model B),不再屬 Model A 範疇。

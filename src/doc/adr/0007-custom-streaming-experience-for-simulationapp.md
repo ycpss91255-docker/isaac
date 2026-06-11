@@ -12,7 +12,7 @@ NVIDIA ships three relevant Kit experiences (`/isaac-sim/apps/`):
 - **`isaacsim.exp.full.streaming.kit`** — the experience `runheadless.sh` invokes via the `kit` binary. `[dependencies]` is `isaacsim.exp.full` + `omni.services.livestream.nvcf`. Inherits the full editor / sensors / Replicator bundle (~200 extensions). `[settings.app.livestream]` block is set. Streaming Client connects to this every time `runheadless.sh` runs.
 - **`isaacsim.exp.base.python.kit` + `omni.kit.livestream.{core, webrtc}` overlaid as extra dependencies** — does not exist as a shipped file; this is the gap.
 
-The forklift driver (and every future driver in this repo) is `SimulationApp`-driven. It needs the streaming server enabled, and it needs to *not* take down the rest of the entrypoint pattern with native crashes or surprise side effects from a heavy bundle.
+The camera-bot example driver (and every future driver in this repo) is `SimulationApp`-driven. It needs the streaming server enabled, and it needs to *not* take down the rest of the entrypoint pattern with native crashes or surprise side effects from a heavy bundle.
 
 ## Considered Options
 
@@ -37,7 +37,7 @@ Each rejected option fails on a different axis:
 
 ## Consequences
 
-- **`script/forklift_blocky_driver_wip.py`** and **`script/standalone_livestream_smoke.py`** pin `experience=` to the custom file. Future drivers in this repo do the same.
+- **The application demo driver** and **`script/standalone_livestream_smoke.py`** pin `experience=` to the custom file. Future drivers in this repo do the same.
 - **`doc/standalone_livestream_workflow.md`** (the SOP) gains a "you must pass `experience=`" call-out in the skeleton template section. `-t headless` is removed from the SOP and replaced with `-t standalone`.
 - **ADR-0005** gains the `Update (2026-05-21)` section that records the live-verification findings (target mismatch + experience mismatch) and points at this ADR.
 - If NVIDIA ships a first-party `isaacsim.exp.base.python.streaming.kit` (or equivalent) in a future Isaac Sim minor release, this ADR can be deprecated and the driver call sites can switch back to the upstream file. Until then the custom file is the contract.
@@ -49,3 +49,7 @@ Each rejected option fails on a different axis:
 - ADR-0002 — original in-kit Script Editor path, still valid as a Plan B.
 - IsaacLab AppLauncher source (custom kit experience precedent): <https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab/isaaclab/app/app_launcher.py>
 - Isaac Sim livestream client docs: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html>
+
+## Editorial note (2026-06-11)
+
+Incidental application-specific example names in this ADR were replaced with generic wording (camera-bot example) as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged; the original wording is preserved in git history.
