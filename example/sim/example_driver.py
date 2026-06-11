@@ -209,6 +209,12 @@ class ExampleDriver(IsaacDriver):
             self.setup(stage)
             self.main()
             self.shutdown()
+        except Exception as exc:  # noqa: BLE001
+            # app.close() (the finally) calls _exit(0) and swallows the
+            # traceback, so surface the failure on stdout first (the
+            # marker-line acceptance convention, ADR-0017 section 7).
+            print(f"[RAISED] {type(exc).__name__}: {exc}", flush=True)
+            raise
         finally:
             sys.stdout.flush()
             sys.stderr.flush()
@@ -228,22 +234,32 @@ class ExampleDriver(IsaacDriver):
         return omni.usd.get_context().get_stage()
 
     def _build_scene(self, scene: Dict[str, Any], stage: Any) -> None:
-        """Import the robot URDF -> USD and reference it under the stage.
+        """Reference the robot USD under ``/World/Robot`` and pose it.
 
-        The robot model is a URDF (``model/camera_bot.urdf``); the L1
-        pipeline imports it to USD, then it is referenced at
-        ``/World/Robot`` so the camera placement's ``parent_prim``
-        (``/World/Robot/base_link``) resolves.
+        The robot ``model`` is the pre-built USD (``model/usd/robot/
+        camera_bot/camera_bot.usd``) produced offline from the source
+        URDF by the L1 ``import_urdf`` pipeline. The import runs in its
+        OWN ``SimulationApp`` (a one-shot CLI step, ``just import-model``
+        / committed output), so it is NOT re-run inside this live driver
+        (two ``SimulationApp`` instances in one process crash Kit).
+        Referencing the USD here puts ``base_link`` at
+        ``/World/Robot/base_link`` so the camera placement's
+        ``parent_prim`` resolves.
         """
-        from isaac_devkit.model_import import import_urdf
+        from pxr import Sdf
 
         robot = scene["robot"]
-        urdf_abs = _REPO_ROOT / "example" / "sim" / robot["model"]
-        usd_out = urdf_abs.with_suffix(".usd")
-        import_urdf(str(urdf_abs), str(usd_out))
+        usd_rel = robot["model"]
+        usd_abs = _REPO_ROOT / "example" / "sim" / usd_rel
 
+        # The imported USD (Asset Structure 3.0) declares the robot at
+        # /<robot_name> with no defaultPrim, so reference that explicit
+        # prim path rather than relying on a defaultPrim.
+        robot_root = f"/{robot.get('name', 'camera_bot')}"
         robot_prim = stage.DefinePrim(self._robot_prim_path, "Xform")
-        robot_prim.GetReferences().AddReference(str(usd_out))
+        robot_prim.GetReferences().AddReference(
+            str(usd_abs), Sdf.Path(robot_root)
+        )
         self._apply_pose(robot_prim, robot.get("pose"))
 
     def _setup_sensors(self, scene: Dict[str, Any], stage: Any) -> None:

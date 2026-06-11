@@ -12,10 +12,10 @@
   camera_link is the kinematic mount point a placement can target.
 
   With the Isaac URDF importer default (merge_fixed_joints=True), the
-  fixed base_link -> camera_link joint merges camera_link into base_link
+  fixed base_link to camera_link joint merges camera_link into base_link
   and emits no joint prim, so the imported USD is a single rigid body
-  rooted at /camera_bot/base_link -- the shape the L1 assertions in the
-  separate GPU integration issue (#132) check.
+  rooted at /camera_bot/base_link (the shape the L1 assertions in the
+  separate GPU integration issue (#132) check).
 -->
 <robot name="camera_bot">
 
