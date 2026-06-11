@@ -123,9 +123,26 @@ Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compos
 | `pyyaml installed in devel-test stage` | `import yaml; print(yaml.__version__)` succeeds — YAML available for Python config / fixture loading |
 | `pytest-cov installed in devel-test stage` | `pytest --help` mentions `--cov` — coverage plugin registered, enables `pytest --cov=<pkg>` invocations |
 
+## test/unit/pytest/ — hosted unit (pytest, not in the bats count above)
+
+Host-runnable unit tests for the `isaac_devkit` framework pure surface (no Isaac Sim, no GPU). They are the M1 stage gate (ADR-0017 section 7): the `python-tests` CI job runs `test/assert_pytest_baseline.sh`, which executes this suite in a plain Python container and enforces all-green + collected >= `HOSTED_UNIT_BASELINE` (committed in `test/pytest-baseline.txt`, ratchet) + framework pure-surface coverage >= 80% (`framework/pyproject.toml` `[tool.coverage]` excludes Isaac-side function-local code via `exclude_also` regexes; live coverage 98%). They are not counted in the bats total in the header (the drift check counts `^@test` lines only). Live collected = **171** (#130 framework extraction; baseline floor is the DoD's 115).
+
+| File | Collected | Scope |
+|------|:---------:|-------|
+| `test_import_safety.py` | 8 | Hosted import of each `isaac_devkit.*` module (incl. `__init__`) leaves `sys.modules` free of `omni` / `pxr` / `isaacsim` (ADR-0017 section 8 / PRD A1). |
+| `test_no_module_top_isaac_import.py` | 8 | AST static guard: no module-top `import omni\|pxr\|isaacsim` in any package source (catches try/except-disguised module-top imports; mirrors the ruff TID253 config). |
+| `test_camera_setup.py` | 27 | Camera surface of `isaac_devkit.sensors` (former `camera_setup.py`): `validate_camera`, unified `load_config`, role -> Camera Helper type, FOV -> aperture math. |
+| `test_sensor_setup.py` | 22 | `isaac_devkit.sensors` (former `sensor_setup.py`): YAML load, shared validation, category dispatch, per-category validation (lidar profile, IMU rigid-body rule). |
+| `test_material_setup.py` | 19 | `isaac_devkit.materials`: material YAML load / validate, variant enumeration, prim-material mapping. |
+| `test_scene_builder.py` | 17 | `isaac_devkit.scene`: YAML load / validate, model-path resolution, multi-instance generation, sensor-config reference resolution. |
+| `test_import_model.py` | 20 | `isaac_devkit.model_import` (former `import_model.py`): path resolution, existing-file checks, material/root template generation, output validation. |
+| `test_isaac_driver.py` | 16 | `isaac_devkit.driver`: `parse_livestream_env`, `resolve_repo_relative_usd`, construction without Kit, plus the greenfield `SCENE` shape + hosted lifecycle-order spy (ADR-0017 section 7). |
+| `test_prim_summary.py` | 11 | Greenfield `PrimSummary` surface: `parse_urdf_expected` (pure URDF-XML expectation, fixed-joint merge), `_summarize_prim_records` (pure stage-record fold), the L1 diff-zero agreement on matching inputs. |
+| `test_ros_io.py` | 23 | Greenfield `isaac_devkit.ros_io` pure surface: `parse_ros2_io_config`, `expected_attr_paths`, `_build_graph_topology`, `RosIo.latest` non-blocking fresh-once bookkeeping against an injected reader. |
+
 ## test/integration/pytest/ — GPU integration (pytest, not in the bats count above)
 
-Python integration tests boot Isaac Sim and need the GPU-enabled `test` compose service (`[stage:devel-test] deploy.gpu_mode = force` in setup.conf). Run on the GPU host: `./script/run.sh -t test -- /isaac-sim/python.sh -m pytest test/integration/pytest/<file>`. They are not counted in the bats total in the header (the drift check counts `^@test` lines only); automated CI wiring is tracked in #85 / PRD #4-int. Pre-existing pytest files from the #78 merge (`test_isaac_driver_integration.py` etc.) are pending the same #85 documentation pass.
+Python integration tests boot Isaac Sim and need the GPU-enabled `test` compose service (`[stage:devel-test] deploy.gpu_mode = force` in setup.conf). Run on the GPU host: `./script/run.sh -t test -- /isaac-sim/python.sh -m pytest test/integration/pytest/<file>`. They are not counted in the bats total in the header (the drift check counts `^@test` lines only); automated CI auto-run is tracked in #85 / PRD #4-int (the hosted-unit M1 gate above runs for real today). Live collected = **12**; the full cross-runner aggregate (171 unit + 12 integration) is asserted at M2 with #132. The #130 extraction repointed every integration runner / test at `isaac_devkit.*` (the camera-headless #127 runners reach the framework through the `src/script` shims).
 
 | Test | Description |
 |------|-------------|
