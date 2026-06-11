@@ -1,6 +1,6 @@
 """L3 sensor setup integration test.
 
-Verifies ``script/sensor_setup.py`` dispatches correctly for all four
+Verifies ``isaac_devkit.sensors`` dispatches correctly for all four
 sensor types (camera realsense, lidar_3d Ouster, lidar_2d Example_Rotary,
 imu) on a minimal in-memory stage, and that the IMU mount-validation
 rule rejects a non-RigidBody parent (ADR-0010 L3 + ADR-0006 IMU mount
@@ -26,7 +26,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_sensor_setup_runner.py"
-SCRIPT_DIR = REPO_ROOT / "script"
+FRAMEWORK_DIR = REPO_ROOT / "framework"
 PYTHON_SH = "/isaac-sim/python.sh"
 SUBPROC_TIMEOUT_SEC = 180
 
@@ -36,7 +36,7 @@ def _run(yaml_path: Path, body_mode: str) -> subprocess.CompletedProcess:
         [
             PYTHON_SH, str(RUNNER_SCRIPT),
             "--yaml", str(yaml_path),
-            "--script-dir", str(SCRIPT_DIR),
+            "--script-dir", str(FRAMEWORK_DIR),
             "--body-mode", body_mode,
         ],
         capture_output=True,

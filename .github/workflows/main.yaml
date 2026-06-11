@@ -50,29 +50,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # M1 stage gate (ADR-0017 section 7, isaac#130): hosted unit pytest
+      # needs no Isaac runtime and no GPU, so it runs in a plain Python
+      # container and gates every PR. The script enforces all-green +
+      # collected >= the committed baseline (ratchet) + framework
+      # pure-surface coverage >= 80%. This is the M1 acceptance floor.
+      - name: Hosted unit pytest + baseline + coverage gate
+        run: ./test/assert_pytest_baseline.sh
+
       - name: Build test image (devel-test stage, cached if unchanged)
         run: ./script/build.sh -t test
 
-      - name: Run pytest in test container
+      - name: Run GPU integration pytest in test container
         run: |
           set -euo pipefail
-          # NOTE: automated pytest execution in CI is still deferred,
+          # GPU integration auto-execution in CI is still deferred,
           # tracked in #85 (#78 follow-up) and the PRD's #4-int (GPU
-          # auto-integration assertions). What changed with #127: the
-          # local GPU invocation now works -- base v0.41.0's
-          # [stage:devel-test] override (setup.conf:
-          # deploy.gpu_mode = force) gives the `test` compose service a
-          # GPU reservation plus the devel-inherited workspace mount,
-          # so on the GPU host
+          # auto-integration assertions). The hosted-unit M1 gate above
+          # already runs for real. What changed with #127: the local GPU
+          # invocation works -- base v0.41.0's [stage:devel-test]
+          # override (setup.conf: deploy.gpu_mode = force) gives the
+          # `test` compose service a GPU reservation plus the
+          # devel-inherited workspace mount, so on the GPU host
           #   ./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
           #     test/integration/pytest/test_camera_ros2_headless.py
           # boots headless Isaac and runs the camera->ROS2 integration
-          # smoke for real (marker-line pass criterion, see TEST.md).
-          # Remaining CI work per ADR-0011's 4-bucket split: a hosted
-          # unit-tests job (no Isaac runtime needed) + a self-hosted GPU
-          # integration job with checkout-path -> workspace-mount
-          # mapping; both land with #85 / #4-int.
-          echo "python-tests CI wiring deferred -- tracked in #85 / PRD #4-int. Local GPU invocation works since #127; see TEST.md."
+          # smoke for real (marker-line pass criterion, see TEST.md). The
+          # full cross-runner aggregate (hosted unit + GPU integration =
+          # the AGGREGATE_TARGET in test/pytest-baseline.txt) is asserted
+          # at M2 with #132 / #4-int.
+          echo "GPU integration CI auto-run deferred -- tracked in #85 / PRD #4-int. Hosted-unit M1 gate runs above; local GPU invocation works since #127, see TEST.md."
           exit 0
 
   call-release:

@@ -26,3 +26,11 @@ config/host.yaml
 runtime.env
 
 .env.generated
+
+# Python artifacts (isaac_devkit framework + pytest, #130)
+__pycache__/
+*.py[cod]
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
