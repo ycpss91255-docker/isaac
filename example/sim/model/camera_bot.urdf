@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<!--
+  camera_bot: the generic base-repo example robot (ADR-0017 running
+  example). A minimal camera-bot, NOT the forklift application model.
+
+  Structure:
+    base_link    chassis box (the body that moves under /cmd_vel)
+    camera_link  the camera carrier, fixed to base_link
+
+  The camera optics are added by the scene's sensor placement
+  (config/sensor/custom.yaml mounted on base_link), not by this URDF;
+  camera_link is the kinematic mount point a placement can target.
+
+  With the Isaac URDF importer default (merge_fixed_joints=True), the
+  fixed base_link -> camera_link joint merges camera_link into base_link
+  and emits no joint prim, so the imported USD is a single rigid body
+  rooted at /camera_bot/base_link -- the shape the L1 assertions in the
+  separate GPU integration issue (#132) check.
+-->
+<robot name="camera_bot">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.1" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia
+        ixx="0.13" ixy="0" ixz="0"
+        iyy="0.13" iyz="0"
+        izz="0.21"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.1" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.3 0.2"/>
+      </geometry>
+      <material name="chassis_material">
+        <color rgba="0.2 0.4 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.1" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.3 0.2"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia
+        ixx="0.00001" ixy="0" ixz="0"
+        iyy="0.00001" iyz="0"
+        izz="0.00001"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.06 0.03"/>
+      </geometry>
+      <material name="camera_material">
+        <color rgba="0.1 0.1 0.1 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="camera_mount" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.2 0.0 0.3" rpy="0 0 0"/>
+  </joint>
+
+</robot>
