@@ -119,9 +119,11 @@ def test_camera_custom_yaml_publishes_frame_headless(tmp_path):
     assert int(cuda.group(1)) >= 1, "CUDA reported zero devices."
 
     # CUDA/Vulkan init markers in the Kit log (Info-level boot lines).
-    kit_log = re.search(r"\[KIT LOG\] path=(\S+)", result.stdout)
+    # The path contains spaces ("Kit/Isaac-Sim Python/..."), so match to
+    # end of line rather than \S+.
+    kit_log = re.search(r"\[KIT LOG\] path=(.+)", result.stdout)
     assert kit_log, "Runner did not announce the Kit log path."
-    log_text = Path(kit_log.group(1)).read_text(
+    log_text = Path(kit_log.group(1).strip()).read_text(
         encoding="utf-8", errors="replace"
     )
     assert "vulkan" in log_text.lower(), "No Vulkan init marker in Kit log."
