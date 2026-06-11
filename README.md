@@ -275,3 +275,12 @@ make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 System `python3` cannot install these packages (PEP 668 blocks `pip` on the Isaac base image) — always invoke `/isaac-sim/python.sh -m pytest ...` instead of `pytest ...`.
+
+GPU integration tests (Isaac Sim must boot, e.g. the camera → ROS 2 headless smoke, #127) run through the `test` compose service, which gets an NVIDIA GPU reservation from the `[stage:devel-test]` override in `setup.conf` (`deploy.gpu_mode = force`, base #493):
+
+```bash
+./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
+    test/integration/pytest/test_camera_ros2_headless.py
+```
+
+Pass criterion is stdout marker lines (`[BOOT OK]` / `[CAMERA FRAME OK]` / `[EXIT CLEAN]`), not the return code — Kit's `app.close` calls `_exit(0)`. See [doc/test/TEST.md](doc/test/TEST.md).

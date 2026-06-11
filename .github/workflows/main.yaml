@@ -56,29 +56,23 @@ jobs:
       - name: Run pytest in test container
         run: |
           set -euo pipefail
-          # NOTE: pytest execution is currently deferred. The
-          # ycpss91255-research/isaac merge (#78) brought test/unit/pytest/
-          # and test/integration/pytest/ into this repo, so the legacy
-          # `test/<category>/pytest/` directory-presence skip-check no
-          # longer guards us from a broken invocation. base v0.40.0's
-          # `test` compose service has no workspace volume mount, and
-          # devel-test inherits `CMD ["bash"]` from devel which exits
-          # under `compose up -d`; running `./script/run.sh -t test --
-          # /isaac-sim/python.sh -m pytest test/` therefore fails with
-          # "container is not running" before pytest even starts (see
-          # PR #84 first CI run).
-          #
-          # Proper fix is tracked in #85 (a #78 follow-up): per ADR-0011
-          # 4-bucket split, unit tests should run on hosted (no Isaac
-          # runtime needed -- test/unit/pytest/test_camera_setup.py
-          # docstring explicitly says "host-runnable, no Isaac Sim
-          # required"), and integration tests on self-hosted GPU with a
-          # workspace mount (or by baking test files into the image like
-          # bats does).
-          #
-          # Until that lands, skip with a clear marker so it does not
-          # silently rot.
-          echo "python-tests deferred -- tracked in #85 (#78 follow-up). See ADR-0011 Update for the planned 4-bucket allocation."
+          # NOTE: automated pytest execution in CI is still deferred,
+          # tracked in #85 (#78 follow-up) and the PRD's #4-int (GPU
+          # auto-integration assertions). What changed with #127: the
+          # local GPU invocation now works -- base v0.41.0's
+          # [stage:devel-test] override (setup.conf:
+          # deploy.gpu_mode = force) gives the `test` compose service a
+          # GPU reservation plus the devel-inherited workspace mount,
+          # so on the GPU host
+          #   ./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
+          #     test/integration/pytest/test_camera_ros2_headless.py
+          # boots headless Isaac and runs the camera->ROS2 integration
+          # smoke for real (marker-line pass criterion, see TEST.md).
+          # Remaining CI work per ADR-0011's 4-bucket split: a hosted
+          # unit-tests job (no Isaac runtime needed) + a self-hosted GPU
+          # integration job with checkout-path -> workspace-mount
+          # mapping; both land with #85 / #4-int.
+          echo "python-tests CI wiring deferred -- tracked in #85 / PRD #4-int. Local GPU invocation works since #127; see TEST.md."
           exit 0
 
   call-release:

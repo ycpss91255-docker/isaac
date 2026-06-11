@@ -227,6 +227,18 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
     "${CONFIG_DIR}"/shell/tmux/setup.sh && \
     sudo rm -rf "${CONFIG_DIR}"
 
+# [isaac #127] Bake ~/.cache and ~/.nv user-owned into the image. The
+# compose volumes mount subpaths (~/.cache/ov, ~/.cache/pip,
+# ~/.cache/nvidia/GLCache, ~/.nv/ComputeCache); when the parent dir is
+# absent from the image, dockerd mkdirs it as root at mount time, and
+# anything else that writes under ~/.cache then fails -- concretely
+# warp's '~/.cache/warp' PermissionError kills omni.replicator.core at
+# extension startup, which unregisters the SDG node templates
+# (DispatchSync etc.) the ROS2 camera publish chain needs: graph builds,
+# zero frames published.
+RUN mkdir -p "${HOME}/.cache" "${HOME}/.nv" && \
+    chown "${USER}":"${GROUP}" "${HOME}/.cache" "${HOME}/.nv"
+
 # (Optional) Repo-local Dockerfile-internal build helpers. Put any
 # shell helpers that should run during `docker build` under
 # <repo>/script/docker/<name>.sh, then COPY them into a build-time
@@ -328,6 +340,14 @@ ARG USER
 USER "${USER}"
 
 RUN bats /smoke_test/
+
+# [isaac #127] Idle on startup so the `test` compose service survives
+# `compose up -d` and `./script/run.sh -t test -- <cmd>` (up -d + exec)
+# can run GPU pytest inside it. The inherited devel CMD ["bash"] exits
+# immediately because the emitted test service sets stdin_open/tty to
+# false ("container is not running", PR #84). Same idle pattern as the
+# headless / stream stages below.
+CMD ["sleep", "infinity"]
 
 ############################## headless ##############################
 # [isaac] Pure simulation, no streaming. Idles on startup; driver
