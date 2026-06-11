@@ -274,3 +274,12 @@ make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 システムの `python3` ではこれらのパッケージはインストールできない（Isaac base image の PEP 668 が `pip` をブロック）— 必ず `/isaac-sim/python.sh -m pytest ...` を使い、`pytest ...` は使わない。
+
+GPU integration test（Isaac Sim の実起動が必要なもの、例: camera → ROS 2 headless smoke、#127）は `test` compose service で実行する。この service の NVIDIA GPU reservation は `setup.conf` の `[stage:devel-test]` override（`deploy.gpu_mode = force`、base #493）に由来する:
+
+```bash
+./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
+    test/integration/pytest/test_camera_ros2_headless.py
+```
+
+合否判定は stdout の marker 行（`[BOOT OK]` / `[CAMERA FRAME OK]` / `[EXIT CLEAN]`）であり、return code ではない — Kit の `app.close` は `_exit(0)` を呼ぶ。詳細は [doc/test/TEST.md](test/TEST.md) を参照。

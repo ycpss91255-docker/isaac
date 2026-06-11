@@ -122,3 +122,11 @@ Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compos
 | `pytest installed in devel-test stage` | `/isaac-sim/python.sh -m pytest --version` exits 0 — pytest importable via Isaac Sim's bundled Python |
 | `pyyaml installed in devel-test stage` | `import yaml; print(yaml.__version__)` succeeds — YAML available for Python config / fixture loading |
 | `pytest-cov installed in devel-test stage` | `pytest --help` mentions `--cov` — coverage plugin registered, enables `pytest --cov=<pkg>` invocations |
+
+## test/integration/pytest/ — GPU integration (pytest, not in the bats count above)
+
+Python integration tests boot Isaac Sim and need the GPU-enabled `test` compose service (`[stage:devel-test] deploy.gpu_mode = force` in setup.conf). Run on the GPU host: `./script/run.sh -t test -- /isaac-sim/python.sh -m pytest test/integration/pytest/<file>`. They are not counted in the bats total in the header (the drift check counts `^@test` lines only); automated CI wiring is tracked in #85 / PRD #4-int. Pre-existing pytest files from the #78 merge (`test_isaac_driver_integration.py` etc.) are pending the same #85 documentation pass.
+
+| Test | Description |
+|------|-------------|
+| `test_camera_ros2_headless.py::test_camera_custom_yaml_publishes_frame_headless` | M0 gate (#127): headless Isaac boots (CUDA probe + Kit-log Vulkan/CUDA markers), `custom.yaml` camera publish chain builds via `camera_setup.setup_camera`, and >= 1 `sensor_msgs/Image` arrives on `/forklift/camera/color/image_raw` with `frame_id=forklift_camera_color_optical_frame`. Pass criterion = `[BOOT OK]` / `[CAMERA FRAME OK]` / `[EXIT CLEAN]` marker lines (Kit `_exit(0)`s, return code is meaningless). |
