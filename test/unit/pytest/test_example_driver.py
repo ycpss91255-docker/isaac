@@ -234,10 +234,11 @@ class TestLifecycleOrder:
             "close",
         ]
 
-    def test_shutdown_runs_even_when_main_raises(self, monkeypatch):
-        # SIGINT/exception path: shutdown() + close() still run (the
-        # finally block), so cleanup is not skipped. Mirrors the GPU
-        # marker-line acceptance (shutdown called after injected SIGINT).
+    def test_sigint_during_main_still_calls_shutdown(self, monkeypatch):
+        # Injected SIGINT path (ADR-0017 marker-line acceptance: shutdown
+        # called after injected SIGINT). _on_signal flips _should_quit;
+        # main() observes it and returns normally, so shutdown() + close()
+        # both run -- cleanup is not skipped on the Ctrl+C path.
         calls = []
         monkeypatch.setitem(
             sys.modules, "isaacsim", self._fake_isaacsim(calls)
@@ -271,12 +272,16 @@ class TestLifecycleOrder:
                 pass
 
             def main(self):
-                raise RuntimeError("boom")
+                # Simulate Kit delivering SIGINT mid-loop: the handler
+                # flips the quit flag and the loop breaks normally.
+                self._on_signal(2, None)
+                calls.append("main")
 
             def shutdown(self):
                 calls.append("shutdown")
 
-        with pytest.raises(RuntimeError, match="boom"):
-            _Spy().run()
-        assert "shutdown" in calls
+        spy = _Spy()
+        spy.run()
+        assert spy._should_quit is True
+        assert calls.index("shutdown") > calls.index("main")
         assert "close" in calls
