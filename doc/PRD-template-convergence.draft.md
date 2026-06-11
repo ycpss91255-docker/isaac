@@ -1,7 +1,7 @@
-# PRD (DRAFT — local only, not published): `ycpss91255-docker/isaac` 收斂為 Isaac 機器人模擬 base repo
+# PRD: `ycpss91255-docker/isaac` 收斂為 Isaac 機器人模擬 base repo
 
-> 狀態：local draft，三輪 grill-me + 三角色 review（資深 RD / PM / QA）+ 第四輪 grill（A–F 缺口 + 使用情景 + Milestone）+ **第五輪 grill（Q1–Q7）與兩輪多視角 workflow review** 已 fold 進。round-5 增量：A7 contract 訂正（load_scene→dict/build_scene、PrimSummary 欄位、3a/3b 拆）、pytest-baseline=126 parity gate、0013 amend-重推導（非作廢）、32-story 孤兒歸位 + 三套編號收斂、M5 onboarding agent-proxy gate、#4 拆 #4/#4-int。
-> Publish 前 pending：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 M1+。**(2) 原 #4-int 外部 gate 已解**：base v0.41.0 已 release（2026-06-10），isaac `.base` 已 bump v0.41.0（PR #124 已 merge 2026-06-10）；#4-int 外部相依已清、僅 blocked-by #4，M2a/M2b 收斂為單一 M2。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
+> 狀態：**published**（2026-06-11）— GitHub issues 依「Finalized Issue Breakdown」建立，掛 Milestones M0–M3；本表 #1–#8 為邏輯編號，實際 GitHub issue 編號見各 milestone。歷程：三輪 grill-me + 三角色 review（資深 RD / PM / QA）+ 第四輪 grill（A–F 缺口 + 使用情景 + Milestone）+ **第五輪 grill（Q1–Q7）與三輪多視角 workflow review** 已 fold 進。round-5 增量：A7 contract 訂正（load_scene→dict/build_scene、PrimSummary 欄位、3a/3b 拆）、pytest-baseline=126 parity gate、0013 amend-重推導（非作廢）、32-story 孤兒歸位 + 三套編號收斂、M5 onboarding agent-proxy gate、#4 拆 #4/#4-int。
+> 執行 gate（publish 後仍有效）：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 M1+。**(2) 原 #4-int 外部 gate 已解**：base v0.41.0 已 release（2026-06-10），isaac `.base` 已 bump v0.41.0（PR #124 已 merge 2026-06-10）；#4-int 外部相依已清、僅 blocked-by #4，M2a/M2b 收斂為單一 M2。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
 > Triage label（送出時）：`ready-for-agent`。送 GitHub 前依雙語規約翻英文 + `--body-file`。
 
 ## Problem Statement
