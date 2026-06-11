@@ -34,3 +34,8 @@ __pycache__/
 .coverage.*
 .pytest_cache/
 htmlcov/
+
+# colcon build artifacts (example/ros2 ament packages, #133)
+build/
+install/
+log/
