@@ -11,11 +11,14 @@
   (config/sensor/custom.yaml mounted on base_link), not by this URDF;
   camera_link is the kinematic mount point a placement can target.
 
-  With the Isaac URDF importer default (merge_fixed_joints=True), the
-  fixed base_link to camera_link joint merges camera_link into base_link
-  and emits no joint prim, so the imported USD is a single rigid body
-  rooted at /camera_bot/base_link (the shape the L1 assertions in the
-  separate GPU integration issue (#132) check).
+  As the Isaac URDF importer actually imports this model (observed on the
+  RTX 5090, isaac#132), the fixed camera_mount joint is NOT collapsed --
+  camera_link keeps its own inertial/visual and stays a distinct link --
+  and fix_base adds a synthetic root_joint. So the imported USD has TWO
+  link Xforms (base_link, camera_link) and TWO PhysicsFixedJoints
+  (camera_mount + root_joint), rooted at /camera_bot (the shape the L1
+  assertions in the separate GPU integration issue (#132) check:
+  links=2, joints=2, root=/camera_bot).
 -->
 <robot name="camera_bot">
 
