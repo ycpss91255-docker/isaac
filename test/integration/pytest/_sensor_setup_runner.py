@@ -20,7 +20,7 @@ CLI:
 
     /isaac-sim/python.sh _sensor_setup_runner.py \\
         --yaml <path to sensor.yaml> \\
-        --script-dir <repo>/script \\
+        --script-dir <repo>/framework \\
         --body-mode {rigid,xform}
 
 Exit codes:
@@ -41,7 +41,7 @@ def _build_minimal_stage(stage, body_mode: str):
     base_link = UsdGeom.Xform.Define(stage, Sdf.Path("/World/Robot/base_link"))
     if body_mode == "rigid":
         # ApplyAPI on the prim, not the schema class -- matches the
-        # imported-URDF shape sensor_setup expects in production.
+        # imported-URDF shape isaac_devkit.sensors expects in production.
         UsdPhysics.RigidBodyAPI.Apply(base_link.GetPrim())
 
 
@@ -49,7 +49,7 @@ def _do_setup(args, app) -> int:
     """Inner body: load config + build stage + dispatch + report."""
     import omni.usd  # noqa: E402
 
-    from sensor_setup import load_config, setup_sensor
+    from isaac_devkit.sensors import load_config, setup_sensor
 
     ctx = omni.usd.get_context()
     ctx.new_stage()

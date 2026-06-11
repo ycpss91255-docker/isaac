@@ -1,9 +1,9 @@
 """L2 Asset Structure integration test.
 
-End-to-end coverage for ``script/material_setup.py`` against an
-openbase USD freshly produced by ``script/import_model.py``. The Kit
-side of the work happens in ``_apply_materials_runner.py`` (subprocess
-so SimulationApp can start fresh); this file owns fixture setup and
+End-to-end coverage for ``isaac_devkit.materials`` against an openbase
+USD freshly produced by ``isaac_devkit.model_import``. The Kit side of
+the work happens in ``_apply_materials_runner.py`` (subprocess so
+SimulationApp can start fresh); this file owns fixture setup and
 assertions on the resulting on-disk USD.
 
 The contract verified (#35 L2 slice):
@@ -25,16 +25,19 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-OPENBASE_URDF = REPO_ROOT / "model" / "urdf" / "robot" / "openbase" / "openbase_minimal.urdf"
-IMPORT_SCRIPT = REPO_ROOT / "script" / "import_model.py"
+OPENBASE_URDF = REPO_ROOT / "src" / "model" / "urdf" / "robot" / "openbase" / "openbase_minimal.urdf"
 RUNNER_SCRIPT = Path(__file__).parent / "_apply_materials_runner.py"
-SCRIPT_DIR = REPO_ROOT / "script"
+FRAMEWORK_DIR = REPO_ROOT / "framework"
 PYTHON_SH = "/isaac-sim/python.sh"
 SUBPROC_TIMEOUT_SEC = 240
 
 
 def _run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROC_TIMEOUT_SEC)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(FRAMEWORK_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    return subprocess.run(
+        cmd, capture_output=True, text=True, timeout=SUBPROC_TIMEOUT_SEC, env=env
+    )
 
 
 def _assert_ok(result, label):
@@ -51,7 +54,7 @@ def openbase_model(tmp_path):
     out = tmp_path / "openbase"
     out.mkdir()
     result = _run([
-        PYTHON_SH, str(IMPORT_SCRIPT),
+        PYTHON_SH, "-m", "isaac_devkit.model_import",
         "--urdf", str(OPENBASE_URDF),
         "--output", str(out),
         "--name", "openbase",
@@ -89,7 +92,7 @@ def test_apply_materials_creates_variant_set(openbase_model):
         "--usd-root", str(root_usd),
         "--yaml", str(yaml_path),
         "--model-dir", str(openbase_model),
-        "--script-dir", str(SCRIPT_DIR),
+        "--script-dir", str(FRAMEWORK_DIR),
     ])
     _assert_ok(result, "apply_materials_runner")
 
@@ -113,7 +116,7 @@ def test_apply_materials_selects_default_variant(openbase_model):
         "--usd-root", str(root_usd),
         "--yaml", str(yaml_path),
         "--model-dir", str(openbase_model),
-        "--script-dir", str(SCRIPT_DIR),
+        "--script-dir", str(FRAMEWORK_DIR),
     ])
     _assert_ok(result, "apply_materials_runner")
 

@@ -1,4 +1,5 @@
-"""Unit tests for sensor_setup.py — host-runnable, no Isaac Sim required.
+"""Unit tests for isaac_devkit.sensors (former sensor_setup.py) —
+host-runnable, no Isaac Sim required.
 
 Tests cover: YAML loading, shared validation (mount/ros), category dispatch,
 per-category validation (lidar profile, IMU rigid body requirement),
@@ -11,8 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "script"))
-import sensor_setup
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
+from isaac_devkit import sensors as sensor_setup
 
 
 @pytest.fixture

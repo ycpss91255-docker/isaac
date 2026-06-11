@@ -1,7 +1,7 @@
 """L1 Model Pipeline integration test.
 
-End-to-end coverage for ``script/import_model.py``: invoke the importer
-as a subprocess against the openbase URDF (an existing minimal-link
+End-to-end coverage for ``isaac_devkit.model_import``: invoke the
+importer as a subprocess against the openbase URDF (an existing minimal-link
 robot already tracked in this repo), then verify the resulting
 filesystem layout and prim hierarchy match Asset Structure 3.0 + the
 re-import contract documented in ADR-0010.
@@ -20,6 +20,7 @@ per test x 2 tests = ~1 min wall time; isolation outweighs the speed
 cost for an L1 contract test.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,8 +28,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-OPENBASE_URDF = REPO_ROOT / "model" / "urdf" / "robot" / "openbase" / "openbase_minimal.urdf"
-IMPORT_SCRIPT = REPO_ROOT / "script" / "import_model.py"
+OPENBASE_URDF = REPO_ROOT / "src" / "model" / "urdf" / "robot" / "openbase" / "openbase_minimal.urdf"
+FRAMEWORK_DIR = REPO_ROOT / "framework"
 PYTHON_SH = "/isaac-sim/python.sh"
 IMPORT_TIMEOUT_SEC = 180
 
@@ -36,18 +37,21 @@ IMPORT_TIMEOUT_SEC = 180
 def _run_import(urdf_path: Path, output_dir: Path, name: str, *, force: bool = False) -> subprocess.CompletedProcess:
     cmd = [
         PYTHON_SH,
-        str(IMPORT_SCRIPT),
+        "-m", "isaac_devkit.model_import",
         "--urdf", str(urdf_path),
         "--output", str(output_dir),
         "--name", name,
     ]
     if force:
         cmd.append("--force")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(FRAMEWORK_DIR) + os.pathsep + env.get("PYTHONPATH", "")
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=IMPORT_TIMEOUT_SEC,
+        env=env,
     )
 
 

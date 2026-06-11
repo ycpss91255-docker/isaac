@@ -1,7 +1,8 @@
-"""Unit tests for camera_setup.py — host-runnable, no Isaac Sim required.
+"""Unit tests for the camera surface of isaac_devkit.sensors (former
+camera_setup.py) — host-runnable, no Isaac Sim required.
 
 Covers the host-pure surface: camera-specific validation (validate_camera),
-the load_config delegate, role -> Camera Helper type mapping, and the
+the unified load_config loader, role -> Camera Helper type mapping, and the
 FOV -> aperture math. The Kit-side dispatch (setup_camera and the _setup_*
 OmniGraph builders) require Isaac Sim and are exercised in integration
 tests, not here.
@@ -16,11 +17,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-_SCRIPT = Path(__file__).resolve().parents[3] / "script"
-sys.path.insert(0, str(_SCRIPT))
-import camera_setup
+_FRAMEWORK = Path(__file__).resolve().parents[3] / "framework"
+sys.path.insert(0, str(_FRAMEWORK))
+from isaac_devkit import sensors as camera_setup
 
-_REPO_CAMERA_CONFIG = Path(__file__).resolve().parents[3] / "config" / "camera"
+_REPO_CAMERA_CONFIG = (
+    Path(__file__).resolve().parents[3] / "src" / "config" / "camera"
+)
 
 
 def _realsense_cfg(**override):
