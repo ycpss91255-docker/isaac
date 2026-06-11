@@ -1,7 +1,7 @@
 # PRD (DRAFT — local only, not published): `ycpss91255-docker/isaac` 收斂為 Isaac 機器人模擬 base repo
 
 > 狀態：local draft，三輪 grill-me + 三角色 review（資深 RD / PM / QA）+ 第四輪 grill（A–F 缺口 + 使用情景 + Milestone）+ **第五輪 grill（Q1–Q7）與兩輪多視角 workflow review** 已 fold 進。round-5 增量：A7 contract 訂正（load_scene→dict/build_scene、PrimSummary 欄位、3a/3b 拆）、pytest-baseline=126 parity gate、0013 amend-重推導（非作廢）、32-story 孤兒歸位 + 三套編號收斂、M5 onboarding agent-proxy gate、#4 拆 #4/#4-int。
-> Publish 前 pending：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 M1+。**(2) 原 #4-int 外部 gate 已解**：base v0.41.0 已 release（2026-06-10），isaac `.base` bump 在 PR #124（auto-merge）；#4-int 改 depend on #124 merge（即將），M2a/M2b 收斂為單一 M2。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
+> Publish 前 pending：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 M1+。**(2) 原 #4-int 外部 gate 已解**：base v0.41.0 已 release（2026-06-10），isaac `.base` 已 bump v0.41.0（PR #124 已 merge 2026-06-10）；#4-int 外部相依已清、僅 blocked-by #4，M2a/M2b 收斂為單一 M2。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
 > Triage label（送出時）：`ready-for-agent`。送 GitHub 前依雙語規約翻英文 + `--body-file`。
 
 ## Problem Statement
@@ -28,7 +28,7 @@
 ### Success Metrics（數字為 draft，calibrate 於指定 GPU runner）
 | # | 指標 | 量測 / 門檻 |
 |---|---|---|
-| M1 | Time-to-first-topic | cached image 下 `new-workspace.sh`→`just run`→`ros2 topic echo` 出第一筆 camera frame **< 30s（warm）**；cold `just build` 另計（分鐘級）。綁定指定 GPU runner spec。（wrapper 入口自 base v0.41.0 起為 `just`，非 `make`）|
+| M1 | Time-to-first-topic | cached image 下 `new-workspace.sh`→`just run`→`ros2 topic echo` 出第一筆 camera frame **< 30s（warm）**；cold `just build` 另計（分鐘級）。綁定指定 GPU runner spec。（container-ops wrapper 入口自 base v0.41.0 起為 `just`，非 `make`；但 **CI lint/bats entry 仍是 `Makefile.ci`（make）**——base justfile header 明示其 unrelated、stays on make，CI-wiring issue 勿誤判全面改 just）|
 | M2 | Example 可重現 | example 端到端 integration 連跑 3 次 100% 綠、無 flake。 |
 | M3 | base repo 純淨度 | CI lint：`grep -iE 'forklift|coresam|pallet|pushback|openbase'`（排除 ADR stub）= 0 命中。 |
 | M4 | 框架可獨立 import | hosted（無 Isaac）import 全部 `isaac_devkit.*` 後 `sys.modules` 不含 `omni`/`pxr`/`isaacsim`。 |
@@ -37,7 +37,7 @@
 | M7 | 遷移無回歸 | isaac-forklift 搬完後其 driver 至少能 boot（smoke 綠）。 |
 | M8 | Bug-fix 傳播 | demo：base 修 framework bug → bump submodule → 消費端拿到修正（mount 下免 rebuild）。 |
 | M9 | 文件對齊 | 4 語言 README + CHANGELOG + TEST.md + ADR stub 全同步（CLAUDE.md 規約）。 |
-| M10 | 每階段 DoD | 見「MVP / Phasing」每 slice 一行完成定義。 |
+| M10 | 每階段 DoD | 見「Phasing & Definition of Done」/「Milestone 規劃」每 milestone（M0–M3）一行完成定義。 |
 
 ## Audience & Assumptions
 
@@ -158,15 +158,19 @@ run():
 
 **消費端**：`my-robot-ws/`（WS_PATH，掛 `~/work`）→ `.env` + `src/{docker(submodule pin tag), isaac/{README+i18n, sim/{model,config/sensor,scene,<driver>.py}, ros2/src/<pkg>}}`。
 
+**env 雙檔模型（base v0.41.0 #497 S2，scaffold/#6 必懂）**：v0.41.0 把 env 拆成 **`.env.generated`**（`just setup` 寫的 interpolation cache，gitignored，只餵 compose 變數插值）+ **`.env`**（手寫的 workload overlay，gitignored，`env_file` 注入容器，放 per-task 變數如 `ROS_DOMAIN_ID`；`setup.sh` 首次 scaffold 後不再動它）。`runtime.env` 已退役。**wrapper 一律 `--env-file .env.generated`，不支援裸 `docker compose up`**。scaffold（#6）emit 的是 overlay `.env`；`.env.generated` 由首次 `just setup`/`just build` 生成。
+
 **isaac-forklift**：同消費端 shape，`src/isaac` 放 forklift 內容 + ADR 重編。
 
 **scaffold 預填（定案）**：`new-workspace.sh <name>` 把 base 的 `example/`（camera example 全套：model + 三檔 scene + ExampleDriver + ros2 pkg）**複製進 `src/isaac/`**，裝完直接 `just run` 即出 camera topic（M1/M5 字面成立，新手有可跑的 working reference，再在其上改/換 URDF）。`example/` 因此一物兩用 = integration 對象 + scaffold 模板（single source），故 Issue #6 blocked-by #4/#5。
 
 ### A6. Versioning / pin / stage / test 執行
-- **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.41.0，PR #124 bump 中）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
+- **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.41.0，PR #124 已 merge）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
 - **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1,2,3,4,4-int,5,6,6b）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本；base v0.41.0 已 release，#4-int 不再外部 gated、回歸 MVP）。
 - **Stage**：mount 下框架不進 image stage，devel/headless/stream 都從 mount 拿；ROS2 bridge extension function-local enable，與 ADR-0014 stage taxonomy 正交。
-- **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10 更新）**：**base 已 release v0.41.0（2026-06-10）含 base#493 機制**；isaac bump `.base` v0.40.0→v0.41.0 已在 **PR #124**（auto-merge，CI 跑中）。init-vs-upgrade parity 驗證相符（runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。**#124 merge 後（已 merge 2026-06-10）base#493 機制已就緒**。原「外部 gated 等 base release」前提已消除。**注意 isaac#74 是 unblocked 非 closed**：#74 的工作（用 base 新機制給 `test`/`devel-test` service 開 GPU + CI 驗 GPU pytest 真 boot Isaac）**非僅 bump**，是 #1（首條 GPU integration smoke）/ #4-int（GPU 自動 integration）的前置，併入該兩 issue 執行，不另開新 issue。
+- **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10）**：base 已 release **v0.41.0** 含 base#493 機制；isaac `.base` 已 bump v0.41.0（**PR #124 已 merge 2026-06-10**，init-vs-upgrade parity 驗證相符：runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。原「外部 gated 等 base release」前提已消除。
+  - **GPU-on-test-stage 具體機制（base#493 surface，#74 要 wire）**：base v0.41.0 預設 `test` compose service（`devel-test` Dockerfile stage）**無 GPU deploy block**（只有 `devel` 有）。開 GPU 的方式 = 在 repo `config/docker/setup.conf` 加 **`[stage:devel-test]`** section（base README 明示用 `[stage:devel-test]` **不是** `[stage:test]`）設 **`gpu_mode = force`**（`[deploy]` 預設 `gpu_mode = auto`；key 為 `gpu_mode`/`gpu_count`/`gpu_capabilities`/`gpu_runtime`，舊 `runtime` 為 deprecated alias），再 `just setup` 重生 compose。現有 `[stage:test-tools-stage] gpu_mode = off` 是反向先例。
+  - **isaac#74 是 unblocked 非 closed**：上述 GPU-enable + CI 驗 GPU pytest 真 boot Isaac（非僅 collect）的工作，是 **#1**（首條 GPU integration smoke）/ **#4-int**（GPU 自動 integration）的前置，併入該兩 issue 執行，不另開新 issue。
 
 ### A7. API 契約（committed interface 形狀）
 - `class IsaacDriver`: `SCENE: str`（class attr）；hooks `setup(stage)->None` / `main()->None` / `shutdown()->None`；helper `init_rclpy()->None`；entry `run()->None`。
@@ -213,7 +217,7 @@ run():
 
 **單一編號制（收斂三套編號）**：交付控制以下方「Milestone 規劃」（M0 / M1 / M2 / M3）為準，工作單位以「Finalized Issue Breakdown」（#1–#8 + #4-int / #6b）為準，stories 以本檔 User Stories 1–32 為準。**作廢舊「Slice 0–6」獨立編號**（曾與 Issue 編號 off-by-one），不再使用。每階段兩 repo 各自獨立綠燈、不留跨 repo 半截狀態（tracer-bullet：同 PR 內新增 base 端 + 調整來源端 skip-check）。
 
-**Release framing**：MVP（Issue **1,2,3,4,4-int,5,6,6b** = M2 完成點 = 可消費 base repo）達標 → isaac-base 切 **v1.0.0**。base v0.41.0 已 release（PR #124 bump 中），**#4-int 的 GPU 自動 integration 不再外部 gated**，回歸 MVP 一部分（剩餘相依僅 #124 merge）。P1（Issue 7a/7b/8，forklift 搬遷 + 清 base）為 v1.0.0 後的後續（base 純淨度 M3 屬 P1 metric，因 depends on forklift 抽離）。
+**Release framing**：MVP（Issue **1,2,3,4,4-int,5,6,6b** = M2 完成點 = 可消費 base repo）達標 → isaac-base 切 **v1.0.0**。base v0.41.0 已 release、isaac `.base` 已 bump（PR #124 已 merge），**#4-int 的 GPU 自動 integration 不再外部 gated**，回歸 MVP 一部分（外部相依已清，僅 blocked-by #4）。P1（Issue 7a/7b/8，forklift 搬遷 + 清 base）為 v1.0.0 後的後續（base 純淨度 M3 屬 P1 metric，因 depends on forklift 抽離）。
 
 ## Milestone 規劃（GitHub Milestone + 階段性驗證 gate）
 
@@ -226,13 +230,13 @@ run():
 | **M2 — Example + scaffold + GPU integration** | #4(example camera+三檔scene+ExampleDriver+cmd_vel code)、#4-int(GPU 自動 integration 強斷言，`run.sh -t test`)、#5 ament 範本+4-lang README、#6 new-workspace scaffold、#6b onboarding agent-proxy | AFK（#4→#4-int；#4→#5→#6→#6b 序）| scaffold→build→run→topic 綠；ament_lint/colcon 綠；agent-proxy 過；**GPU 自動 integration 綠（126 跨 runner 完整聚合 + M1/M2 metric 於此驗收）**。#4-int 依 **PR #124（`.base` v0.40→v0.41 bump）** merge——v0.41.0 已 release（2026-06-10），非無限期外部 gate。**user review**：端到端範例跑通 + GPU integration 綠、新手/agent 能 scaffold→run→swap = **MVP 完成點** |
 | **M3 — Forklift 搬遷 + 清 base** | #7a 開 isaac-forklift（base 對齊）、#7b 搬內容/ADR + submodule + 「3b」variant refactor、#8 清 base | #7a HITL / #7b#8 AFK | M3 純淨度 grep 0、M7 forklift boot smoke、M9 文件對齊。**user review**：forklift 搬完 boot 綠、base 純淨 → **tag v1.0.0** |
 
-**#4 / #4-int 拆分**：兩者皆在 **M2**。**#4**（example camera 實作 code，#6 scaffold 驗收要用、手動 `just run` 可跑）；**#4-int**（GPU 自動 integration 斷言，`run.sh -t test`，用 base v0.41.0 的 test stage 機制）。拆分理由 = impl vs GPU-auto-test 可分（非外部 gate——v0.41.0 已 release）；#4-int blocked-by #4 + PR #124 merge。
+**#4 / #4-int 拆分**：兩者皆在 **M2**。**#4**（example camera 實作 code，#6 scaffold 驗收要用、手動 `just run` 可跑）；**#4-int**（GPU 自動 integration 斷言，`run.sh -t test`，用 base v0.41.0 的 test stage 機制）。拆分理由 = impl vs GPU-auto-test 可分（非外部 gate——v0.41.0 已 release、PR #124 已 merge）；#4-int blocked-by #4（外部相依已清）。
 
 ## Risks / Assumptions / Rollback
 - **R1 example pipeline 未驗**：camera→ROS2 在 Isaac 內從沒跑通（memory `project_isaac_rgbd_ros2_blockers`：#228 segfault、setup_camera 未驗）。**Mitigation**：M0（#1）prereq gate 先打通才執行後續。
 - **R2 框架抽出破壞 forklift**：**Mitigation**：base 化在 worktree/branch 進行，main monorepo 維持可用直到 isaac-forklift boot 驗證；rollback trigger = 「框架抽出後 forklift driver 無法 import」；新舊並存上限 1 個 milestone。
 - **R3 base double-check 推翻消費模型**（已大幅收斂）：消費機制定案 = **submodule**（A6，依本 repo `web_viewer` 先例），R3 殘留風險僅「`-docker/base` 自身慣例若大改」，低。`new-workspace.sh` 與 A5 以 submodule 為準。
-- **R4 base v0.41.0 release 時程（外部）——已解（2026-06-10）**：base 已 release v0.41.0 含 base#493 機制；isaac `.base` bump 在 PR #124（auto-merge，CI 跑中，init-vs-upgrade parity 已驗）。殘留風險僅 #124 CI（Isaac image build）綠 + merge，屬內部即將事件，非無限期外部 gate。
+- **R4 base v0.41.0 release 時程（外部）——已解（2026-06-10）**：base 已 release v0.41.0 含 base#493 機制；isaac `.base` 已 bump v0.41.0（PR #124 已 merge，CI 全綠含 Isaac image build，init-vs-upgrade parity 已驗）。R4 風險關閉。
 - **Assumption**：base#493 已 CLOSED（2026-06-01）且**已進 release v0.41.0**（2026-06-10）；isaac bump `.base` 進行中（PR #124，覆蓋 isaac#74）。Isaac 5.x + Humble 為主軸。
 
 ## Out of Scope
@@ -244,7 +248,7 @@ forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU in
 1. **A7 sibling ROS2 CI 路由**：ament pkg（py+cmake）走 hosted `ros:humble`（`docker run --rm`）做 **ament_lint + colcon build**；Isaac↔ament 的 cross-container round-trip（node 真的收到 sim topic）併進 example GPU integration 的 cmd_vel round-trip + camera_echo 斷言，不另起 sibling 容器 CI job。
 2. **C6 ratchet enforcement vector**：committed `coverage-baseline`（數值檔）→ `pytest --cov-fail-under=<baseline>`；每 PR 不得低於 baseline，調升 baseline 才算 ratchet，CI step 強制。非口頭。
 3. **C1 lidar/imu pure-schema 測試**：除 stub-raises 外，補一條 pure-side 測試斷言 lidar/imu catalog YAML **驗證通過 + 解析出預期 prim-path 字串**（證明「形狀鎖死」的 locked shape 真的 parse）。
-4. **MVP cut-line（locked，已收斂編號）**：**MVP = Issue 1,2,3,4,4-int,5,6,6b**（smoke + ADR + 框架 + example + GPU integration + scaffold + onboarding = 可消費 base repo = M2 完成點 = 切 v1.0.0）。原「#4-int 外部 gated」前提已消除（base v0.41.0 已 release，PR #124 bump），#4-int 回歸 MVP，相依僅 #124 merge。P1 = Issue 7a/7b/8（forklift 搬遷 + 清 base；M3 純淨度為 P1 metric，因 depends on forklift 抽離）。
+4. **MVP cut-line（locked，已收斂編號）**：**MVP = Issue 1,2,3,4,4-int,5,6,6b**（smoke + ADR + 框架 + example + GPU integration + scaffold + onboarding = 可消費 base repo = M2 完成點 = 切 v1.0.0）。原「#4-int 外部 gated」前提已消除（base v0.41.0 已 release，PR #124 已 merge），#4-int 回歸 MVP，外部相依已清、僅 blocked-by #4。P1 = Issue 7a/7b/8（forklift 搬遷 + 清 base；M3 純淨度為 P1 metric，因 depends on forklift 抽離）。
 5. **工作量估計（locked，T-shirt 占位待 GPU runner pin 後 calibrate）**：見下方 Finalized Issue Breakdown 的 size 欄；critical path = 3→4。
 
 ## Finalized Issue Breakdown（locked — gate 一過依此建，blocker 先）
