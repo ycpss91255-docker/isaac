@@ -41,10 +41,62 @@ extend-select = ["TID253"]
 [tool.ruff.lint.flake8-tidy-imports]
 banned-module-level-imports = ["omni", "pxr", "isaacsim"]
 
-# ADR-0017 section 7: coverage counts the framework pure surface;
+# ADR-0017 section 7: coverage counts the framework PURE surface;
 # Isaac-side function-local code is excluded via this config block
-# (source scope / exclude_also regexes), never via inline
-# coverage-ignore comments. The exclude_also regexes and the committed
-# --cov-fail-under ratchet baseline land in the integrate step.
+# (source scope / exclude_also regexes), never via inline coverage-ignore
+# comments (a repo hook denies those).
+#
+# The committed ratchet baseline is --cov-fail-under=80 (passed on the
+# pytest CLI in the python-tests CI job and the pytest-count baseline
+# file); no PR may drop below it.
 [tool.coverage.run]
 source = ["isaac_devkit"]
+
+[tool.coverage.report]
+# Each entry is a regex; coverage excludes the clause (def/method body)
+# the matched line begins. We list the Isaac-side functions by signature:
+# every function whose body issues a function-local omni / pxr / isaacsim
+# / rclpy import (it only runs inside a live Kit / GPU stage, verified by
+# the GPU integration suite at M2), plus the dispatchers and CLIs that
+# only execute against a live stage. The pure half of every module
+# (config parse / validate / path + string computation / freshness
+# bookkeeping / lifecycle order) stays counted.
+exclude_also = [
+    # Standard non-runtime lines.
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    # model_import: Isaac-side import + CLI driver.
+    "def _import_urdf\\(",
+    "def import_urdf\\(",
+    "def _parse_args\\(",
+    "def main\\(",
+    # materials: Isaac-side appliers + dispatcher.
+    "def apply_materials\\(",
+    "def _apply_variant_materials\\(",
+    "def _apply_single_materials\\(",
+    "def _create_omnipbr\\(",
+    # sensors: Isaac-side dispatchers / builders.
+    "def setup_sensor\\(",
+    "def _setup_camera_dispatch\\(",
+    "def _setup_lidar\\(",
+    "def _setup_imu\\(",
+    "def setup_camera\\(",
+    "def _setup_realsense\\(",
+    "def _setup_custom\\(",
+    "def _setup_zed\\(",
+    "def _set_camera_intrinsics\\(",
+    "def _build_graph_topology\\(",
+    "def _resolve_asset_url\\(",
+    "def _set_xform_pose\\(",
+    # scene: Isaac-side stage build + pose application.
+    "def build_scene\\(",
+    "def _apply_pose\\(",
+    # ros_io: Isaac-side OmniGraph attribute reader.
+    "def _og_attr_reader\\(",
+    # driver: Kit lifecycle (run + Kit-touching internals).
+    "def run\\(",
+    "def init_rclpy\\(",
+    "def _open_stage\\(",
+    "def _ensure_scene_defaults\\(",
+    "def _play_timeline\\(",
+]
