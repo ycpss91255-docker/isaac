@@ -1,4 +1,5 @@
-"""Unit tests for import_model.py — host-runnable, no Isaac Sim required.
+"""Unit tests for isaac_devkit.model_import (former import_model.py) —
+host-runnable, no Isaac Sim required.
 
 Tests cover: path resolution, existing file checks, material template
 generation, root composition generation, and output validation.
@@ -10,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "script"))
-import import_model
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
+from isaac_devkit import model_import as import_model
 
 
 @pytest.fixture

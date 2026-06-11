@@ -1,4 +1,4 @@
-"""Unit tests for scene_builder.py — host-runnable, no Isaac Sim required.
+"""Unit tests for isaac_devkit.scene — host-runnable, no Isaac Sim required.
 
 Tests cover: YAML loading, validation, model path resolution,
 multi-instance generation, and sensor config reference resolution.
@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "script"))
-import scene_builder
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
+from isaac_devkit import scene as scene_builder
 
 
 @pytest.fixture

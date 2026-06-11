@@ -1,0 +1,102 @@
+# isaac_devkit packaging metadata + tool configuration.
+#
+# Install model is MOUNT, not pip install (ADR-0017 section 2): the
+# workspace mount delivers framework/ into the container and PYTHONPATH
+# (wired in config/docker/setup.conf [environment]) makes
+# `import isaac_devkit` resolve. This file is never used to bake the
+# package into an image; it exists for metadata, version, and as the
+# single home for ruff / coverage configuration.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isaac-devkit"
+# Tracks the repo git tag (ADR-0017 section 3). No tag exists yet; the
+# first release is v1.0.0 at the MVP gate (PRD A6). Pre-release
+# placeholder until then; keep in sync with isaac_devkit.__version__.
+version = "0.1.0"
+description = "Mounted Isaac Sim robot-simulation framework (pure/Isaac split, import-safe on hosts without Isaac Sim)."
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+]
+
+[tool.setuptools.packages.find]
+include = ["isaac_devkit*"]
+
+# ADR-0017 section 8 / PRD A1: module-top imports of Isaac modules are
+# forbidden package-wide; every Isaac import must be function-local.
+# TID253 catches try/except-disguised module-top imports that the
+# runtime import-safety test alone might miss.
+[tool.ruff.lint]
+extend-select = ["TID253"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+banned-module-level-imports = ["omni", "pxr", "isaacsim"]
+
+# ADR-0017 section 7: coverage counts the framework PURE surface;
+# Isaac-side function-local code is excluded via this config block
+# (source scope / exclude_also regexes), never via inline coverage-ignore
+# comments (a repo hook denies those).
+#
+# The committed ratchet baseline is --cov-fail-under=80 (passed on the
+# pytest CLI in the python-tests CI job and the pytest-count baseline
+# file); no PR may drop below it.
+[tool.coverage.run]
+source = ["isaac_devkit"]
+
+[tool.coverage.report]
+# Each entry is a regex; coverage excludes the clause (def/method body)
+# the matched line begins. We list the Isaac-side functions by signature:
+# every function whose body issues a function-local omni / pxr / isaacsim
+# / rclpy import (it only runs inside a live Kit / GPU stage, verified by
+# the GPU integration suite at M2), plus the dispatchers and CLIs that
+# only execute against a live stage. The pure half of every module
+# (config parse / validate / path + string computation / freshness
+# bookkeeping / lifecycle order) stays counted.
+exclude_also = [
+    # Standard non-runtime lines.
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    # model_import: Isaac-side import + CLI driver.
+    "def _import_urdf\\(",
+    "def import_urdf\\(",
+    "def _parse_args\\(",
+    "def main\\(",
+    # materials: Isaac-side appliers + dispatcher.
+    "def apply_materials\\(",
+    "def _apply_variant_materials\\(",
+    "def _apply_single_materials\\(",
+    "def _create_omnipbr\\(",
+    # sensors: Isaac-side dispatchers / builders.
+    "def setup_sensor\\(",
+    "def _setup_camera_dispatch\\(",
+    "def _setup_lidar\\(",
+    "def _setup_imu\\(",
+    "def setup_camera\\(",
+    "def _setup_realsense\\(",
+    "def _setup_custom\\(",
+    "def _setup_zed\\(",
+    "def _set_camera_intrinsics\\(",
+    "def _build_graph_topology\\(",
+    "def _resolve_asset_url\\(",
+    "def _set_xform_pose\\(",
+    # scene: Isaac-side stage build + pose application.
+    "def build_scene\\(",
+    "def _apply_pose\\(",
+    # ros_io: Isaac-side OmniGraph attribute reader.
+    "def _og_attr_reader\\(",
+    # driver: Kit lifecycle (run + Kit-touching internals).
+    "def run\\(",
+    "def init_rclpy\\(",
+    "def _open_stage\\(",
+    "def _ensure_scene_defaults\\(",
+    "def _play_timeline\\(",
+]

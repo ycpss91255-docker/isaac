@@ -1,19 +1,22 @@
-"""Unit tests for ``script/isaac_driver.py`` -- pure-Python helpers.
+"""Unit tests for ``isaac_devkit.driver`` -- pure-Python helpers.
 
 These cover the host-runnable surface (``parse_livestream_env`` and
 ``resolve_repo_relative_usd``). The Kit-side lifecycle (``IsaacDriver.run``
 walking through SimulationApp / open_stage / play_timeline / ...) is
-covered by the integration test under ``test/integration/pytest/``.
+covered by the integration test under ``test/integration/pytest/``; the
+pure side of the lifecycle ORDER is covered hosted by the spy test at
+the bottom of this file (ADR-0017 section 7 greenfield addition).
 """
 
 import sys
+import types
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "script"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 
-import isaac_driver as id_mod  # noqa: E402  (path injection before import)
+from isaac_devkit import driver as id_mod  # noqa: E402  (path injection before import)
 
 
 # ---------- parse_livestream_env ----------
@@ -59,11 +62,13 @@ class TestParseLivestreamEnv:
 
 class TestResolveRepoRelativeUsd:
     def test_relative_path_resolves_under_repo_root(self, tmp_path):
-        # Fake a script layout: repo_root/script/isaac_driver.py
+        # Fake a framework layout: repo_root/framework/isaac_devkit/driver.py.
+        # Models live under <repo_root>/src, so resolution anchors there
+        # (same directory the pre-extraction script/ layout resolved to).
         repo_root = tmp_path / "myrepo"
-        script_dir = repo_root / "script"
-        script_dir.mkdir(parents=True)
-        fake_module = script_dir / "isaac_driver.py"
+        module_dir = repo_root / "framework" / "isaac_devkit"
+        module_dir.mkdir(parents=True)
+        fake_module = module_dir / "driver.py"
         fake_module.write_text("# stub")
 
         resolved = id_mod.resolve_repo_relative_usd(
@@ -71,7 +76,7 @@ class TestResolveRepoRelativeUsd:
             module_file=str(fake_module),
         )
 
-        assert resolved == repo_root / "model/usd/robot/foo/foo.usd"
+        assert resolved == repo_root / "src" / "model/usd/robot/foo/foo.usd"
 
     def test_absolute_path_returned_unchanged(self, tmp_path):
         abs_usd = tmp_path / "anywhere" / "fixture.usda"
@@ -121,3 +126,91 @@ class TestConstructionWithoutKit:
         assert driver._should_quit is False
         driver._on_signal(2, None)  # SIGINT
         assert driver._should_quit is True
+
+
+# ---------- A7 contract shape + lifecycle-order spy (ADR-0017 additions) ----
+
+
+class TestSceneAttrShape:
+    """``SCENE`` class attr (ADR-0017 section 9 A7 shape). Greenfield
+    addition -- ``run()`` still consumes ``USD``; the SCENE-driven
+    lifecycle rewire lands with the example (#131).
+    """
+
+    def test_default_scene_is_empty(self):
+        assert id_mod.IsaacDriver.SCENE == ""
+
+
+class TestLifecycleOrderSpy:
+    """Hosted pure-side spy on ``IsaacDriver.run()`` call order
+    (ADR-0017 section 7: lifecycle call order is verified hosted via a
+    pure-side spy). Greenfield addition on top of the ported baseline.
+
+    A fake ``isaacsim`` module is injected so ``run()``'s function-local
+    ``from isaacsim import SimulationApp`` resolves on the host; the
+    Kit-touching internals are overridden with recorders. ``monkeypatch``
+    restores ``sys.modules`` and ``signal.signal`` afterwards, keeping
+    the import-safety invariant intact for sibling tests.
+    """
+
+    @staticmethod
+    def _fake_isaacsim(calls):
+        fake = types.ModuleType("isaacsim")
+
+        class _FakeApp:
+            def __init__(self, _kwargs):
+                calls.append("simulation_app")
+
+            def is_running(self):
+                return False
+
+            def update(self):
+                pass
+
+            def close(self):
+                calls.append("close")
+
+        fake.SimulationApp = _FakeApp
+        return fake
+
+    def test_run_walks_lifecycle_in_order(self, monkeypatch):
+        calls = []
+        monkeypatch.setitem(sys.modules, "isaacsim", self._fake_isaacsim(calls))
+        monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
+        # Do not install real process-wide handlers from inside a test.
+        monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
+
+        class _SpyDriver(id_mod.IsaacDriver):
+            USD = "model/usd/robot/foo/foo.usd"
+
+            def _open_stage(self):
+                calls.append("open_stage")
+                return object()
+
+            def _ensure_scene_defaults(self, stage):
+                calls.append("ensure_scene_defaults")
+
+            def _play_timeline(self):
+                calls.append("play_timeline")
+
+            def setup(self, stage):
+                calls.append("setup")
+
+            def main(self):
+                calls.append("main")
+
+            def shutdown(self):
+                calls.append("shutdown")
+
+        _SpyDriver().run()
+
+        assert calls == [
+            "simulation_app",
+            "open_stage",
+            "ensure_scene_defaults",
+            "play_timeline",
+            "setup",
+            "main",
+            "shutdown",
+            "close",
+        ]

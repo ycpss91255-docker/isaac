@@ -9,7 +9,7 @@ calls ``_exit(0)`` on the way out and swallows ``sys.exit``).
 CLI:
 
     /isaac-sim/python.sh _minimal_driver_runner.py \\
-        --script-dir <repo>/script \\
+        --script-dir <repo>/framework \\
         --usd-path <absolute path to a tiny .usda fixture>
 """
 
@@ -26,7 +26,7 @@ def _main() -> None:
     sys.path.insert(0, args.script_dir)
 
     try:
-        from isaac_driver import IsaacDriver  # noqa: E402
+        from isaac_devkit.driver import IsaacDriver  # noqa: E402
 
         usd_path = args.usd_path
 

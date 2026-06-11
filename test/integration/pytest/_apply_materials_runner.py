@@ -12,7 +12,7 @@ CLI:
         --usd-root <path to <name>.usd> \\
         --yaml <path to material.yaml> \\
         --model-dir <model directory> \\
-        --script-dir <repo>/script
+        --script-dir <repo>/framework
 """
 
 import argparse
@@ -30,8 +30,8 @@ def main():
 
     sys.path.insert(0, args.script_dir)
 
-    # Boot Kit BEFORE importing material_setup -- apply_materials inside
-    # material_setup imports omni.kit.commands / pxr.UsdShade at call
+    # Boot Kit BEFORE importing isaac_devkit.materials -- apply_materials
+    # inside materials imports omni.kit.commands / pxr.UsdShade at call
     # time, both of which require an active Kit instance.
     from isaacsim import SimulationApp
     app = SimulationApp({"headless": True})
@@ -39,7 +39,7 @@ def main():
     try:
         import omni.usd  # noqa: E402
 
-        from material_setup import apply_materials, load_material_config
+        from isaac_devkit.materials import apply_materials, load_material_config
 
         ctx = omni.usd.get_context()
         if not ctx.open_stage(args.usd_root):

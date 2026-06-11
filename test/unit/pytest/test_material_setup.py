@@ -1,4 +1,4 @@
-"""Unit tests for material_setup.py — host-runnable, no Isaac Sim required.
+"""Unit tests for isaac_devkit.materials — host-runnable, no Isaac Sim required.
 
 Tests cover: material YAML loading, validation, variant enumeration,
 prim-to-material mapping, and config file generation.
@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "script"))
-import material_setup
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
+from isaac_devkit import materials as material_setup
 
 
 @pytest.fixture
