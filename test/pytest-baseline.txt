@@ -13,8 +13,16 @@
 #   example sim (#131) adds 14 hosted unit tests (test_example_driver.py:
 #   three-file scene merge, expected base_link prim path, cmd_vel
 #   controller mapping, SCENE attr shape, run() lifecycle-order + SIGINT
-#   spy, import-safety). Live count is now 185 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 185
+#   spy, import-safety). Live count was then 185. The scaffold (#134)
+#   adds 23 hosted structure-check tests
+#   (test/unit/pytest/test_new_workspace_scaffold.py: run new-workspace.sh
+#   into a tmp dir and assert the A5 consumer layout -- 16 emitted-file
+#   existence checks, src/docker mount point, two-file env model (.env
+#   overlay emitted / .env.generated not), workload-var overlay, and the
+#   pre-filled driver imports cleanly with its path prologue rewritten for
+#   the consumer submodule framework path + resolves its own three-file
+#   scene). Live count is now 208 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 208
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -34,7 +42,7 @@ GPU_INTEGRATION_BASELINE = 22
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; with #132's GPU tests online the
-#   live aggregate is 207 (185 hosted-unit + 22 GPU-integration), well
+#   live aggregate is 230 (208 hosted-unit + 22 GPU-integration), well
 #   past the PRD's 126 floor. The aggregate is asserted at M2 where the
 #   GPU runner runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU
 #   job does not count toward it.
