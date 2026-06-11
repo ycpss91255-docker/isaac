@@ -66,6 +66,15 @@ Options:
   --bats-integration      Run integration tests only (skip ShellCheck +
                           unit). Used by the bats-integration job in
                           self-test.yaml (#377)
+  --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
+                          relative, e.g. test/unit/ci_spec.bats) via the ci
+                          container. Skips ShellCheck + kcov for a fast TDD
+                          inner loop. test/behavioural/ is rejected (needs
+                          the ci-behavioural service); cannot combine with
+                          --coverage (#523)
+  --filter REGEX          Pass a bats -f name filter (within-file single-test
+                          selection); usable with or without --bats-path.
+                          Without a path it filters unit + integration (#523)
   --coverage              Run tests with Kcov coverage (slow; CI / release
                           check). Used by self-test.yaml's coverage job
                           (push-to-main only, #377)
@@ -85,6 +94,10 @@ Examples:
   ./ci.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./ci.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
   ./ci.sh --bats-integration    # Compose-bats integration only
+  ./ci.sh --bats-path test/unit/ci_spec.bats          # one spec, fast
+  ./ci.sh --bats-path test/unit/                       # one directory
+  ./ci.sh --bats-path test/unit/ci_spec.bats --filter 'shard'  # + name filter
+  ./ci.sh --filter 'cap_add'    # filter across unit + integration
 EOF
   exit 0
 }
@@ -143,10 +156,16 @@ _run_shellcheck() {
   find "${REPO_ROOT}/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
   shellcheck -x "${REPO_ROOT}/script/ci/ci.sh"
+  shellcheck -x "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh"
   shellcheck -x "${REPO_ROOT}/init.sh"
   shellcheck -x "${REPO_ROOT}/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/terminator/setup.sh"
   shellcheck -x "${REPO_ROOT}/config/shell/tmux/setup.sh"
+
+  # Advisory test-layout lint (#495 / ADR-00000004): WARN-only, never fails
+  # the build. Runs in the lint phase so it surfaces on every shellcheck path
+  # (local make test + the dedicated --shellcheck-only GHA job).
+  "${REPO_ROOT}/script/ci/lint_mixed_test_layout.sh" "${REPO_ROOT}"
 }
 
 # ── Bats tests ───────────────────────────────────────────────────────────────
@@ -197,6 +216,26 @@ _run_tests() {
   # jobs go through _run_unit_shard / _run_integration_tests directly.
   _run_unit_tests
   _run_integration_tests
+}
+
+_run_bats_path() {
+  # Single-path / filtered inner loop (#523). BATS_FILE (repo-root-relative
+  # file or directory) and / or BATS_FILTER (bats -f regex) are set by the
+  # outer `--bats-path` / `--filter` flags and plumbed in via
+  # `_run_via_compose`. With a path, run just that spec / subtree; with only
+  # a filter, apply -f across unit + integration. ShellCheck is skipped
+  # (BATS_ONLY=1) and kcov is off so the loop stays fast.
+  local -a _bats_args
+  local _label
+  _bats_args_with_label _bats_args _label
+  [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
+  if [[ -n "${BATS_FILE:-}" ]]; then
+    echo "--- Running Bats single path: ${BATS_FILE} (${_label}) ---"
+    bats "${_bats_args[@]}" "${REPO_ROOT}/${BATS_FILE}"
+  else
+    echo "--- Running Bats filtered unit + integration: -f '${BATS_FILTER}' (${_label}) ---"
+    bats "${_bats_args[@]}" "${REPO_ROOT}/test/unit/" "${REPO_ROOT}/test/integration/"
+  fi
 }
 
 _run_unit_shard() {
@@ -297,6 +336,8 @@ _run_via_compose() {
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_INTEGRATION="${BATS_INTEGRATION:-0}" \
+    -e BATS_FILE="${BATS_FILE:-}" \
+    -e BATS_FILTER="${BATS_FILTER:-}" \
     "${_service}"
 }
 
@@ -356,6 +397,8 @@ main() {
   local shellcheck_only=0
   local bats_unit_shard=""
   local bats_integration=0
+  local bats_path=""
+  local bats_filter=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -366,6 +409,8 @@ main() {
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
       --bats-integration) bats_integration=1; shift ;;
+      --bats-path) bats_path="${2:?--bats-path expects <path>}"; shift 2 ;;
+      --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
       --behavioural) behavioural=1; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
@@ -379,6 +424,30 @@ main() {
   # ubuntu-latest, which ships it pre-installed.
   if [[ "${shellcheck_only}" == "1" ]]; then
     _run_shellcheck
+    return 0
+  fi
+
+  # Single-path / filtered inner loop (#523). `--bats-path <file|dir>` and / or
+  # `--filter <regex>` run a named subset via the `ci` container, skipping
+  # ShellCheck (BATS_ONLY=1) and kcov so the TDD inner loop stays fast.
+  # Validation runs on the host before dispatch; the in-container `--ci`
+  # branch (BATS_FILE / BATS_FILTER) actually invokes bats.
+  if [[ -n "${bats_path}" || -n "${bats_filter}" ]]; then
+    if [[ "${mode}" == "coverage" ]]; then
+      _die ci_bats_path_coverage \
+        "--bats-path / --filter cannot combine with --coverage (single-path is the fast no-kcov loop; use --coverage alone for kcov)."
+    fi
+    if [[ -n "${bats_path}" ]]; then
+      if [[ "${bats_path}" == test/behavioural || "${bats_path}" == test/behavioural/* ]]; then
+        _die ci_bats_path_behavioural \
+          "test/behavioural/ needs the ci-behavioural service + docker.sock; run 'make test-behavioural' (host ci.sh cannot launch it)."
+      fi
+      [[ -e "${REPO_ROOT}/${bats_path}" ]] \
+        || _die ci_bats_path_not_found \
+          "No such spec file or directory: ${bats_path} (path is repo-root-relative, resolved as \${REPO_ROOT}/${bats_path})."
+    fi
+    BATS_ONLY=1 BATS_FILE="${bats_path}" BATS_FILTER="${bats_filter}" \
+      _run_via_compose ci 0
     return 0
   fi
 
@@ -411,6 +480,8 @@ main() {
         _run_coverage
         _fix_permissions
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
+      elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
+        _run_bats_path
       elif [[ -n "${BATS_UNIT_SHARD:-}" ]]; then
         _run_unit_shard "${BATS_UNIT_SHARD}"
       elif [[ "${BATS_INTEGRATION:-0}" == "1" ]]; then

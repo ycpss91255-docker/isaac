@@ -3,60 +3,27 @@
 
 set -euo pipefail
 
-# `-C <dir>` / `--chdir <dir>` pre-pass — see build.sh for the full
-# rationale (refs docker_harness#53). Override FILE_PATH before _lib.sh
-# is sourced so all path-dependent operations honor the target repo.
-# FILE_PATH detection covers root-symlink (pre-#330), script/-subfolder
-# (post-#330), and direct invocation — see build.sh for the heuristic.
-_FILE_PATH_INVOKE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-if [[ -d "${_FILE_PATH_INVOKE_DIR}/.base" ]]; then
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-elif [[ -d "${_FILE_PATH_INVOKE_DIR}/../.base" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-elif [[ -f "${_FILE_PATH_INVOKE_DIR}/../lib/_lib.sh" ]]; then
-  FILE_PATH="$(cd -- "${_FILE_PATH_INVOKE_DIR}/.." && pwd -P)"
-else
-  FILE_PATH="${_FILE_PATH_INVOKE_DIR}"
-fi
-unset _FILE_PATH_INVOKE_DIR
-_chdir_i=1
-while (( _chdir_i <= $# )); do
-  case "${!_chdir_i}" in
-    -C|--chdir)
-      _chdir_next=$((_chdir_i + 1))
-      if (( _chdir_next > $# )) || [[ -z "${!_chdir_next:-}" ]]; then
-        printf '[stop] ERROR: -C/--chdir requires a value\n' >&2
-        exit 2
-      fi
-      _chdir_arg="${!_chdir_next}"
-      if [[ ! -d "${_chdir_arg}" ]]; then
-        printf '[stop] ERROR: -C target is not a directory: %s\n' "${_chdir_arg}" >&2
-        exit 2
-      fi
-      FILE_PATH="$(cd -- "${_chdir_arg}" && pwd -P)"
-      _chdir_i=$((_chdir_next + 1))
-      ;;
-    *)
-      _chdir_i=$((_chdir_i + 1))
-      ;;
-  esac
+# Shared wrapper preamble (#408 sub-task A): resolve FILE_PATH across the
+# symlink / script-subfolder / direct / /lint layouts, honor -C/--chdir,
+# and source _lib.sh -- all in lib/bootstrap.sh. See build.sh for the
+# locator rationale.
+_bootstrap_self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+for _bootstrap_cand in \
+  "$(dirname -- "${_bootstrap_self}")/../lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/lib/bootstrap.sh" \
+  "$(dirname -- "${_bootstrap_self}")/.base/script/docker/lib/bootstrap.sh"; do
+  if [[ -f "${_bootstrap_cand}" ]]; then
+    # shellcheck source=script/docker/lib/bootstrap.sh
+    source "${_bootstrap_cand}"
+    break
+  fi
 done
-unset _chdir_i _chdir_next _chdir_arg
-readonly FILE_PATH
-# _lib.sh lookup: .base/script/docker/lib/_lib.sh in consumer repos, or
-# sibling _lib.sh in /lint/ (Dockerfile test stage). See build.sh.
-if [[ -f "${FILE_PATH}/.base/script/docker/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/.base/script/docker/lib/_lib.sh"
-elif [[ -f "${FILE_PATH}/lib/_lib.sh" ]]; then
-  # shellcheck disable=SC1091
-  source "${FILE_PATH}/lib/_lib.sh"
-else
-  printf "[stop] ERROR: cannot find _lib.sh — expected one of:\n" >&2
-  printf "  %s\n" "${FILE_PATH}/.base/script/docker/lib/_lib.sh" >&2
-  printf "  %s\n" "${FILE_PATH}/lib/_lib.sh" >&2
+unset _bootstrap_self _bootstrap_cand
+if ! declare -F _bootstrap >/dev/null 2>&1; then
+  printf '[stop] ERROR: cannot find lib/bootstrap.sh (which sources _lib.sh) -- broken install?\n' >&2
   exit 1
 fi
+_bootstrap "$@"
 
 # i18n message tables — split by semantic category (#278 PR-2).
 # Each _msg_<category> returns plain i18n body only; tag + LEVEL keyword
@@ -296,8 +263,8 @@ main() {
   done
   export DRY_RUN
 
-  # Load .env so DOCKER_HUB_USER / IMAGE_NAME are available below.
-  _load_env "${FILE_PATH}/.env"
+  # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available below.
+  _load_env "${FILE_PATH}/.env.generated"
 
   # #440: pre-stop hook fires after env load, before docker stop.
   # Skipped under --dry-run.
@@ -349,8 +316,8 @@ _maybe_prune() {
   local -a _net_cmd=(docker network prune -f --filter "until=10m")
   local -a _img_cmd=(docker image   prune -f --filter "until=24h")
   if [[ "${DRY_RUN}" == true ]]; then
-    printf '[dry-run]'; printf ' %q' "${_net_cmd[@]}"; printf '\n'
-    printf '[dry-run]'; printf ' %q' "${_img_cmd[@]}"; printf '\n'
+    _dry_run_cmd "${_net_cmd[@]}"
+    _dry_run_cmd "${_img_cmd[@]}"
     return 0
   fi
   _log_info stop stop_prune_networks "display=Pruning orphan networks (until=10m)..."

@@ -156,7 +156,7 @@ teardown() {
   assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
-@test "new repo: 7 wrapper symlinks under script/, Makefile stays at root (#330)" {
+@test "new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)" {
   bash .base/init.sh
   # 7 wrappers under script/, each pointing to ../.base/script/docker/wrapper/<name>.sh
   for f in run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh; do
@@ -166,10 +166,11 @@ teardown() {
     # And NOT at root.
     assert [ ! -e "${REPO_DIR}/${f}" ]
   done
-  # Makefile retains the root location (the elevated user entry).
-  assert [ -L "${REPO_DIR}/Makefile" ]
-  run readlink "${REPO_DIR}/Makefile"
-  assert_output ".base/script/docker/Makefile"
+  # #546: the root user entry is the justfile (Makefile retired).
+  assert [ -L "${REPO_DIR}/justfile" ]
+  run readlink "${REPO_DIR}/justfile"
+  assert_output ".base/script/docker/justfile"
+  assert [ ! -e "${REPO_DIR}/Makefile" ]
 }
 
 @test "new repo: config/ is an empty placeholder (template#254 layered override)" {
@@ -441,13 +442,16 @@ teardown() {
   assert_output --partial "AUTO-GENERATED"
 }
 
-@test "new repo: compose.yaml ships devices: /dev:/dev by default" {
+@test "new repo: compose.yaml omits devices block by default (#466 opt-in)" {
+  # #466 F2: a fresh repo no longer binds /dev:/dev (or any device) by
+  # default -- device access is opt-in. Repos that need it uncomment the
+  # template example or add via the TUI / `setup.sh add devices.device`.
   bash .base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
   run grep -E '^    devices:$' "${REPO_DIR}/compose.yaml"
-  assert_success
+  assert_failure
   run grep -F -- '- /dev:/dev' "${REPO_DIR}/compose.yaml"
-  assert_success
+  assert_failure
 }
 
 @test "new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)" {

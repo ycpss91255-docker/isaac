@@ -1594,3 +1594,122 @@ EOF
   run grep -c "^\[stage:headless\]$" "${TEMP_DIR}/out.conf"
   assert_output "1"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_lifecycle — [lifecycle] restart TUI page (#514)
+# ════════════════════════════════════════════════════════════════════
+
+_lc_setup_tui() {
+  export _LANG="en"
+  # shellcheck disable=SC1091
+  source /source/script/docker/wrapper/setup_tui.sh
+  _tui_init_lang
+  _TUI_OVR_KEYS=()
+  _TUI_OVR_VALUES=()
+  _TUI_REMOVED=()
+  _TUI_CURRENT=()
+}
+
+@test "_edit_section_lifecycle writes a simple policy (always)" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "always"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "always" ]
+}
+
+@test "_edit_section_lifecycle writes the default no policy" {
+  _lc_setup_tui
+  _tui_select() { printf '%s' "no"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "no" ]
+}
+
+@test "_edit_section_lifecycle on-failure with N assembles on-failure:N" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' "3"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:3" ]
+}
+
+@test "_edit_section_lifecycle on-failure with empty N falls back to bare on-failure" {
+  _lc_setup_tui
+  _tui_select()   { printf '%s' "on-failure"; }
+  _tui_inputbox() { printf '%s' ""; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure" ]
+}
+
+@test "_edit_section_lifecycle on-failure re-prompts on invalid N then accepts" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_select()  { printf '%s' "on-failure"; }
+  # First inputbox call returns an invalid value, second a valid one.
+  _tui_inputbox() {
+    local _f="${TEMP_DIR}/n_calls"
+    local _c; _c="$(cat "${_f}" 2>/dev/null || echo 0)"; _c=$((_c + 1)); echo "${_c}" > "${_f}"
+    if [[ "${_c}" -eq 1 ]]; then printf '%s' "0xy"; else printf '%s' "5"; fi
+  }
+  _tui_msgbox() { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _edit_section_lifecycle
+  [ "$(_override_get "lifecycle.restart" "")" == "on-failure:5" ]
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "retry count"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _edit_section_deploy — legacy runtime -> gpu_runtime migration (#517)
+# ════════════════════════════════════════════════════════════════════
+
+# Drive _edit_section_deploy through to the runtime block: mode auto (not
+# off), MIG disabled, count all, caps gpu. _tui_select branches on the
+# prompt so the runtime radiolist returns nvidia while GPU mode stays auto.
+_517_stub_deploy() {
+  _tui_select() { case "${2}" in *runtime*) printf '%s' "nvidia" ;; *) printf '%s' "auto" ;; esac; }
+  _tui_inputbox()  { printf '%s' "all"; }
+  _tui_checklist() { printf '%s\n' "gpu"; }
+  _tui_msgbox()    { printf 'BODY<<<%s>>>\n' "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  mock_cmd "nvidia-smi" 'case "$1 $2" in "--query-gpu=mig.mode.current --format=csv,noheader") echo "Disabled";; esac; [[ "$1" == "-L" ]] && echo "GPU 0: x"'
+}
+
+@test "_edit_section_deploy suggests migration when legacy [deploy] runtime present (no silent rewrite) (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.runtime]="nvidia"   # legacy key loaded from setup.conf
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial "legacy [deploy] runtime"
+}
+
+@test "_edit_section_deploy: no migration suggestion when gpu_runtime already used (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _TUI_CURRENT[deploy.gpu_runtime]="auto"  # already migrated
+  _517_stub_deploy
+  run _edit_section_deploy
+  assert_success
+  run cat "${TUI_MSGBOX_LOG}"
+  refute_output --partial "legacy [deploy] runtime"
+}
+
+@test "_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _tui_msgbox() { printf 'TITLE=%s\nBODY<<<%s>>>\n' "${1}" "${2}" >> "${TUI_MSGBOX_LOG}"; }
+  _show_runtime_env_info
+  run cat "${TUI_MSGBOX_LOG}"
+  assert_output --partial ".env"
+  assert_output --partial "informational"
+  # Info-only: never records a config override (S2 invariant: never writes .env).
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+}
+
+@test "_edit_section_deploy writes the canonical gpu_runtime key (#517)" {
+  _lc_setup_tui
+  TUI_MSGBOX_LOG="${TEMP_DIR}/msgbox.log"; : > "${TUI_MSGBOX_LOG}"; export TUI_MSGBOX_LOG
+  _517_stub_deploy
+  _edit_section_deploy
+  [ "$(_override_get "deploy.gpu_runtime" "")" == "nvidia" ]
+}

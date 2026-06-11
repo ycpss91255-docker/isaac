@@ -17,8 +17,8 @@
 _canonical_gitignore_entries() {
   cat <<'EOF'
 .env
+.env.generated
 .env.bak
-runtime.env
 compose.yaml
 setup.conf.bak
 setup.conf.local
