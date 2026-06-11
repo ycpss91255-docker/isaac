@@ -277,3 +277,12 @@ make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 系統的 `python3` 無法安裝這些套件（Isaac base image 的 PEP 668 擋 `pip`）— 一律走 `/isaac-sim/python.sh -m pytest ...`，不要用 `pytest ...`。
+
+GPU integration test（需要 Isaac Sim 真的開機，例如 camera → ROS 2 headless smoke，#127）走 `test` compose service；該 service 的 NVIDIA GPU reservation 來自 `setup.conf` 的 `[stage:devel-test]` override（`deploy.gpu_mode = force`，base #493）：
+
+```bash
+./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
+    test/integration/pytest/test_camera_ros2_headless.py
+```
+
+判定標準是 stdout marker 行（`[BOOT OK]` / `[CAMERA FRAME OK]` / `[EXIT CLEAN]`），不是 return code — Kit 的 `app.close` 會呼叫 `_exit(0)`。詳見 [doc/test/TEST.md](test/TEST.md)。
