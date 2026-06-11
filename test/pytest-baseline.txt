@@ -21,8 +21,16 @@
 #   overlay emitted / .env.generated not), workload-var overlay, and the
 #   pre-filled driver imports cleanly with its path prologue rewritten for
 #   the consumer submodule framework path + resolves its own three-file
-#   scene). Live count is now 208 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 208
+#   scene). The onboarding gate (#135) adds 13 hosted structure-check tests
+#   (test/unit/pytest/test_onboarding_gate.py: the M5 agent-proxy gate
+#   precondition -- 4 four-lang example-README existence checks, the README
+#   documents the three onboarding tasks (first-topic / URDF swap / in-scope
+#   sensor swap), the lidar/imu NotImplementedError out-of-scope callout,
+#   the URDF + sensor swap surfaces exist, and the agent_proxy_gate.sh
+#   harness passes its structure precondition + its --audit mode fails on a
+#   framework-source read and passes on a clean log). Live count is now
+#   221 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 221
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -60,7 +68,7 @@ GPU_INTEGRATION_BASELINE = 26
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; with #132's GPU tests online the
-#   live aggregate is 234 (208 hosted-unit + 26 GPU-integration), well
+#   live aggregate is 247 (221 hosted-unit + 26 GPU-integration), well
 #   past the PRD's 126 floor. The aggregate is asserted at M2 where the
 #   GPU runner runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU
 #   job does not count toward it.
