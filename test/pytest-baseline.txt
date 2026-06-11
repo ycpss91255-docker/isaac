@@ -35,14 +35,20 @@ HOSTED_UNIT_BASELINE = 208
 #   camera topic/frame_id/message, ros_io non-blocking None, /cmd_vel
 #   round-trip, injected SIGINT -> shutdown -- plus 1 collected-but-
 #   skipped cross-container test deferred to #133). The +10 collected
-#   raises the live count to 22. assert_pytest_baseline.sh enforces that
-#   the GPU suite actually RAN (passed > 0); an all-skipped GPU job does
-#   NOT satisfy the M2 aggregate.
-GPU_INTEGRATION_BASELINE = 22
+#   raises the live count to 22. The scaffold (#134) adds the scaffold
+#   GPU smoke (test_scaffold_smoke.py: 3 tests -- scaffold the consumer
+#   workspace via new-workspace.sh --local-docker, boot the SCAFFOLDED
+#   driver headless, and assert the L4 markers, the camera OmniGraph
+#   chain, and the camera topic appearing on a sibling rclpy probe; the
+#   DoD smoke end-to-end). The +3 collected raises the live count to 25.
+#   assert_pytest_baseline.sh enforces that the GPU suite actually RAN
+#   (passed > 0); an all-skipped GPU job does NOT satisfy the M2
+#   aggregate.
+GPU_INTEGRATION_BASELINE = 25
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; with #132's GPU tests online the
-#   live aggregate is 230 (208 hosted-unit + 22 GPU-integration), well
+#   live aggregate is 233 (208 hosted-unit + 25 GPU-integration), well
 #   past the PRD's 126 floor. The aggregate is asserted at M2 where the
 #   GPU runner runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU
 #   job does not count toward it.
