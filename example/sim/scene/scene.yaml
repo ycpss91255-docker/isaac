@@ -1,0 +1,29 @@
+# Top-level scene file (ADR-0017 section 4, three-file scene).
+#
+# Holds the environment + ros2_io and imports the other two files. The
+# example driver loads this file, follows `imports`, and deep-merges
+# robot.yaml + object.yaml into one scene dict for the framework's
+# load_scene / build_scene / setup_sensors / setup_ros2_io lifecycle.
+#
+#   scene.yaml   environment + imports (this file)
+#   robot.yaml   entities that move on their own (the camera_bot), with
+#                nested sensor placements
+#   object.yaml  passive entities, each with mobility: dynamic|static
+
+# Sibling files merged into this scene (resolved relative to this file).
+imports:
+  - robot.yaml
+  - object.yaml
+
+# Environment defaults (SunLight is added by the driver lifecycle's
+# ensure_scene_defaults; a ground plane is environment scope).
+environment:
+  ground_plane: true
+
+# Inbound ROS 2 I/O (ADR-0017 section 6): the camera_bot consumes
+# /cmd_vel through an OmniGraph Subscribe node, read non-blocking via
+# RosIo.latest("/cmd_vel"). No rclpy executor is spun up.
+ros2_io:
+  subscriptions:
+    - topic: /cmd_vel
+      type: twist
