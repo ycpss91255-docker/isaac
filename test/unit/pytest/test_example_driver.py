@@ -52,7 +52,8 @@ class TestLoadThreeFileScene:
         scene = ed.load_three_file_scene(EXAMPLE_SCENE)
         # robot from robot.yaml
         assert scene["robot"]["name"] == "camera_bot"
-        assert scene["robot"]["model"].endswith(".urdf")
+        assert scene["robot"]["model"].endswith(".usd")
+        assert scene["robot"]["source_urdf"].endswith(".urdf")
         # objects from object.yaml
         assert len(scene["objects"]) == 1
         assert scene["objects"][0]["mobility"] in ("dynamic", "static")

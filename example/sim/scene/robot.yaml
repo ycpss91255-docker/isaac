@@ -1,16 +1,20 @@
 # robot.yaml (ADR-0017 section 4): entities that move on their own.
 #
-# The camera_bot is the single robot. Its model is the URDF in
-# model/camera_bot.urdf (the example driver imports URDF -> USD at boot,
-# the L1 model pipeline). Sensor placements nest under `sensors:`
-# (ADR-0017 section 5 placement tier): each names a catalog/config entry,
-# the URDF `link` it mounts on (default base_link), and an xyz/rpy offset.
+# The camera_bot is the single robot. Its model is the pre-built USD
+# (model/usd/robot/camera_bot/camera_bot.usd), produced offline from the
+# source URDF (model/camera_bot.urdf) by the L1 import_urdf pipeline. The
+# USD is committed so the driver references it directly -- the importer
+# runs in its own SimulationApp, so it cannot run inside the live driver.
+# Sensor placements nest under `sensors:` (ADR-0017 section 5 placement
+# tier): each names a catalog/config entry, the URDF `link` it mounts on
+# (default base_link), and an xyz/rpy offset.
 
 robot:
   name: camera_bot
-  # Repo-relative URDF (example/sim/model/). The driver imports it to USD
-  # before build_scene references the robot prim under /World/Robot.
-  model: "model/camera_bot.urdf"
+  # Repo-relative pre-built USD (example/sim/). Re-generate after editing
+  # the source URDF: import_urdf(model/camera_bot.urdf, <this path>).
+  source_urdf: "model/camera_bot.urdf"
+  model: "model/usd/robot/camera_bot/camera_bot.usd"
   pose:
     xyz: [0.0, 0.0, 0.0]       # meters
     rpy: [0.0, 0.0, 0.0]       # degrees
