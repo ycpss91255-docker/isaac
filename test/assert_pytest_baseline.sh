@@ -82,10 +82,23 @@ if [[ "${MODE}" == "gpu" ]]; then
   # worktree/<name>/test/integration/pytest/).
   GPU_REPORT="${REPO_ROOT}/test/.gpu-pytest-report.xml"
   rm -f "${GPU_REPORT}"
-  "${REPO_ROOT}/script/run.sh" -t test -- /isaac-sim/python.sh -m pytest \
-    "${GPU_PYTEST_PATH:-test/integration/pytest/}" \
+  # Keep the mounted workspace clean: -p no:cacheprovider drops pytest's
+  # assertion-rewrite cache, and PYTHONDONTWRITEBYTECODE=1 +
+  # PYTHONPYCACHEPREFIX redirect every imported module's __pycache__/*.pyc
+  # off the bind-mount (into a container-local /tmp tree). Without this,
+  # Isaac's bundled python writes framework/isaac_devkit/__pycache__/*.pyc
+  # into the mounted tree owned by the container user, and the next
+  # actions/checkout (running as the runner user) cannot unlink them
+  # (EACCES) -- the same workspace-poison class the hosted leg already
+  # guards against (#131 CI fix).
+  GPU_PYTEST="${GPU_PYTEST_PATH:-test/integration/pytest/}"
+  GPU_JUNIT="${GPU_JUNIT_PATH:-test/.gpu-pytest-report.xml}"
+  "${REPO_ROOT}/script/run.sh" -t test -- \
+    env PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/tmp/gpu-pycache \
+    /isaac-sim/python.sh -m pytest \
+    "${GPU_PYTEST}" \
     -p no:cacheprovider \
-    --junitxml="${GPU_JUNIT_PATH:-test/.gpu-pytest-report.xml}"
+    --junitxml="${GPU_JUNIT}"
 
   if [[ ! -f "${GPU_REPORT}" ]]; then
     echo "error: GPU pytest produced no JUnit report (${GPU_REPORT}); " \
