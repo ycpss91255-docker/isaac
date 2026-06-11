@@ -51,13 +51,13 @@ Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`,
 |------|-------------|
 | `post-run: non-stream target is a no-op` | A non-`stream` target produces no actions. |
 | `post-run: stream without -d is a no-op` | The stream stage without `-d/--detach` produces no actions. |
-| `post-run: stream + -d starts the viewer with stream-only + auto-launch` | Viewer `docker run` carries `VIEWER_UI_MODE=stream-only` + `VIEWER_AUTO_LAUNCH=true` (negative guard on the opposites). |
-| `post-run: viewer SIGNALING_PORT comes from the instance overlay env` | The viewer's `SIGNALING_PORT` is sourced from `config/instances/<name>.env`. |
+| `post-run: stream + -d starts the viewer with stream-only UI mode` | Viewer `docker run` carries `VIEWER_UI_MODE=stream-only`; negative guards that `usd-viewer` and the dropped `VIEWER_AUTO_LAUNCH` flag never appear (#123). |
+| `post-run: viewer ports come from the instance env via --env-file (#123)` | A named instance hands its overlay env to the viewer via `docker --env-file config/instances/<name>.env` (no literal `-e` port fallback). |
 | `post-run: viewer container is named per instance and removed first` | `docker rm -f owv-<name>` precedes `docker run --name owv-<name>` (idempotent). |
-| `post-run: default instance falls back to owv-default + port 49100` | With no `--instance`, the viewer is `owv-default` on the default signaling port. |
+| `post-run: default instance falls back to owv-default + literal -e ports` | With no `--instance` (no env-file), the viewer is `owv-default` with literal `-e SIGNALING_PORT=49100` + `-e SERVE_PORT=5173`. |
 | `post-run: host.yaml present is copied into the Isaac container` | A present host.yaml is `docker cp`'d to the per-instance Isaac container at `/etc/host.yaml`. |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
-| `post-run: viewer image is omniverse_web_viewer:serve, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve`; regression guard that the renamed/stale `owv:runtime` is not launched. |
+| `post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime` (owv renamed serve->runtime, #123); regression guard that the old short stale `owv:runtime` is not launched. |
 
 ## test/smoke/bats/post_stop_hook_spec.bats (2)
 

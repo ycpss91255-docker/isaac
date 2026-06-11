@@ -8,7 +8,8 @@
 #      Isaac container at /etc/host.yaml (so the user's subsequent
 #      `exec` -- driver script or runheadless-host-config.sh -- reads the
 #      right public_ip);
-#   2. starts the web-viewer container (stream-only, auto-launch).
+#   2. starts the web-viewer :runtime container (stream-only); per-instance
+#      ports come from the overlay env via `docker --env-file` (#123).
 #
 # It does NOT launch Isaac Sim: that stays an explicit `exec` step
 # (driver or runheadless), matching the documented stream flow and
@@ -43,19 +44,20 @@ USER_NAME=""; IMAGE_NAME="isaac"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
-# Per-instance ports from the compose overlay env; fall back to the
-# default-instance Kit / viewer ports.
-ISAAC_SIGNAL_PORT="49100"; VIEWER_PORT="5173"
+# Per-instance viewer ports: when a named instance has an overlay env,
+# hand it to the viewer verbatim via `docker --env-file` (literal, no
+# ${VAR} interpolation -- the file carries the viewer key NAMES). With no
+# instance / no file, fall back to the literal default-instance ports.
 inst_env="${repo_root}/config/instances/${instance}.env"
+wv_port_args=(-e "SIGNALING_PORT=49100" -e "SERVE_PORT=5173")
 if [ -n "${instance}" ] && [ -f "${inst_env}" ]; then
-  # shellcheck source=/dev/null
-  . "${inst_env}"
+  wv_port_args=(--env-file "${inst_env}")
 fi
 
 suffix=""; [ -n "${instance}" ] && suffix="-${instance}"
 isaac_container="${USER_NAME}-${IMAGE_NAME}-stream${suffix}"
 wv_container="owv-${instance:-default}"
-wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve"
+wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"
 
 _docker() {
@@ -85,10 +87,8 @@ fi
 
 _docker run --rm -d --name "${wv_container}" --network=host \
   ${hy_mount[@]+"${hy_mount[@]}"} \
-  -e "SIGNALING_PORT=${ISAAC_SIGNAL_PORT}" \
-  -e "SERVE_PORT=${VIEWER_PORT}" \
+  "${wv_port_args[@]}" \
   -e "VIEWER_UI_MODE=stream-only" \
-  -e "VIEWER_AUTO_LAUNCH=true" \
   "${wv_image}"
 
 exit 0
