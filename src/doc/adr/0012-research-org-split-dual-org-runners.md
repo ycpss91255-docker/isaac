@@ -84,3 +84,24 @@ Each org gets a dedicated `canary` repo containing a minimal `workflow_dispatch`
 - **ADR-0011 §Consequences "transfer those repos to `ycpss91255-docker` org"** -- superseded; escape hatch is now "transfer to the semantically correct org, may require creating one"
 - **ADR-0011 §Public repo security** -- still applies, but extended to the third scope (`ycpss91255-research` org). The 4-repo `gh api .../actions/permissions/access` loop in issue #45 also extends to repos that land in `-research` post-migration
 - **issue #45** -- executable checklist driven by this ADR (revised to include org creation, gate-before-runner ordering, `runner-setup` repo bootstrap, canary repo creation)
+
+## Update (2026-06-11) -- org axis re-derived after the monorepo merge (ADR-0017)
+
+The research -> docker monorepo merge (`ycpss91255-docker/isaac#78`, recorded in ADR-0011's
+2026-06-02 Update) already undid this ADR's research/docker split for the isaac pair: the
+workspace code that Phase 1 moved into `ycpss91255-research/isaac` now lives in
+`ycpss91255-docker/isaac`, and `-research` no longer hosts an `isaac` repo.
+
+With the base-repo convergence (ADR-0017) the org axis is **re-derived, not abandoned**. The
+new cut:
+
+- **`-docker` holds reusable base repos** -- environment and framework bases that downstream
+  repos consume as their foundation (`base` itself, `github_runner`, and this isaac base repo
+  with its mounted `isaac_devkit` framework).
+- **`-research` holds application / scenario source** -- `isaac-forklift` (created by #129,
+  populated by #136), and the Phase-2 migrants `seggpt` / `sam_manager`.
+
+This refines the original "container env vs code" criterion: the discriminator is now
+**reusable base vs application content**, which is why a base repo that contains framework
+*code* still belongs in `-docker`. The dual org-level runner topology, naming convention, and
+security gates of this ADR stand unchanged.

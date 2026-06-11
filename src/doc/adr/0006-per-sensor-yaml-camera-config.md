@@ -1,5 +1,14 @@
 # Per-Sensor-Type YAML Config for Sim Cameras
 
+> **Superseded by [ADR-0017](./0017-isaac-base-repo-convergence-contract.md) (2026-06-11).**
+> The generic decision (sensors declared in YAML, mounted onto scene entities, publish chain
+> generated from the declaration) is restated in generic vocabulary in ADR-0017 ("From
+> ADR-0006" section); the per-sensor-type schema itself is replaced by the catalog/placement
+> two-tier model (ADR-0017 section 5 — this is simultaneously the PRD A4 schema replacement).
+> This file is retained unmodified below as the historical record and migrates to
+> `ycpss91255-research/isaac-forklift` together with the application content it exemplifies
+> (tracked in #136).
+
 `isaac_ws` needs to drop a virtual camera onto `forklift_blocky` and publish color + depth + camera_info + TF as ROS 2 topics. Three target hardware variants are on the table:
 
 - **Intel RealSense D455** — NVIDIA Isaac Sim ships `Isaac/Sensors/Intel/RealSense/rsd455.usd` with intrinsics, IMU, and stereo baseline baked in. Publish path uses Isaac Sim's native `ROS2CameraHelper` / `ROS2CameraInfoHelper` Action Graph nodes.

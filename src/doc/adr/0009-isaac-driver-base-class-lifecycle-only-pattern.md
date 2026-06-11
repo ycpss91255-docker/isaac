@@ -34,11 +34,11 @@ Isaac Sim 5.1 的 3-way signal handler 衝突（Kit handler + driver handler + r
 
 ### USD 路徑: repo-relative（不是絕對 hardcode）
 
-現有 3/4 driver hardcode `/home/yunchien/work/src/model/...`，綁死容器 mount 點。改為 subclass 設 repo-relative path（如 `"model/usd/robot/openbase/openbase_l2.usda"`），base class 從 `__file__` 推算 repo root 後 resolve。
+現有 3/4 driver hardcode `/home/yunchien/work/src/model/...`，綁死容器 mount 點。改為 subclass 設 repo-relative path（如 `"model/usd/robot/camera_bot/camera_bot.usda"`），base class 從 `__file__` 推算 repo root 後 resolve。
 
 ### Scene defaults: base class 預設補建（opt-out）
 
-3/4 driver 在 stage open 後補建 SunLight + GroundPlane。Base class 預設補建，先 `GetPrimAtPath().IsValid()` 檢查再建 — 已存在時 skip，對自帶 scene 的 USD（forklift_blocky）無副作用。
+3/4 driver 在 stage open 後補建 SunLight + GroundPlane。Base class 預設補建，先 `GetPrimAtPath().IsValid()` 檢查再建 — 已存在時 skip，對自帶 scene 的 USD（如 camera-bot example）無副作用。
 
 ### 模組位置: `script/isaac_driver.py`（flat）
 
@@ -57,3 +57,7 @@ Isaac Sim 5.1 的 3-way signal handler 衝突（Kit handler + driver handler + r
 - **ycpss91255/isaac#23**: 實作 issue
 - **ADR-0007**: custom streaming Kit experience（`isaacsim.exp.base.python.streaming.kit`），由 `create_sim_app()` 在 `ISAAC_LIVESTREAM=2` 時自動選用
 - **ADR-0008**: L2/L3 physics level vocabulary — `cmd_vel_planar_standalone_l2.py` 是首個 L2 driver，將由 `IsaacDriver` 重構
+
+## Editorial note (2026-06-11)
+
+Incidental application-specific example names in this ADR were replaced with generic wording (camera-bot example) as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged (the `USD` class attr is replaced by `SCENE` per ADR-0017 section 9, recorded there); the original wording is preserved in git history.

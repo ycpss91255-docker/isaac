@@ -38,7 +38,7 @@ The browser-close behaviour is intentional and load-bearing: the sim keeps runni
 ## Consequences
 
 - The new SOP `doc/standalone_livestream_workflow.md` is the operating procedure for all driver scripts written from #19 onward; the legacy `doc/cmd_vel_inkit_teleop.md` and `doc/action_graph_setup.md` SOPs are kept as historical reference but flagged as superseded at the top of each file.
-- `script/forklift_blocky_driver_wip.py` was ported to this pattern in PR-B for #19. Future drivers (`cmd_vel_planar_*.py`, `move_openbase_planar_*.py`, the `diag_*` family) can be ported opportunistically; they continue to work under the in-kit Script Editor flow until ported.
+- The application demo driver (the camera-bot example's predecessor) was ported to this pattern in PR-B for #19. Other legacy drivers (the planar-move and `diag_*` families) can be ported opportunistically; they continue to work under the in-kit Script Editor flow until ported.
 - ADR-0002 keeps its original decision (use in-kit Script Editor + `rclpy` + `dc` velocity write) as the *historical* path; this ADR-0005 adds an addendum-style "Update" at the bottom of ADR-0002 pointing at this file.
 - The new pattern is also LLM-friendly: Claude can run `./exec.sh -t headless /isaac-sim/python.sh <script>` directly, capture stdout, and time-bound the run via `timeout`. No browser interaction is required.
 
@@ -47,7 +47,7 @@ The browser-close behaviour is intentional and load-bearing: the sim keeps runni
 Verified during PR-A + PR-B of #19:
 
 - `script/standalone_livestream_smoke.py` boots `SimulationApp` with `livestream: 2`, opens a tiny scene programmatically, spins ~5990 ticks in ~30 s, exits 0.
-- `script/forklift_blocky_driver_wip.py` (ported) runs the existing 51 s demo cycle (approach → pickup → carry → drop → back away → fork spread → mast extend → return home → repeat) without behavioural drift from the previous in-kit Script Editor run.
+- The application demo driver (ported) runs its existing 51 s scripted demo cycle without behavioural drift from the previous in-kit Script Editor run.
 - Both scripts shut down cleanly via `Ctrl-C` (SIGINT) and `timeout` (SIGTERM); Kit logs `Simulation App Shutting Down` before process exit.
 
 ## References
@@ -55,7 +55,7 @@ Verified during PR-A + PR-B of #19:
 - Issue: `ycpss91255-docker/isaac#19` "Adopt standalone-with-livestream entrypoint (replace Script Editor Ctrl+Enter loop)"
 - Isaac Sim manual livestream client: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html>
 - Isaac Sim standalone application docs: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/python_scripting/standalone_application.html>
-- Related ADRs: 0001 (Chassis SE(2) Slide), 0002 (cmd_vel teleop via in-kit Script Editor — superseded as entrypoint pattern by this ADR), 0003 (two-track simulation strategy), 0004 (Model A-hybrid forklift block model), **0007 (custom streaming experience for SimulationApp)**
+- Related ADRs: 0001 (Chassis SE(2) Slide), 0002 (cmd_vel teleop via in-kit Script Editor — superseded as entrypoint pattern by this ADR), 0003 (two-track simulation strategy), 0004 (Model A-hybrid block model), **0007 (custom streaming experience for SimulationApp)**
 - SOP: `doc/standalone_livestream_workflow.md`
 
 ## Update (2026-05-21) — `-t headless` does not work for this pattern; switch to `-t standalone` + custom experience
@@ -70,7 +70,7 @@ Live verification of the original PR-A / PR-B Acceptance Snapshot above exposed 
 
 ```bash
 ./run.sh -t standalone -d
-./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/forklift_blocky_driver_wip.py [--config ...]
+./exec.sh -t standalone /isaac-sim/python.sh /home/yunchien/work/src/script/<driver>.py [--config ...]
 ```
 
 with the driver passing:
@@ -83,3 +83,7 @@ sim_app = SimulationApp(
 ```
 
 The Decision / Why / Considered Options in the body of this ADR all stand — the entrypoint *pattern* (Python-driven, livestream-on-demand) is correct. The two corrections above are about *which container target* and *which Kit experience* the pattern lands on inside `ycpss91255-docker/isaac`. The legacy `cmd_vel_inkit_teleop.md` / `action_graph_setup.md` Script Editor fallback paths in the body remain valid as a Plan B if the standalone path ever regresses.
+
+## Editorial note (2026-06-11)
+
+Incidental application-specific example names in this ADR were replaced with generic wording (camera-bot example) as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged; the original wording is preserved in git history.
