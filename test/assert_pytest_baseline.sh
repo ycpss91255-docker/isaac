@@ -122,8 +122,57 @@ print(attrs.get("tests", 0), attrs.get("failures", 0),
 PY
   )
   passed=$(( total - failures - errors - skipped ))
-  echo "gpu-integration: collected=${total} passed=${passed} " \
+  echo "in-container gpu-integration: collected=${total} passed=${passed} " \
     "skipped=${skipped} failures=${failures} errors=${errors}"
+
+  # Host cross-container round-trip leg (isaac#132, PRD Pre-Publish item
+  # 1). It spawns sibling ros:humble containers running the example/ros2/
+  # ament nodes, so it CANNOT run inside the Isaac container (no docker
+  # socket) -- it runs here on the self-hosted GPU host (which has docker
+  # + the built isaac:test image). Its collected/passed counts are summed
+  # into the GPU-integration totals below. -p no:cacheprovider keeps the
+  # mounted tree clean. Skipped (not failed) on a host missing docker /
+  # the test image -- a skip does NOT advance the passed counter, so the
+  # "passed > 0" gate still rejects a non-GPU host.
+  XC_PYTEST="${XC_PYTEST_PATH:-${REPO_ROOT}/test/integration/pytest/test_cross_container_roundtrip.py}"
+  XC_REPORT="${REPO_ROOT}/test/.xc-pytest-report.xml"
+  rm -f "${XC_REPORT}"
+  xc_total=0; xc_failures=0; xc_errors=0; xc_skipped=0
+  if python3 -m pytest --version >/dev/null 2>&1; then
+    set +e
+    python3 -m pytest "${XC_PYTEST}" -p no:cacheprovider \
+      --junitxml="${XC_REPORT}"
+    set -e
+    if [[ -f "${XC_REPORT}" ]]; then
+      read -r xc_total xc_failures xc_errors xc_skipped < <(
+        python3 - "${XC_REPORT}" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+suite = root if root.tag == "testsuite" else root.find("testsuite")
+attrs = suite.attrib if suite is not None else {}
+print(attrs.get("tests", 0), attrs.get("failures", 0),
+      attrs.get("errors", 0), attrs.get("skipped", 0))
+PY
+      )
+    fi
+  else
+    echo "warning: host python3 has no pytest; cross-container leg not run" >&2
+  fi
+  xc_passed=$(( xc_total - xc_failures - xc_errors - xc_skipped ))
+  echo "host cross-container: collected=${xc_total} passed=${xc_passed} " \
+    "skipped=${xc_skipped} failures=${xc_failures} errors=${xc_errors}"
+
+  # Fold the host leg into the GPU-integration aggregate.
+  total=$(( total + xc_total ))
+  passed=$(( passed + xc_passed ))
+  failures=$(( failures + xc_failures ))
+  errors=$(( errors + xc_errors ))
+  skipped=$(( skipped + xc_skipped ))
+  echo "gpu-integration (in-container + host xc): collected=${total} " \
+    "passed=${passed} skipped=${skipped} failures=${failures} " \
+    "errors=${errors}"
 
   if (( failures > 0 || errors > 0 )); then
     echo "error: GPU integration suite has failures/errors -- not green" >&2

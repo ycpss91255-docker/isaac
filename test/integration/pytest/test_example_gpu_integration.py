@@ -19,10 +19,14 @@ Acceptance Criteria) as committed test code:
   (``test/unit/pytest/test_example_driver.py``) where Isaac is not
   needed; this asserts the live driver honors the same SIGINT path.
 
-Isaac<->ament cross-container round-trip (PRD Pre-Publish item 1) is
-DEFERRED to #133: the ament example package (``example/ros2/``) is not
-on this branch yet, so the cross-container assertion is a documented TODO
-wired to #133 rather than a blocker (see ``test_cross_container_*``).
+The in-process ``/cmd_vel`` round-trip here publishes the Twist from an
+in-process rclpy node (no second container) to verify the OmniGraph
+Subscribe attribute path. The genuine Isaac<->ament cross-container
+round-trip (PRD Pre-Publish item 1 -- a real message crossing the
+container boundary in both directions) lives in
+``test_cross_container_roundtrip.py``, host-orchestrated against a
+sibling ``ros:humble`` container running the ``example/ros2/`` ament
+nodes.
 
 Pass criterion is stdout marker lines, not the return code: Kit's
 ``app.close`` calls ``_exit(0)`` and swallows ``sys.exit`` (same
@@ -396,15 +400,11 @@ def test_l4_injected_sigint_runs_shutdown(example_run):
     )
 
 
-@pytest.mark.skip(
-    reason="Isaac<->ament cross-container round-trip deferred to #133: the "
-    "ament example package (example/ros2/) is not on this branch yet. PRD "
-    "Pre-Publish item 1 folds this assertion in once #133 lands."
-)
-def test_cross_container_ament_roundtrip_deferred_to_133():
-    """TODO(#133): an ament node in a sibling hosted ros:humble container
-    subscribes to the sim camera topic / publishes /cmd_vel and the
-    round-trip is asserted across containers (PRD Pre-Publish item 1).
-    Wired here so the deferral is visible in the suite; unskip with #133.
-    """
-    raise NotImplementedError("cross-container round-trip lands with #133")
+# The Isaac<->ament cross-container round-trip (PRD Pre-Publish item 1)
+# is now IMPLEMENTED in test_cross_container_roundtrip.py: it
+# host-orchestrates a sibling ros:humble container running the
+# example/ros2/ ament nodes and asserts a real message crosses the
+# container boundary in both directions (sim->ament camera receipt,
+# ament->sim /cmd_vel receipt). The previously-skipped placeholder that
+# deferred it to #133 has been removed now that example/ros2/ is on this
+# branch.
