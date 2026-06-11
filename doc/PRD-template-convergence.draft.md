@@ -166,7 +166,7 @@ run():
 - **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.41.0，PR #124 bump 中）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
 - **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1,2,3,4,4-int,5,6,6b）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本；base v0.41.0 已 release，#4-int 不再外部 gated、回歸 MVP）。
 - **Stage**：mount 下框架不進 image stage，devel/headless/stream 都從 mount 拿；ROS2 bridge extension function-local enable，與 ADR-0014 stage taxonomy 正交。
-- **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10 更新）**：**base 已 release v0.41.0（2026-06-10）含 base#493 機制**；isaac bump `.base` v0.40.0→v0.41.0 已在 **PR #124**（auto-merge，CI 跑中）。init-vs-upgrade parity 驗證相符（runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。**#124 merge 後 #4-int 的 GPU 自動 integration 即可跑、isaac#74 即可解**。原「外部 gated 等 base release」前提已消除——剩餘相依僅 #124 落地（即將）。**不另開新 issue**（isaac#74 已覆蓋此 bump）。
+- **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10 更新）**：**base 已 release v0.41.0（2026-06-10）含 base#493 機制**；isaac bump `.base` v0.40.0→v0.41.0 已在 **PR #124**（auto-merge，CI 跑中）。init-vs-upgrade parity 驗證相符（runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。**#124 merge 後（已 merge 2026-06-10）base#493 機制已就緒**。原「外部 gated 等 base release」前提已消除。**注意 isaac#74 是 unblocked 非 closed**：#74 的工作（用 base 新機制給 `test`/`devel-test` service 開 GPU + CI 驗 GPU pytest 真 boot Isaac）**非僅 bump**，是 #1（首條 GPU integration smoke）/ #4-int（GPU 自動 integration）的前置，併入該兩 issue 執行，不另開新 issue。
 
 ### A7. API 契約（committed interface 形狀）
 - `class IsaacDriver`: `SCENE: str`（class attr）；hooks `setup(stage)->None` / `main()->None` / `shutdown()->None`；helper `init_rclpy()->None`；entry `run()->None`。
@@ -269,11 +269,11 @@ forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU in
 \* #1 size=S 指 smoke 本身；HITL 取得 Isaac pipeline 跑通的前置努力 variable（pipeline 從沒在 Isaac 內跑通，見 R1）。**M0 證據 gate = integration-tier**（headless Isaac 真 boot + camera topic echo，非 hosted unit；115 unit 全 host-pure 不證 GPU path）。critical path = 3→4（框架→example，皆 L）。**M2 內 #4→#5→#6 為序**（Blocked-by 為準，非平行；僅 #5 的 README 撰寫可早啟；#4-int 於 #4 後 + PR #124 merge 後跑）；**#3 內 6 模組可平行抽，但 `ros_io` 是 greenfield 新撰非抽取**。CI/政策（GPU runner pin、coverage ratchet vector、headless+timeout+retry）折進 #3/#4，不另開 infra issue。
 6. **M1 + timeout calibrate**：pin 指定 GPU runner spec 後，量 warm time-to-first-topic 與 boot budget，把 M1「<30s」與 integration timeout 落成具體數字（promote 為 hard pre-publish blocker）。
 7. **A2 兩層 versioning（已定案）**：消費端 submodule pin tag ↔ base repo 內 `.base` subtree 版，寫進 A6。
-8. **base#493 ship 版本（已解，2026-06-10）**：#493 已進 base **v0.41.0**；isaac bump `.base` v0.40→v0.41 在 **PR #124**（auto-merge，覆蓋 isaac#74，不另開 issue）。#4-int 改 depend on #124 merge，原 M2b 外部 gate 消除、收斂進 M2。
+8. **base#493 ship 版本（已解，2026-06-10）**：#493 已進 base **v0.41.0**；isaac bump `.base` v0.40→v0.41 在 **PR #124（已 merge）**。isaac#74 因此 **unblocked**（非 closed——其「給 test service 開 GPU + CI 驗 GPU pytest」工作併入 #1/#4-int，不另開 issue）。#4-int 原 M2b 外部 gate 消除、收斂進 M2。
 
 ## Open Dependencies / Further Notes
 - **base double-check（已收斂）**：消費機制定案 = submodule、兩層 versioning 已寫進 A6；殘留僅 `-docker/base` 自身目錄慣例若大改需回核，風險低。
-- **base v0.41.0（已 release 2026-06-10）**：含 #493 → isaac bump `.base` 在 PR #124（init-vs-upgrade parity 已驗）→ merge 後 isaac#74 解、#4-int 解鎖。
+- **base v0.41.0（已 release 2026-06-10，PR #124 已 merge）**：含 #493 → isaac `.base` 已 v0.41.0（init-vs-upgrade parity 已驗）→ isaac#74 unblocked（GPU-enable 工作併入 #1/#4-int）、#4-int 外部 gate 解除。
 - **demo gate**：M0（#1）通過 + demo 拍完才執行 M1+。
 - 所有 PR 走 worktree（`coreSAM_ws/worktree/isaac-<N>/`，submodule 內），不動主 checkout。
 - 框架核心（IsaacDriver lifecycle / sensor dispatch / scene loader）穩可先抽；controller 留 example 跟 forklift 演化，第三 robot 再上收。
