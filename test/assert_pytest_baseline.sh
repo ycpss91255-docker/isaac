@@ -39,9 +39,21 @@ echo "hosted-unit baseline = ${baseline}"
 
 # Run pytest with coverage inside the slim Python container. cd framework
 # so coverage picks up [tool.coverage] from framework/pyproject.toml.
-docker run --rm -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
+#
+# Run the container as the host user (--user + HOME=/tmp). The repo is
+# bind-mounted, so pytest's assertion-rewrite cache (__pycache__/*.pyc,
+# which ignores PYTHONDONTWRITEBYTECODE / PYTHONPYCACHEPREFIX for test
+# modules) lands in the mounted tree. As root those files are root-owned
+# and poison a self-hosted runner's workspace: the next actions/checkout
+# runs as the runner user and cannot unlink them (EACCES). Running as the
+# invoking UID/GID makes any written cache owned by the runner user, so
+# checkout's clean step removes it. pip installs into a per-run --user
+# prefix under HOME=/tmp (writable for the non-root UID).
+RUN_AS="$(id -u):$(id -g)"
+docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
+  -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
   set -eu
-  pip install --quiet pyyaml pytest pytest-cov
+  pip install --quiet --user pyyaml pytest pytest-cov
   cd framework
   python -m pytest ../test/unit/pytest/ \
     -p no:cacheprovider \
@@ -50,9 +62,10 @@ docker run --rm -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
 
 # Re-derive the collected count for the ratchet assertion.
 collected="$(
-  docker run --rm -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
+  docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
+    -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
     set -eu
-    pip install --quiet pyyaml pytest >/dev/null
+    pip install --quiet --user pyyaml pytest >/dev/null
     python -m pytest test/unit/pytest/ --collect-only -q -p no:cacheprovider \
       2>/dev/null | grep -c "::"
   '
