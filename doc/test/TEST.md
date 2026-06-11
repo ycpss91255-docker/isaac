@@ -148,3 +148,15 @@ Python integration tests boot Isaac Sim and need the GPU-enabled `test` compose 
 | Test | Description |
 |------|-------------|
 | `test_camera_ros2_headless.py::test_camera_custom_yaml_publishes_frame_headless` | M0 gate (#127): headless Isaac boots (CUDA probe + Kit-log Vulkan/CUDA markers), `custom.yaml` camera publish chain builds via `camera_setup.setup_camera`, and >= 1 `sensor_msgs/Image` arrives on `/forklift/camera/color/image_raw` with `frame_id=forklift_camera_color_optical_frame`. Pass criterion = `[BOOT OK]` / `[CAMERA FRAME OK]` / `[EXIT CLEAN]` marker lines (Kit `_exit(0)`s, return code is meaningless). |
+
+## example/ros2/ — app-side ament package tests (colcon test, not in the counts above)
+
+The app-side ROS 2 templates (#133, `example/ros2/src/`) carry their own tests, run by `colcon test` inside a hosted `ros:humble` container (`docker run --rm`, no Isaac / no GPU per the PRD compatibility matrix ament row). They are NOT counted in the bats header total (the drift check counts `^@test` lines only) and are NOT part of the framework hosted-unit pytest baseline (`test/assert_pytest_baseline.sh` collects only `test/unit/pytest/`). Run: `docker run --rm -v "$PWD/example/ros2":/ws -w /ws ros:humble bash -c 'source /opt/ros/humble/setup.bash && colcon build && colcon test && colcon test-result --all'`.
+
+| Test | Package | Description |
+|------|---------|-------------|
+| `test_copyright.py` | `example_app_py` | `ament_copyright`: every source file carries an accepted licence header. |
+| `test_flake8.py` | `example_app_py` | `ament_flake8`: source is flake8-clean. |
+| `test_pep257.py` | `example_app_py` | `ament_pep257`: docstrings follow the ament PEP 257 convention. |
+| `test_helpers.py` | `example_app_py` | Pure-helper unit tests (no ROS context): default topics match the example, `describe_image` summary fields, `make_twist` sets only the planar components. |
+| `ament_lint_common` suite | `example_app_cpp` | `copyright` / `cpplint` / `uncrustify` / `lint_cmake` / `xmllint` / `cppcheck` (cppcheck skips when the optional tool is absent) over the C++ nodes + `CMakeLists.txt` + `package.xml`. |
