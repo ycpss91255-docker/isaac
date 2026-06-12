@@ -46,21 +46,24 @@ jobs:
   python-tests:
     runs-on: [self-hosted, gpu]
     timeout-minutes: 30
-    # The devel-test compose mounts ${WS_PATH} at ~/work (container CWD)
-    # and bakes PYTHONPATH=~/work/framework. base's detect_ws_path has no
-    # case for a repo's own CI checkout: on a self-hosted runner the repo
-    # lands at _work/<repo>/<repo>, none of its detection strategies
-    # (docker_* sibling, *_ws ancestor) match, and the parent-dir fallback
-    # returns _work/<repo> -- one level too high, so ~/work would hold the
-    # repo at ~/work/<repo>/ and both the test path and the framework
-    # PYTHONPATH miss. Pin WS_PATH to the checkout root (the documented
-    # "Edit WS_PATH if needed" override) so setup.sh apply mounts the repo
-    # root directly at ~/work. base follow-up: teach detect_ws_path the
-    # self-CI layout. mount_1 in the base template is empty, so this env
-    # override is honored (setup.sh keeps a valid WS_PATH env over detect).
-    env:
-      WS_PATH: ${{ github.workspace }}
     steps:
+      # Pre-checkout self-heal: the GPU devel-test container writes into the
+      # bind-mounted workspace, and any file it leaves root-owned makes the
+      # next actions/checkout clean step fail with EACCES on this non-root
+      # (yunchien) runner -- the job dies at checkout before any test runs.
+      # A throwaway root container can unlink those files, so run it before
+      # checkout to keep the workspace clean every run (no manual sudo). The
+      # in-workflow equivalent of the runner-level safeguard proposed in
+      # ycpss91255-docker/github_runner#77. GITHUB_WORKSPACE always exists by
+      # the time a step runs, so the bind mount never auto-creates it.
+      - name: Pre-checkout cleanup (clear stale root-owned bytecode)
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}":/w -w /w busybox:1 sh -c '
+            find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
+            find . -type f -name "*.pyc" -delete 2>/dev/null
+            rm -f test/.gpu-pytest-report.xml test/.xc-pytest-report.xml 2>/dev/null
+            true'
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -72,8 +75,21 @@ jobs:
       - name: Hosted unit pytest + baseline + coverage gate
         run: ./test/assert_pytest_baseline.sh
 
+      # base detect_ws_path mis-detects the self-CI _work/<repo>/<repo>
+      # layout: none of its strategies (docker_* sibling, *_ws ancestor)
+      # match, so the parent-dir fallback returns _work/<repo> -- one level
+      # too high, leaving the repo at ~/work/<repo>/ inside the container.
+      # config/docker/setup.conf ships mount_1 in portable ${WS_PATH} form,
+      # so apply re-detects WS_PATH locally and ignores a job-env override.
+      # Pin it in the derived .env.generated cache AFTER apply (the
+      # --env-file the wrappers pass to compose) so the devel-test compose
+      # mounts the repo root at ~/work -- fixing both the relative GPU test
+      # path (test/integration/pytest/) and the baked
+      # PYTHONPATH=~/work/framework. base follow-up: base#586.
       - name: Generate .env + compose.yaml (devel-test GPU override)
-        run: ./script/setup.sh apply
+        run: |
+          ./script/setup.sh apply
+          sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env.generated
 
       - name: Build test image (devel-test stage, cached if unchanged)
         run: ./script/build.sh -t test
@@ -86,9 +102,9 @@ jobs:
       # collected >= GPU_INTEGRATION_BASELINE (ratchet), and the
       # cross-runner aggregate (HOSTED_UNIT + GPU_INTEGRATION) >=
       # AGGREGATE_TARGET (the PRD 126 parity floor). With WS_PATH pinned to
-      # the checkout root (job env above), the repo root mounts at ~/work,
-      # so the in-container test path is test/integration/pytest/ (the
-      # default).
+      # the checkout root in .env.generated (apply step above), the repo
+      # root mounts at ~/work, so the in-container test path is
+      # test/integration/pytest/ (the default).
       - name: GPU integration pytest + aggregate gate (M2)
         run: ./test/assert_pytest_baseline.sh --gpu
 
