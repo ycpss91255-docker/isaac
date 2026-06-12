@@ -127,8 +127,13 @@ jobs:
       # the checkout root in .env.generated (apply step above), the repo
       # root mounts at ~/work, so the in-container test path is
       # test/integration/pytest/ (the default).
+      # GPU_ROS_DOMAIN_ID isolates this run's /cmd_vel round-trip onto a
+      # private ROS 2 domain (derived from the run id, non-zero) so the
+      # shared host network's domain 0 -- where leaked cross-container
+      # ros:humble siblings keep publishing /cmd_vel -- cannot bleed into
+      # io.latest(). See the env-wrapper note in assert_pytest_baseline.sh.
       - name: GPU integration pytest + aggregate gate (M2)
-        run: ./test/assert_pytest_baseline.sh --gpu
+        run: GPU_ROS_DOMAIN_ID="$(( (GITHUB_RUN_ID % 99) + 1 ))" ./test/assert_pytest_baseline.sh --gpu
 
   call-release:
     needs: call-docker-build
