@@ -27,14 +27,15 @@ make build                    # build devel stage（約 16 GB image）
 make run                      # 進 devel 容器互動 shell
 ```
 
-容器內：
+Production stage（兩個 stage 啟動後都 idle — driver 腳本用 exec 送進執行中的 container）：
 
 ```bash
-/isaac-sim/runheadless.sh -v   # WebRTC livestream — 用 Isaac Sim WebRTC Streaming Client 連（見下）
-/isaac-sim/runapp.sh           # 本機 GUI（需要 X11；host 端先跑 `xhost +local:docker`）
+make run -- -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+make run -- -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> 兩個 runtime stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（無 stream，`ISAAC_LIVESTREAM=0`）與 `stream`（ENTRYPOINT `runheadless.sh -v`，WebRTC web-viewer，`ISAAC_LIVESTREAM=2`）。standalone Python workflow（腳本內 `SimulationApp({"livestream": 2})` 啟自己的 kit + WebRTC server）跑在 `stream` stage 上 — 搭配 `make exec -- -t stream /isaac-sim/python.sh <script>`。使用 `make run -- -t <stage> -d`。上面的手動 launcher 仍可用於 ad-hoc 情境。
+> 兩個 stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）與 `stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。兩者啟動後都 `CMD ["sleep","infinity"]` idle（沒有 `runheadless.sh -v` ENTRYPOINT）— container 持續存活，由你用 `make exec -- -t <stage> <cmd>` 把 driver 腳本（`/isaac-sim/python.sh <driver.py>`，讀 `ISAAC_LIVESTREAM=2` 開 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送進去；streaming 起來後 web-viewer 連 `:5173`。使用 `make run -- -t <stage> -d` 啟動。
 
 ## 連接 WebRTC livestream
 
