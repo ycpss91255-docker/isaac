@@ -39,8 +39,13 @@ done
 
 repo_root="${FILE_PATH:-$(pwd -P)}"
 
-# .env for container naming (defaults mirror the base template).
+# Identity vars for container naming + viewer image. Under the base A2
+# model these live in .env.generated (USER_NAME / IMAGE_NAME /
+# DOCKER_HUB_USER, resolved by setup.sh); .env is the user overlay layered
+# on top. Source .generated FIRST, then .env so user edits win.
 USER_NAME=""; IMAGE_NAME="isaac"
+# shellcheck source=/dev/null
+[ -f "${repo_root}/.env.generated" ] && . "${repo_root}/.env.generated"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 

@@ -27,7 +27,11 @@ setup() {
   export POST_RUN_DRYRUN=1
   export HOST_YAML_LIB="${BATS_TEST_DIRNAME}/host_yaml.sh"
   mkdir -p "${REPO}/config/instances"
-  printf 'USER_NAME=alice\nIMAGE_NAME=isaac\nDOCKER_HUB_USER=alice\n' > "${REPO}/.env"
+  # Identity vars live in .env.generated (base A2 model), NOT .env -- the
+  # hook must source .env.generated to resolve USER_NAME / IMAGE_NAME /
+  # DOCKER_HUB_USER. .env is only the (optional) user overlay.
+  printf 'USER_NAME=alice\nIMAGE_NAME=isaac\nDOCKER_HUB_USER=alice\n' \
+    > "${REPO}/.env.generated"
   printf 'ISAAC_SIGNAL_PORT=49200\nVIEWER_PORT=5174\n' \
     > "${REPO}/config/instances/foo.env"
 }
@@ -97,6 +101,68 @@ teardown() {
   printf 'network:\n  public_ip: "a;rm -rf /"\n' > "${REPO}/config/host.yaml"
   run --separate-stderr "${HOOK}" -t stream -d --instance foo
   [ "$status" -eq 1 ]
+}
+
+@test "post-run: identity is read from .env.generated, not .env (base A2 model)" {
+  # Reality: setup.sh writes USER_NAME / IMAGE_NAME / DOCKER_HUB_USER to
+  # .env.generated; .env may be absent entirely. The hook must still
+  # resolve identity from .env.generated. With an EMPTY USER_NAME the
+  # Isaac container name becomes "-isaac-stream-foo" (leading dash, which
+  # `docker cp` parses as a flag and dies) and the viewer image becomes
+  # "local/..." -- the two S7 live-run defects this fix closes.
+  rm -f "${REPO}/.env"
+  printf 'network:\n  public_ip: "127.0.0.1"\n' > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d --instance foo
+  [ "$status" -eq 0 ]
+  # Container name uses USER_NAME from .env.generated -- crucially NO leading dash.
+  echo "${output}" | grep -qE 'docker cp .*alice-isaac-stream-foo:/etc/host.yaml'
+  ! echo "${output}" | grep -qE 'docker cp .*[ ]-isaac-stream-foo:'
+  # Viewer image uses DOCKER_HUB_USER from .env.generated, not the local fallback.
+  echo "${output}" | grep -qE 'docker run .*alice/omniverse_web_viewer:runtime'
+  ! echo "${output}" | grep -qE 'docker run .*local/omniverse_web_viewer:runtime'
+}
+
+@test "post-run: .env overlays .env.generated identity (user override wins)" {
+  # .env.generated provides the base identity; .env, sourced second, is the
+  # user overlay and must win. Here .env bumps USER_NAME to bob.
+  printf 'USER_NAME=bob\n' > "${REPO}/.env"
+  printf 'network:\n  public_ip: "127.0.0.1"\n' > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d --instance foo
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep -qE 'docker cp .*bob-isaac-stream-foo:/etc/host.yaml'
+}
+
+@test "post-run: every committed instance env cache dir is ./-prefixed or absolute" {
+  # Guard for FIX 2: docker compose reads a BARE relative bind-mount source
+  # (slashes, no leading ./) as an invalid named volume. Committed
+  # config/instances/*.env must keep INSTANCE_CACHE_DIR portable: './'
+  # (resolves against repo root for both compose and the pre-run hook) or
+  # an absolute path.
+  #
+  # Locate the source tree's config/instances by walking up from this spec.
+  # When the spec is run baked into /smoke_test/ (flat copy, no source tree)
+  # the dir is absent -- skip rather than pass vacuously. The check is
+  # exercised in the source / CI bats run where config/instances is present.
+  local dir="${BATS_TEST_DIRNAME}" cfg=""
+  while [ "${dir}" != "/" ]; do
+    if [ -d "${dir}/config/instances" ]; then cfg="${dir}/config/instances"; break; fi
+    dir="$(dirname "${dir}")"
+  done
+  [ -n "${cfg}" ] || skip "config/instances not reachable (baked smoke run)"
+  local f bad=0 seen=0
+  for f in "${cfg}"/*.env; do
+    [ -f "${f}" ] || continue
+    seen=1
+    local val
+    val="$(grep -E '^INSTANCE_CACHE_DIR=' "${f}" | tail -n1 | cut -d= -f2-)"
+    [ -n "${val}" ] || continue
+    case "${val}" in
+      ./*|/*) : ;;  # ok: explicit relative or absolute
+      *) echo "bare relative INSTANCE_CACHE_DIR in ${f}: ${val}" >&2; bad=1 ;;
+    esac
+  done
+  [ "${seen}" -eq 1 ]  # non-vacuous: at least one committed instance env exists
+  [ "${bad}" -eq 0 ]
 }
 
 @test "post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)" {
