@@ -48,20 +48,24 @@ teardown() {
   [ -z "${output}" ]
 }
 
-@test "post-run: stream + -d starts the viewer with stream-only + auto-launch" {
+@test "post-run: stream + -d starts the viewer with stream-only UI mode" {
   run --separate-stderr "${HOOK}" -t stream -d --instance foo
   [ "$status" -eq 0 ]
   echo "${output}" | grep -qE 'docker run .*-e VIEWER_UI_MODE=stream-only'
-  echo "${output}" | grep -qE 'docker run .*-e VIEWER_AUTO_LAUNCH=true'
-  # Negative guard: the opposite values must not appear.
+  # Negative guard: the opposite value must not appear.
   ! echo "${output}" | grep -qE 'VIEWER_UI_MODE=usd-viewer'
-  ! echo "${output}" | grep -qE 'VIEWER_AUTO_LAUNCH=false'
+  # auto-launch was dropped (#123): the flag must not be passed at all.
+  ! echo "${output}" | grep -qE 'VIEWER_AUTO_LAUNCH'
 }
 
-@test "post-run: viewer SIGNALING_PORT comes from the instance overlay env" {
+@test "post-run: viewer ports come from the instance env via --env-file (#123)" {
   run --separate-stderr "${HOOK}" -t stream -d --instance foo
   [ "$status" -eq 0 ]
-  echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT=49200'
+  # docker --env-file is literal; the per-instance env file carries the
+  # viewer key names (SIGNALING_PORT / MEDIA_PORT / SERVE_PORT).
+  echo "${output}" | grep -qE 'docker run .*--env-file [^ ]*config/instances/foo.env'
+  # No literal -e port fallback when the env-file is supplied.
+  ! echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT='
 }
 
 @test "post-run: viewer container is named per instance and removed first" {
@@ -71,11 +75,14 @@ teardown() {
   echo "${output}" | grep -qE 'docker run .*--name owv-foo'
 }
 
-@test "post-run: default instance falls back to owv-default + port 49100" {
+@test "post-run: default instance falls back to owv-default + literal -e ports" {
   run --separate-stderr "${HOOK}" -t stream -d
   [ "$status" -eq 0 ]
   echo "${output}" | grep -qE 'docker run .*--name owv-default'
+  # No --instance -> no env-file -> literal -e fallback (#123).
   echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT=49100'
+  echo "${output}" | grep -qE 'docker run .*-e SERVE_PORT=5173'
+  ! echo "${output}" | grep -qE 'docker run .*--env-file'
 }
 
 @test "post-run: host.yaml present is copied into the Isaac container" {
@@ -92,11 +99,12 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
-@test "post-run: viewer image is omniverse_web_viewer:serve, not stale owv:runtime (#121)" {
+@test "post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)" {
   run --separate-stderr "${HOOK}" -t stream -d --instance foo
   [ "$status" -eq 0 ]
-  # Image follows the compose naming ${DOCKER_HUB_USER:-local}/omniverse_web_viewer:serve.
-  echo "${output}" | grep -qE 'docker run .*alice/omniverse_web_viewer:serve'
-  # Regression guard (#121): the renamed/stale image must not be launched.
+  # Image follows the compose naming ${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime
+  # (owv renamed the serve image to :runtime; #123 tracks the hook switch).
+  echo "${output}" | grep -qE 'docker run .*alice/omniverse_web_viewer:runtime'
+  # Regression guard (#121): the old short stale image name must not be launched.
   ! echo "${output}" | grep -qE 'owv:runtime'
 }
