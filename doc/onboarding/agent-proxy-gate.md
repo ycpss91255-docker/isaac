@@ -105,11 +105,35 @@ human's name, date, and outcome here when done.
 
 | Date | Proxy | First topic | URDF swap | Sensor swap | Framework untouched | Enforcement |
 |---|---|---|---|---|---|---|
-| 2026-06-11 | sub-agent (structural, headless dry-path) | reasoned to camera topic via README + scaffold | yes (robot.yaml + model) | yes (custom.yaml resolution/fps) | yes (audited, no framework read) | mechanical-via-audit |
+| 2026-06-11 | self-driven (the #135 executor, framework-blind role-play) | reasoned to camera topic via README + scaffold | yes (robot.yaml + model) | yes (custom.yaml resolution/fps) | yes (audited, no framework read) | mechanical-via-audit |
+| 2026-06-12 | **genuinely independent fresh agent** (clean context, zero framework knowledge) | reached (scaffold + structural; expected `/camera_bot/camera/color/image_raw`) | yes (`box_bot.urdf` + robot.yaml) | yes (custom.yaml 1280x720/30 -> 640x480/15) | yes (transcript audited: only example/ + README + new-workspace.sh --help + onboarding doc; zero framework/src/test access) | mechanical-via-audit |
 
-The first proxy run (2026-06-11) was the gate-proving run for issue #135:
-it asserted the path through the scaffold structure-check + a dry/headless
-reasoning path rather than a full GPU boot (the GPU first-topic is already
-covered by `test/integration/pytest/test_scaffold_smoke.py` on the RTX
-5090). Its tool-call log was audited clean. The pre-1.0.0 human dry-run
-(step 4) remains the real backstop and is still OPEN.
+The first run (2026-06-11) was self-driven by the agent that built #135 --
+it role-played being framework-blind, but already had the framework in its
+context, so it proved the harness, not self-sufficiency. The second run
+(2026-06-12) is the credible proof: a **separately spawned fresh agent**
+started with a clean context (no framework knowledge), given only
+`example/` + README, completed all three tasks and its full tool-call
+transcript was audited -- it touched only `example/`, the example READMEs,
+`script/new-workspace.sh --help`, this onboarding doc, and its own
+throwaway `/tmp` workspace; it never opened `framework/`, `src/`, `test/`,
+or any ADR. The GPU first-topic itself is covered by
+`test/integration/pytest/test_scaffold_smoke.py` on the RTX 5090.
+
+The independent proxy surfaced three non-blocking onboarding rough edges
+(follow-up issue candidates, out of scope for this gate per #135):
+
+1. **Discovery gap** -- the repo-root README does not point at
+   `example/README.md` or `script/new-workspace.sh`; a newcomer landing at
+   the root can miss the onboarding path.
+2. **Opaque `just` targets** -- `just setup/build/run/import-model` are
+   invoked by name but defined in `.base/justfile`; a `just --list` pointer
+   or one-line descriptions in the example README would help.
+3. **GPU-bound steps** -- fully closing first-topic and the URDF swap needs
+   one GPU boot (`just import-model` for the new USD, `just run` for the
+   live frame); the hosted-only path scaffolds, edits, and validates
+   structure but cannot produce the actual frame / USD. The onboarding doc
+   already acknowledges this.
+
+The pre-1.0.0 human dry-run (step 4) remains the real backstop and is still
+OPEN.
