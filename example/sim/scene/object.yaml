@@ -1,0 +1,18 @@
+# object.yaml (ADR-0017 section 4): passive entities.
+#
+# Each entry declares mobility: dynamic|static (the robot-vs-object rule
+# is "can it move on its own?" -- objects cannot, so they are passive).
+# One dynamic prop cube sits in front of the camera_bot: the chassis can
+# push it (L2 kinematic pushes L3 dynamic, ADR-0017 ADR-0008 restatement)
+# and it gives the camera something to see.
+
+objects:
+  - name: prop_cube
+    # A primitive cube prop. v1 ships a geometry-only USD under
+    # model/usd/object/; the schema carries mobility so the physics level
+    # is declared at the scene, not baked into the model.
+    model: "object/prop_cube/prop_cube.usda"
+    mobility: dynamic
+    pose:
+      xyz: [1.5, 0.0, 0.25]    # meters, in front of the robot
+      rpy: [0.0, 0.0, 0.0]     # degrees

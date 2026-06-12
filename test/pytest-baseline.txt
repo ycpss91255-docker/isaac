@@ -9,21 +9,67 @@
 # HOSTED_UNIT_BASELINE -- the M1 stage gate. Hosted unit pytest
 #   (test/unit/pytest/, no Isaac Sim installed) must collect at least this
 #   many tests and pass them all. M1 gate floor per the DoD is 115; the
-#   live count at extraction is 171 (121 ported + 50 greenfield: the
-#   parametrized import-safety loop, the AST module-top-import guard, the
-#   ros_io pure surface, the PrimSummary pure surface, and the driver
-#   lifecycle-order spy + SCENE shape). 171 is the enforced floor.
-HOSTED_UNIT_BASELINE = 171
+#   count at extraction (#130) was 171 (121 ported + 50 greenfield). The
+#   example sim (#131) adds 14 hosted unit tests (test_example_driver.py:
+#   three-file scene merge, expected base_link prim path, cmd_vel
+#   controller mapping, SCENE attr shape, run() lifecycle-order + SIGINT
+#   spy, import-safety). Live count was then 185. The scaffold (#134)
+#   adds 23 hosted structure-check tests
+#   (test/unit/pytest/test_new_workspace_scaffold.py: run new-workspace.sh
+#   into a tmp dir and assert the A5 consumer layout -- 16 emitted-file
+#   existence checks, src/docker mount point, two-file env model (.env
+#   overlay emitted / .env.generated not), workload-var overlay, and the
+#   pre-filled driver imports cleanly with its path prologue rewritten for
+#   the consumer submodule framework path + resolves its own three-file
+#   scene). The onboarding gate (#135) adds 13 hosted structure-check tests
+#   (test/unit/pytest/test_onboarding_gate.py: the M5 agent-proxy gate
+#   precondition -- 4 four-lang example-README existence checks, the README
+#   documents the three onboarding tasks (first-topic / URDF swap / in-scope
+#   sensor swap), the lidar/imu NotImplementedError out-of-scope callout,
+#   the URDF + sensor swap surfaces exist, and the agent_proxy_gate.sh
+#   harness passes its structure precondition + its --audit mode fails on a
+#   framework-source read and passes on a clean log). Live count is now
+#   221 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 221
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
 #   not green, but hosted-only green is mergeable here). The full
 #   cross-runner aggregate (HOSTED_UNIT + GPU_INTEGRATION) is asserted at
-#   M2 with #132. Live count: 12.
-GPU_INTEGRATION_BASELINE = 12
+#   M2 with #132. #132 adds the example GPU integration test
+#   (test_example_gpu_integration.py: 9 active strong-assertion tests --
+#   L4 boot/exit markers, CUDA+Vulkan init, L1 base_link valid+RigidBody,
+#   L1 link/joint counts, L1 URDF->USD diff=0 via fresh re-import, L3
+#   camera topic/frame_id/message, ros_io non-blocking None, /cmd_vel
+#   round-trip, injected SIGINT -> shutdown -- plus, originally, 1
+#   collected-but-skipped cross-container placeholder deferred to #133).
+#   The scaffold (#134) adds the scaffold GPU smoke
+#   (test_scaffold_smoke.py: 3 tests -- scaffold the consumer workspace
+#   via new-workspace.sh --local-docker, boot the SCAFFOLDED driver
+#   headless, and assert the L4 markers, the camera OmniGraph chain, and
+#   the camera topic appearing on a sibling rclpy probe; the DoD smoke
+#   end-to-end).
+#
+#   M2 cross-container round-trip (#132, PRD Pre-Publish item 1): the
+#   skipped placeholder in test_example_gpu_integration.py is REMOVED
+#   (-1 in-container, so the in-container GPU suite collects 24) and the
+#   genuine Isaac<->ament round-trip lands as
+#   test_cross_container_roundtrip.py (2 directional tests -- sim->ament
+#   camera receipt + ament->sim /cmd_vel receipt). That test
+#   host-orchestrates sibling ros:humble containers running the
+#   example/ros2/ ament nodes, so it CANNOT run inside the Isaac
+#   container; assert_pytest_baseline.sh --gpu runs it as a host leg and
+#   SUMS its collected/passed into the GPU-integration totals. Aggregate
+#   GPU-integration = 24 (in-container) + 2 (host xc) = 26 collected, all
+#   passing on the RTX 5090 reference runner. assert_pytest_baseline.sh
+#   enforces that the GPU suite actually RAN (passed > 0); an all-skipped
+#   GPU job does NOT satisfy the M2 aggregate.
+GPU_INTEGRATION_BASELINE = 26
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; the live aggregate is 183 (171 + 12).
-#   The +1 integration over the PRD's 11 is the #127 camera headless test
-#   merged after the PRD was written.
+#   126). Recorded for traceability; with #132's GPU tests online the
+#   live aggregate is 247 (221 hosted-unit + 26 GPU-integration), well
+#   past the PRD's 126 floor. The aggregate is asserted at M2 where the
+#   GPU runner runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU
+#   job does not count toward it.
 AGGREGATE_TARGET = 126

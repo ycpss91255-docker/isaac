@@ -1,0 +1,45 @@
+# camera_bot front camera (the base-repo example sensor).
+#
+# Same schema as the proven src/config/camera/custom.yaml that the #127
+# headless smoke booted: a `custom` camera = one local UsdGeom.Camera per
+# sensors[] entry, NO external Isaac assets. Here it carries a single RGB
+# stream mounted on the camera_bot chassis.
+#
+# Loaded by isaac_devkit.sensors.load_config + setup_camera (the per-
+# sensor-YAML v1 path). The catalog/placement two-tier model (ADR-0017
+# section 5) is schema-locked; its three-tier resolution lands later, so
+# the example uses this working per-sensor file directly.
+
+# mount = camera body center, attached to the robot chassis prim. Pose is
+# RELATIVE to parent_prim. build_scene references the robot USD under
+# /World/Robot, so base_link lives at /World/Robot/base_link.
+mount:
+  parent_prim: "/World/Robot/base_link"
+  pose:
+    xyz: [0.2, 0.0, 0.3]       # meters (matches the camera_mount joint)
+    rpy: [0.0, 0.0, 0.0]       # degrees (roll/pitch/yaw around X/Y/Z)
+
+sensor:
+  category: camera
+  type: custom
+
+# One independent optical sensor: an RGB camera. Each entry produces one
+# UsdGeom.Camera prim under <mount>/<name> with its own intrinsics.
+sensors:
+  - role: rgb
+    name: color
+    pose:
+      xyz: [0.0, 0.0, 0.0]     # meters, relative to mount
+      rpy: [0.0, 0.0, 0.0]     # degrees
+    resolution: [1280, 720]    # HD720
+    fps: 30
+    hfov: 90.0                 # degrees
+    vfov: 60.0                 # degrees
+
+# ROS 2 output:
+#   <topic_prefix>/color/image_raw, .../color/camera_info
+# Frame id:
+#   <frame_id_prefix>_color_optical_frame
+ros:
+  topic_prefix: "/camera_bot/camera"
+  frame_id_prefix: "camera_bot_camera"
