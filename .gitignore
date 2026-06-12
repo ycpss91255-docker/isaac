@@ -11,6 +11,11 @@ coverage/
 
 # Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
 isaac_ws/
+# Isaac Sim kit/ov/nvidia caches: devel-test compose mounts
+# ${WS_PATH}/isaac-sim/* into the container. When WS_PATH is the repo
+# checkout (self-CI), these land here; the CI workflow pre-creates them
+# writable before the GPU run and clears stale ones pre-checkout.
+isaac-sim/
 
 # Per-host deployment config (use config/host.yaml.example as template)
 config/host.yaml

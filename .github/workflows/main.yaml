@@ -56,12 +56,13 @@ jobs:
       # in-workflow equivalent of the runner-level safeguard proposed in
       # ycpss91255-docker/github_runner#77. GITHUB_WORKSPACE always exists by
       # the time a step runs, so the bind mount never auto-creates it.
-      - name: Pre-checkout cleanup (clear stale root-owned bytecode)
+      - name: Pre-checkout cleanup (clear stale root-owned residue)
         run: |
           docker run --rm -v "${GITHUB_WORKSPACE}":/w -w /w busybox:1 sh -c '
             find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
             find . -type f -name "*.pyc" -delete 2>/dev/null
             rm -f test/.gpu-pytest-report.xml test/.xc-pytest-report.xml 2>/dev/null
+            rm -rf isaac-sim 2>/dev/null
             true'
 
       - name: Checkout
@@ -93,6 +94,27 @@ jobs:
 
       - name: Build test image (devel-test stage, cached if unchanged)
         run: ./script/build.sh -t test
+
+      # Pre-create the Isaac Sim cache mount sources writable. The
+      # devel-test compose bind-mounts ${WS_PATH}/isaac-sim/* (kit / ov /
+      # nvidia shader + compute caches) into the container. With WS_PATH
+      # pinned to the checkout root these sources do not pre-exist, so the
+      # docker daemon (root) auto-creates them root-owned -- and the
+      # container runs as the non-root image user, so it cannot write them.
+      # The symptom is silent: the RTX Hydra engine + shader cache fail to
+      # initialize ("Creating driver shaderCache directory failed",
+      # "unable to create shared hydra engine context ... type: rtx"), no
+      # camera frames are ever rendered, and the L3 / scaffold / cuda
+      # camera assertions fail with no obvious cause. Creating the leaf
+      # dirs here (as the runner user) makes the mounts writable. They are
+      # gitignored and cleared pre-checkout, so the cache is cold each run.
+      - name: Pre-create Isaac Sim cache mount dirs (writable)
+        run: |
+          mkdir -p \
+            isaac-sim/kit/cache isaac-sim/kit/data isaac-sim/kit/logs \
+            isaac-sim/ov/cache isaac-sim/ov/data isaac-sim/ov/logs \
+            isaac-sim/pip isaac-sim/nvidia/glcache \
+            isaac-sim/nvidia/computecache isaac-sim/documents
 
       # M2 GPU integration gate (PRD #4-int / isaac#132): boots headless
       # Isaac for real on the self-hosted GPU runner and runs the example
