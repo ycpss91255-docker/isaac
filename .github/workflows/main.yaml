@@ -46,6 +46,20 @@ jobs:
   python-tests:
     runs-on: [self-hosted, gpu]
     timeout-minutes: 30
+    # The devel-test compose mounts ${WS_PATH} at ~/work (container CWD)
+    # and bakes PYTHONPATH=~/work/framework. base's detect_ws_path has no
+    # case for a repo's own CI checkout: on a self-hosted runner the repo
+    # lands at _work/<repo>/<repo>, none of its detection strategies
+    # (docker_* sibling, *_ws ancestor) match, and the parent-dir fallback
+    # returns _work/<repo> -- one level too high, so ~/work would hold the
+    # repo at ~/work/<repo>/ and both the test path and the framework
+    # PYTHONPATH miss. Pin WS_PATH to the checkout root (the documented
+    # "Edit WS_PATH if needed" override) so setup.sh apply mounts the repo
+    # root directly at ~/work. base follow-up: teach detect_ws_path the
+    # self-CI layout. mount_1 in the base template is empty, so this env
+    # override is honored (setup.sh keeps a valid WS_PATH env over detect).
+    env:
+      WS_PATH: ${{ github.workspace }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -71,9 +85,10 @@ jobs:
       # suite actually RAN (passed > 0 -- a skipped GPU job is NOT green),
       # collected >= GPU_INTEGRATION_BASELINE (ratchet), and the
       # cross-runner aggregate (HOSTED_UNIT + GPU_INTEGRATION) >=
-      # AGGREGATE_TARGET (the PRD 126 parity floor). The repo is checked
-      # out at the workspace mount root, so the in-container test path is
-      # test/integration/pytest/ (the default).
+      # AGGREGATE_TARGET (the PRD 126 parity floor). With WS_PATH pinned to
+      # the checkout root (job env above), the repo root mounts at ~/work,
+      # so the in-container test path is test/integration/pytest/ (the
+      # default).
       - name: GPU integration pytest + aggregate gate (M2)
         run: ./test/assert_pytest_baseline.sh --gpu
 
