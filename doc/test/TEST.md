@@ -1,6 +1,6 @@
 # TEST.md
 
-**61 tests** total.
+**64 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (8)
 
@@ -43,7 +43,7 @@ Pre-run hook (`script/hooks/pre/run.sh`, base #440): creates the per-instance ca
 | `pre-run: no --instance is a no-op (creates nothing)` | Without `--instance` the hook does nothing (the default instance is handled elsewhere). |
 | `pre-run: --instance with missing env warns but does not fail` | A named instance with no overlay env warns on stderr and exits 0. |
 
-## test/smoke/bats/post_run_hook_spec.bats (9)
+## test/smoke/bats/post_run_hook_spec.bats (12)
 
 Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the web-viewer. Exercised via `POST_RUN_DRYRUN=1`.
 
@@ -57,6 +57,9 @@ Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`,
 | `post-run: default instance falls back to owv-default + literal -e ports` | With no `--instance` (no env-file), the viewer is `owv-default` with literal `-e SIGNALING_PORT=49100` + `-e SERVE_PORT=5173`. |
 | `post-run: host.yaml present is copied into the Isaac container` | A present host.yaml is `docker cp`'d to the per-instance Isaac container at `/etc/host.yaml`. |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
+| `post-run: identity is read from .env.generated, not .env (base A2 model)` | With `.env` absent, identity comes from `.env.generated`: container name is `alice-isaac-stream-foo` (no leading dash) and the viewer image is `alice/...` (not `local/...`). |
+| `post-run: .env overlays .env.generated identity (user override wins)` | `.env` (sourced second) overrides `.env.generated`: a `USER_NAME=bob` overlay yields `bob-isaac-stream-foo`. |
+| `post-run: every committed instance env cache dir is ./-prefixed or absolute` | Grep guard that every committed `config/instances/*.env` `INSTANCE_CACHE_DIR` is `./`-prefixed or absolute (never a bare relative compose source). |
 | `post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime` (owv renamed serve->runtime, #123); regression guard that the old short stale `owv:runtime` is not launched. |
 
 ## test/smoke/bats/post_stop_hook_spec.bats (2)
