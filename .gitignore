@@ -11,6 +11,11 @@ coverage/
 
 # Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
 isaac_ws/
+# Isaac Sim kit/ov/nvidia caches: devel-test compose mounts
+# ${WS_PATH}/isaac-sim/* into the container. When WS_PATH is the repo
+# checkout (self-CI), these land here; the CI workflow pre-creates them
+# writable before the GPU run and clears stale ones pre-checkout.
+isaac-sim/
 
 # Per-host deployment config (use config/host.yaml.example as template)
 config/host.yaml
@@ -34,3 +39,15 @@ __pycache__/
 .coverage.*
 .pytest_cache/
 htmlcov/
+# colcon build artifacts (example/ros2 ament packages, #133)
+build/
+install/
+log/
+
+# GPU integration JUnit reports (assert_pytest_baseline.sh --gpu, M2 gate, #132)
+test/.gpu-pytest-report.xml
+test/.xc-pytest-report.xml
+
+# Scaffold GPU-smoke throwaway workspace (test_scaffold_smoke.py, #134).
+# The fixture writes + cleans this up; ignored as defense if a run aborts.
+test/.scaffold-smoke/

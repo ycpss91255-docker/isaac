@@ -33,6 +33,7 @@ import argparse
 import ctypes
 import os
 import sys
+from pathlib import Path
 
 # Ticks of app.update() to wait for the first frame after the graph is
 # built. The render product + SDG pipeline warms up within a few dozen
@@ -66,7 +67,19 @@ def _main() -> None:
     # smoke result does not depend on inherited container env.
     os.environ["ISAAC_LIVESTREAM"] = "0"
 
-    sys.path.insert(0, args.script_dir)
+    # Self-resolve the sibling framework from the repo root so
+    # ``import isaac_devkit`` (which isaac_driver re-exports from) works
+    # regardless of the container mount layout. The base env_8 sets
+    # PYTHONPATH=~/work/framework, but that does not resolve when the repo
+    # is mounted as a NESTED worktree (its framework/ is not at
+    # ~/work/framework) -- isaac#134. ``--script-dir`` is <repo>/src/script,
+    # so its parents[1] is the repo root; mirror the #132 example runner's
+    # self-resolution. The driver path stays first on sys.path.
+    script_dir = Path(args.script_dir).resolve()
+    framework_dir = script_dir.parents[1] / "framework"
+    if framework_dir.is_dir() and str(framework_dir) not in sys.path:
+        sys.path.insert(0, str(framework_dir))
+    sys.path.insert(0, str(script_dir))
 
     try:
         from isaac_driver import IsaacDriver  # noqa: E402
