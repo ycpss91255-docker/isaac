@@ -2,6 +2,7 @@
 
 > 狀態：**published**（2026-06-11）— GitHub issues 依「Finalized Issue Breakdown」建立，掛 Milestones M0–M3；本表 #1–#8 為邏輯編號，實際 GitHub issue 編號見各 milestone。歷程：三輪 grill-me + 三角色 review（資深 RD / PM / QA）+ 第四輪 grill（A–F 缺口 + 使用情景 + Milestone）+ **第五輪 grill（Q1–Q7）與三輪多視角 workflow review** 已 fold 進。round-5 增量：A7 contract 訂正（load_scene→dict/build_scene、PrimSummary 欄位、3a/3b 拆）、pytest-baseline=126 parity gate、0013 amend-重推導（非作廢）、32-story 孤兒歸位 + 三套編號收斂、M5 onboarding agent-proxy gate、#4 拆 #4/#4-int。
 > 執行 gate（publish 後仍有效）：(1) demo checkpoint（M0：camera→ROS2 topic headless smoke）通過後才執行 M1+。**(2) 原 #4-int 外部 gate 已解**：base v0.41.0 已 release（2026-06-10），isaac `.base` 已 bump v0.41.0（PR #124 已 merge 2026-06-10）；#4-int 外部相依已清、僅 blocked-by #4，M2a/M2b 收斂為單一 M2。消費機制（submodule）、兩層 versioning、ADR/CONTEXT.md split、base#493 現況已查證收斂（見 A6 / Implementation Decisions / Pre-Publish 7-8）。
+> **round-6 修訂（2026-06-15，第六輪 grill，見 ADR-0018）**：M2（#146）已 merge 後發現 raw-`pxr` 的 scene spawn 與 NVIDIA **Isaac Lab `sim_utils`** spawner 重疊。決議**在 `v1.0.0` tag 前**把 `isaac_devkit` 的「擺東西」那半 re-base 到 Isaac Lab：`build_scene` 改寫成 YAML→Isaac Lab cfg 的 adapter（curated 欄位 + `spawn_overrides:` 直通）；`model_import` 委派 Isaac Lab `UrdfConverterCfg`；`materials` 顏色改走材質 cfg 參數（variant-set 僅留結構性變體）；`driver` 改 `AppLauncher`+`SimulationContext`。**ROS2 出口（`sensors`/`ros_io` 的 OmniGraph bridge）不動**——它是官方推薦路、與 spawn 解耦，仍是本 base repo 差異化。Isaac Lab 當 **base tool baked**（pin 2.3，Isaac Sim 5.1 + Py3.11），`isaac_devkit` 仍 mount。採 spawner 層（「A」），cfg 物件設計成未來可整包升 `InteractiveScene`（「C」，需要平行 env / RL DR 時才上）。影響章節：Implementation Decisions、A2、A3、A6、A7、Compatibility Matrix、Milestone 規劃、Risks。
 > Triage label（送出時）：`ready-for-agent`。送 GitHub 前依雙語規約翻英文 + `--body-file`。
 
 ## Problem Statement
@@ -99,7 +100,9 @@
 
 **框架安裝 = mount（非 baked，G1 修正）**：`framework/isaac_devkit/` 隨整包 `${WS_PATH}` mount 進容器 `~/work/src/docker/framework`，加進 `PYTHONPATH` 即可 `import isaac_devkit`。**無 Dockerfile pip install、無 baked、無 version=image**——框架版本 = submodule pin 的 git commit；改框架即時生效（mount），bump submodule 就更新、免 rebuild。「baked / 無 live 模式 / bump+rebuild」等衍生決策全作廢。
 
-**模組（deep modules，每個拆 pure / Isaac 兩半）**：`model_import`(L1) / `materials`(L2，variant single owner) / `sensors`(L3) / `ros_io`(ROS2 輸入) / `scene`(三檔組裝) / `driver`(L4 lifecycle)。`__init__.py` curated surface。
+**模組（deep modules，每個拆 pure / Isaac 兩半）**：`model_import`(L1) / `materials`(L2) / `sensors`(L3) / `ros_io`(ROS2 輸入) / `scene`(三檔組裝) / `driver`(L4 lifecycle)。`__init__.py` curated surface。
+
+**Isaac Lab 當 spawn backend（round-6，ADR-0018）**：「擺東西進場景」那半改用 NVIDIA **Isaac Lab `sim_utils`** spawner（config-dataclass + `cfg.func(prim_path, cfg)`），取代手刻 raw-`pxr` `DefinePrim`/`AddReference`。切分：①spawn 交給 Isaac Lab、②sim loop 用 `SimulationContext`、③**ROS2 出口維持自家 OmniGraph**（`sensors`/`ros_io` 不動——官方確認 OmniGraph 是 Isaac Lab 推薦的 ROS2 路，且附著在 USD prim/render product 上、與 spawn 解耦；tensor→rclpy 慢路不走）。`scene.build_scene` 重寫成 **YAML→Isaac Lab cfg 的 adapter**：YAML（你的友善合約，不變）→ adapter → Isaac Lab cfg 物件，控管走「**curated 欄位**（pose/sensor catalog/mobility，framework 驗證命名穩定）**+ `spawn_overrides:` 直通**（key 即 Isaac Lab cfg kwargs，整條長尾不用包裝、不損能力）」。`model_import` 委派 Isaac Lab `UrdfConverterCfg`（lazy cache 離線轉，保留 L1 PrimSummary diff=0 契約、輸出 instanceable）。`materials` 顏色＝材質 cfg 參數（`PreviewSurfaceCfg(diffuse_color=...)` 走直通，DR 隨機此參數），variant-set 僅留結構性變體。**採 spawner 層（「A」）**，cfg 物件即穩定接縫，未來要平行 env / RL domain randomization 時整包塞進 `InteractiveSceneCfg`（「C」），YAML 與 adapter 不變。**Isaac Lab = baked base tool**（pin 2.3，與 Isaac Sim 同級；不違反 mount 原則——base tool baked、framework mount，見 A6 + ADR-0017 §2 amendment）。**時機 = `v1.0.0` 前 re-base**，M2 example/測試重做一輪。
 
 **schema 形狀鎖死、實作漸進（決策 C）**：三檔 scene + catalog/placement + `link` + `overrides:` + `mobility` + SDF-like 命名的**全貌寫進 successor ADR 當 committed 契約**（consumer 一開始就 code against 最終形狀）；框架**先實作 example 用到的子集**（camera + base_link mount + topic override + cmd_vel 輸入），lidar/imu/zed/multi-instance auto-namespace/link 存在性驗證等 raise `NotImplementedError`，等真用到再補。介面不 churn、實作慢慢長滿。
 
@@ -127,23 +130,25 @@
 driver 用 `SCENE`（三檔 scene 路徑）class attr 取代單 `USD`。
 ```
 run():
-  SimulationApp(parse_livestream_env(ISAAC_LIVESTREAM))   # 必須最先
+  app = AppLauncher(headless/livestream from ISAAC_LIVESTREAM,   # 必須最先（round-6/ADR-0018）
+                    enable_cameras=True).app                     # headless 下相機要 render
+  sim = SimulationContext(...)       # Isaac Lab sim loop manager（取代裸 SimulationApp）
   install signal handlers（蓋 Kit SIGINT）
   scene = load_scene(SCENE, ROOT)    # pure：讀 YAML + 驗 schema，回 validated dict
-  stage = get_stage()                # 取 SimulationApp/World 的 stage（非 load_scene 產生）
-  build_scene(scene, stage, ROOT)    # Isaac：add_reference + pose + variant，mutate stage
-  setup_sensors(stage, scene)        # L3: OmniGraph → ROS2 publish
-  setup_ros2_io(stage, scene)        # ROS2 輸入：OmniGraph Subscribe node（非 rclpy executor）
+  stage = get_stage()                # 取 stage（非 load_scene 產生）
+  build_scene(scene, stage, ROOT)    # Isaac：YAML→Isaac Lab cfg → cfg.func() spawn，mutate stage
+  setup_sensors(stage, scene)        # L3: OmniGraph → ROS2 publish（不動）
+  setup_ros2_io(stage, scene)        # ROS2 輸入：OmniGraph Subscribe node（非 rclpy executor，不動）
   ensure_scene_defaults(stage)       # SunLight
-  play_timeline()
+  sim.reset() / play timeline
   setup(stage)                       # 子類 hook
-  main()                             # 子類 loop：self.io.latest("/cmd_vel") → controller → 驅動
+  main()                             # 子類 loop：self.io.latest("/cmd_vel") → controller → 驅動（sim.step）
   shutdown(); app.close()
 ```
-`ros_io` 用 **OmniGraph ROS2 Subscribe node 寫進 graph attribute**（不開 rclpy executor）→ 規避 rclpy/Kit signal init 順序衝突；`latest(topic)` 讀 attr，**無訊息回 None、不阻塞**。lifecycle 順序（load_scene→setup_sensors→setup_ros2_io→setup→main）可用 pure-side spy 驗呼叫序（hosted 免 GPU）。
+**round-6（ADR-0018）**：driver 改用 Isaac Lab `AppLauncher`（取代裸 `SimulationApp`）+ `SimulationContext`（`sim.step()`），`ISAAC_LIVESTREAM`(0/1/2) 直接映射 AppLauncher 的 `HEADLESS`/`LIVESTREAM={1,2}` env（CLI 參數可覆蓋），headless 下要 `enable_cameras=True`（注意 issue #3250）。`IsaacDriver` 的 setup/main/shutdown lifecycle hooks 保留當薄殼——pattern 不變（ADR-0009 amend），只是底座從 SimulationApp 換成 Isaac Lab primitives，使未來升 `InteractiveScene`（C）成本極低。`build_scene` body 改成建/spawn Isaac Lab cfg 物件（簽名不變）。`ros_io` 用 **OmniGraph ROS2 Subscribe node 寫進 graph attribute**（不開 rclpy executor）→ 規避 rclpy/Kit signal init 順序衝突；`latest(topic)` 讀 attr，**無訊息回 None、不阻塞**。lifecycle 順序（load_scene→setup_sensors→setup_ros2_io→setup→main）可用 pure-side spy 驗呼叫序（hosted 免 GPU）。
 
 ### A3. 三檔 scene
-`scene.yaml`（環境 + import 另兩檔）/ `robot.yaml`（可自主移動，巢狀 sensors）/ `object.yaml`（被動，每筆 `mobility: dynamic|static`）。各檔自帶 xyzrpy placement。
+`scene.yaml`（環境 + import 另兩檔）/ `robot.yaml`（可自主移動，巢狀 sensors）/ `object.yaml`（被動，每筆 `mobility: dynamic|static`）。各檔自帶 xyzrpy placement。**YAML schema 不變**（仍是使用者友善合約）；round-6 起 `build_scene` 後面接 **Isaac Lab `sim_utils` cfg adapter**（環境/燈 → `GroundPlaneCfg`/`DistantLightCfg`；robot/object USD → `UsdFileCfg`；`mobility` → 物理屬性 cfg），curated 欄位翻譯 + `spawn_overrides:` 直通帶任意 Isaac Lab cfg 參數（見 Implementation Decisions / ADR-0018）。
 
 ### A4. Sensor（catalog / 解析 / override / link）
 - **catalog（層1，完整 sensor spec、不含 mount）**：暴露所有 Isaac 可調參數（camera 解析度/fps/fov/光圈/焦距/clipping/projection、lidar profile/custom config、imu rate/filter）。SDF 有對應用 SDF 名，Isaac 獨有照 Isaac 名。內部 per-stream 覆寫鍵改名 `stream_overrides:`（避開 placement `overrides:` 衝突）。
@@ -167,6 +172,7 @@ run():
 ### A6. Versioning / pin / stage / test 執行
 - **消費機制（定案 = submodule）**：下游消費 isaac-base 走 **git submodule**（與本 repo 既有 `web_viewer` submodule 先例一致；mount + `git submodule update --remote` bump 比 subtree vendor 合身）。isaac-base 自己消費 `-docker/base` 仍走 `.base/` subtree（org template，現 v0.41.0，PR #124 已 merge）。**兩層版本**：下游 submodule pin isaac-base tag ↔ isaac-base 內 `.base` subtree 版。
 - **Versioning**：base 打 semver tag；消費端 submodule pin tag，bump = `git submodule update --remote`（mount 框架免 rebuild）。`isaac_devkit.__version__` 對齊 tag。**MVP（Issue 1,2,3,4,4-int,5,6,6b）達標 = isaac-base 切 `v1.0.0` release**（消費者首個可用版本；base v0.41.0 已 release，#4-int 不再外部 gated、回歸 MVP）。
+- **Base tool 依賴（baked + pinned，round-6/ADR-0018）**：Isaac Sim 與 **Isaac Lab** 是 base tool，**baked 進 image 並 pin 版本**——非 framework（後者 mount）。這釐清而非推翻 ADR-0017 §2「mount, not baked」：那條管的是 `isaac_devkit`，base tool 一向 baked（base image 即 `nvcr.io/nvidia/isaac-sim:5.1.0`）。Isaac Lab 用 Dockerfile 一層對著現有 `/isaac-sim` 裝、**pin 2.3**。支援組合 = **Isaac Lab 2.3 + Isaac Sim 5.1 + Python 3.11**（官方 pairing，無版本阻礙）。
 - **Stage**：mount 下框架不進 image stage，devel/headless/stream 都從 mount 拿；ROS2 bridge extension function-local enable，與 ADR-0014 stage taxonomy 正交。
 - **Test 執行（gate 已解）**：integration/GPU pytest 走 **isaac#74 / base#493 機制**（`run.sh -t test -- /isaac-sim/python.sh -m pytest`，devel-test stage + 掛載 workspace + GPU）。**現況（2026-06-10）**：base 已 release **v0.41.0** 含 base#493 機制；isaac `.base` 已 bump v0.41.0（**PR #124 已 merge 2026-06-10**，init-vs-upgrade parity 驗證相符：runtime.env 退役、Makefile→justfile、`.base` 樹 byte-identical）。原「外部 gated 等 base release」前提已消除。
   - **GPU-on-test-stage 具體機制（base#493 surface，#74 要 wire）**：base v0.41.0 預設 `test` compose service（`devel-test` Dockerfile stage）**無 GPU deploy block**（只有 `devel` 有）。開 GPU 的方式 = 在 repo `config/docker/setup.conf` 加 **`[stage:devel-test]`** section（base README 明示用 `[stage:devel-test]` **不是** `[stage:test]`）設 **`gpu_mode = force`**（`[deploy]` 預設 `gpu_mode = auto`；key 為 `gpu_mode`/`gpu_count`/`gpu_capabilities`/`gpu_runtime`，舊 `runtime` 為 deprecated alias），再 `just setup` 重生 compose。現有 `[stage:test-tools-stage] gpu_mode = off` 是反向先例。
@@ -179,7 +185,8 @@ run():
 - `setup_sensors(stage, scene: dict) -> None`（建 OmniGraph + ROS2 publish）
 - `setup_ros2_io(stage, scene: dict) -> RosIo`；`RosIo.latest(topic: str) -> Msg | None`（非阻塞、無訊息 None、同 msg 不重複新鮮標記、讀 OmniGraph attr 非 rclpy）
 - `import_urdf(urdf_path: str, out_usd_path: str) -> PrimSummary`，`PrimSummary = NamedTuple{prim_count:int, joint_count:int, link_paths:list[str], root_prim:str, usd_path:str}`；L1「prim/joint diff=0」= pure URDF parse(expected) vs PrimSummary(actual) 比對。**註 greenfield**：現有 `import_urdf.py` 僅 `main()->int` CLI、真邏輯在 `import_model.py`，且既有 `test_model_import.py` 斷言 asset-structure-3.0 非 prim/joint 數——此契約落為**新 code + 新斷言**，不是被搬測試的 external-behavior 保留。
-- variant single owner = `materials`（scene loader 只傳 variant 名，不直接 `SetVariantSelection`）。**v1 現況**：現 code 的 `SetVariantSelection` 散在 `scene_builder.py:142`（選）+ `material_setup.py`（建 variant set）；此單一-owner 重構 = 「3b」**折進 #7b**（forklift 才真用多變體），#3 機械抽取保留現狀散兩處；介面契約現在就鎖在此 ADR。
+- **variant / 材質（round-6/ADR-0018 修訂）**：顏色變體（鐵/綠/藍擋板）＝**材質 cfg 參數**（`sim_utils.PreviewSurfaceCfg(diffuse_color=...)` 走 `spawn_overrides` 直通，DR 隨機此參數），**不用 variant set**。USD variant set 僅留**結構性變體**（不同 mesh/topology/貼圖檔）；forklift 變體屬色或結構於 #7b/#136 對 asset 確認（現有跡象＝色）。原「variant single owner = `materials`」/「3b」僅對結構性變體仍適用；色變體無 owner 問題。`build_scene` 改用 Isaac Lab cfg spawn（A7 簽名不變，body 改）。
+- `build_scene` body：YAML→Isaac Lab `sim_utils` cfg（`UsdFileCfg`/`GroundPlaneCfg`/…）→ `cfg.func()` spawn；`model_import` 委派 `UrdfConverterCfg`（lazy cache，PrimSummary L1 契約保留、`parse_urdf_expected` 對 Isaac Lab 輸出重校一次）。簽名（`build_scene`/`import_urdf`/`PrimSummary`）不變。
 - 例外階層：`IsaacDevkitError` ← `SceneError` / `SensorConfigError`(`SensorNotFoundError`/`LinkNotFoundError`) / …；stub 路徑 `NotImplementedError`。
 
 ## Testing & Acceptance Criteria
@@ -206,7 +213,8 @@ run():
 ## Compatibility Matrix（supported 軸，CI 實跑 vs 宣稱）
 | 軸 | v1 supported | CI |
 |---|---|---|
-| Isaac Sim | 5.x（Asset Structure 3.0） | integration 實跑 |
+| Isaac Sim | 5.1（Asset Structure 3.0） | integration 實跑 |
+| Isaac Lab | 2.3（baked base tool，pin；spawn backend，round-6/ADR-0018） | example GPU integration 實跑（spawn via `sim_utils`） |
 | ROS 2 distro | Humble（主驗證軸） | integration 實跑；Jazzy 僅 smoke 驗 lib 存在 + 標 best-effort（未在 integration 實跑） |
 | GPU / VRAM | NVIDIA，VRAM ≥ 8GB | self-hosted GPU runner |
 | sensor type | camera（實作）；lidar/imu（schema 鎖、實作漸進） | camera integration 實跑；lidar/imu unit 驗 stub |
@@ -217,7 +225,7 @@ run():
 
 **單一編號制（收斂三套編號）**：交付控制以下方「Milestone 規劃」（M0 / M1 / M2 / M3）為準，工作單位以「Finalized Issue Breakdown」（#1–#8 + #4-int / #6b）為準，stories 以本檔 User Stories 1–32 為準。**作廢舊「Slice 0–6」獨立編號**（曾與 Issue 編號 off-by-one），不再使用。每階段兩 repo 各自獨立綠燈、不留跨 repo 半截狀態（tracer-bullet：同 PR 內新增 base 端 + 調整來源端 skip-check）。
 
-**Release framing**：MVP（Issue **1,2,3,4,4-int,5,6,6b** = M2 完成點 = 可消費 base repo）達標 → isaac-base 切 **v1.0.0**。base v0.41.0 已 release、isaac `.base` 已 bump（PR #124 已 merge），**#4-int 的 GPU 自動 integration 不再外部 gated**，回歸 MVP 一部分（外部相依已清，僅 blocked-by #4）。P1（Issue 7a/7b/8，forklift 搬遷 + 清 base）為 v1.0.0 後的後續（base 純淨度 M3 屬 P1 metric，因 depends on forklift 抽離）。
+**Release framing（round-6 修訂）**：M2（Issue 1,2,3,4,4-int,5,6,6b）= 功能完整的 MVP，但 **`v1.0.0` tag 移到 MR（Isaac Lab re-base）之後**——v1.0.0 一出生即 Isaac Lab spawn backend 版（決議：v1.0.0 前直接 re-base，不讓 v1.0.0 帶著馬上要換掉的 raw-`pxr`）。順序：**M2（custom MVP，已 merge）→ MR（Isaac Lab re-base + example/測試重做）→ 人工 dry-run → tag v1.0.0 → M3（forklift，P1）**。base v0.41.0 已 release、isaac `.base` 已 bump（PR #124 已 merge）。P1（Issue 7a/7b/8，forklift 搬遷 + 清 base）為 v1.0.0 後的後續（base 純淨度 M3 屬 P1 metric，因 depends on forklift 抽離）。
 
 ## Milestone 規劃（GitHub Milestone + 階段性驗證 gate）
 
@@ -228,7 +236,8 @@ run():
 | **M0 — Pipeline prereq + ADR** | #1 camera→ROS2 headless smoke、#2 successor ADR | HITL | **R1 關鍵 gate（integration-tier 證據）**：camera topic 在 headless Isaac 真 echo 出（此 pipeline 從沒在 Isaac 內跑通）+ ADR merge。過不了則下游全部無意義。**user review**：確認 pipeline 證實可跑 + ADR 契約正確 |
 | **M1 — 框架抽出** | #3 抽 isaac_devkit（機械「3a」）+ mount + PORT pytest + pytest-baseline + import-safety + coverage baseline | AFK | hosted CI 綠（M4 import-safety / M6 coverage），**hosted-unit pytest ≥ 115 全綠**（126 跨 runner 聚合含 11 GPU-integration 於 **M2** 才驗，非 M1）。免 GPU 輕 gate。**user review**：框架乾淨抽出、全綠、parity 證實 |
 | **M2 — Example + scaffold + GPU integration** | #4(example camera+三檔scene+ExampleDriver+cmd_vel code)、#4-int(GPU 自動 integration 強斷言，`run.sh -t test`)、#5 ament 範本+4-lang README、#6 new-workspace scaffold、#6b onboarding agent-proxy | AFK（#4→#4-int；#4→#5→#6→#6b 序）| scaffold→build→run→topic 綠；ament_lint/colcon 綠；agent-proxy 過；**GPU 自動 integration 綠（126 跨 runner 完整聚合 + M1/M2 metric 於此驗收）**。#4-int 依 **PR #124（`.base` v0.40→v0.41 bump）** merge——v0.41.0 已 release（2026-06-10），非無限期外部 gate。**user review**：端到端範例跑通 + GPU integration 綠、新手/agent 能 scaffold→run→swap = **MVP 完成點** |
-| **M3 — Forklift 搬遷 + 清 base** | #7a 開 isaac-forklift（base 對齊）、#7b 搬內容/ADR + submodule + 「3b」variant refactor、#8 清 base | #7a HITL / #7b#8 AFK | M3 純淨度 grep 0、M7 forklift boot smoke、M9 文件對齊。**user review**：forklift 搬完 boot 綠、base 純淨 → **tag v1.0.0** |
+| **MR — Isaac Lab re-base（round-6/ADR-0018，v1.0.0 前）** | `build_scene`→Isaac Lab cfg adapter（curated + `spawn_overrides`）、`model_import`→`UrdfConverterCfg`、`materials` 顏色→材質 cfg、`driver`→`AppLauncher`+`SimulationContext`、Isaac Lab 2.3 baked、M2 example/測試重做、L1 baseline 重校 | AFK | hosted unit 全綠；GPU integration 在新 spawn backend 上重跑綠（L1-L4 + cmd_vel + camera frame，跨 runner aggregate ≥ baseline）；`sensors`/`ros_io` 不動仍綠。**user review**：example 在 Isaac Lab spawn 上端到端綠 → **人工 dry-run（onboarding gate，對 re-based example）→ tag `v1.0.0`**（v1.0.0 一出生即 Isaac Lab 版） |
+| **M3 — Forklift 搬遷 + 清 base（v1.0.0 後，P1）** | #7a 開 isaac-forklift（base 對齊）、#7b 搬內容/ADR + submodule + 結構性 variant（若有）、#8 清 base | #7a HITL / #7b#8 AFK | M3 純淨度 grep 0、M7 forklift boot smoke、M9 文件對齊；forklift 變體屬色/結構於此對 asset 確認。**user review**：forklift 搬完 boot 綠、base 純淨 |
 
 **#4 / #4-int 拆分**：兩者皆在 **M2**。**#4**（example camera 實作 code，#6 scaffold 驗收要用、手動 `just run` 可跑）；**#4-int**（GPU 自動 integration 斷言，`run.sh -t test`，用 base v0.41.0 的 test stage 機制）。拆分理由 = impl vs GPU-auto-test 可分（非外部 gate——v0.41.0 已 release、PR #124 已 merge）；#4-int blocked-by #4（外部相依已清）。
 
@@ -237,7 +246,8 @@ run():
 - **R2 框架抽出破壞 forklift**：**Mitigation**：base 化在 worktree/branch 進行，main monorepo 維持可用直到 isaac-forklift boot 驗證；rollback trigger = 「框架抽出後 forklift driver 無法 import」；新舊並存上限 1 個 milestone。
 - **R3 base double-check 推翻消費模型**（已大幅收斂）：消費機制定案 = **submodule**（A6，依本 repo `web_viewer` 先例），R3 殘留風險僅「`-docker/base` 自身慣例若大改」，低。`new-workspace.sh` 與 A5 以 submodule 為準。
 - **R4 base v0.41.0 release 時程（外部）——已解（2026-06-10）**：base 已 release v0.41.0 含 base#493 機制；isaac `.base` 已 bump v0.41.0（PR #124 已 merge，CI 全綠含 Isaac image build，init-vs-upgrade parity 已驗）。R4 風險關閉。
-- **Assumption**：base#493 已 CLOSED（2026-06-01）且**已進 release v0.41.0**（2026-06-10）；isaac bump `.base` 進行中（PR #124，覆蓋 isaac#74）。Isaac 5.x + Humble 為主軸。
+- **R5 Isaac Lab re-base（round-6/ADR-0018）**：M2 已 merge（raw-`pxr`），re-base 到 Isaac Lab `sim_utils` 動到 `build_scene`/`model_import`/`materials`/`driver`。**Mitigation**：在 MR milestone（v1.0.0 前）於 worktree/branch 進行，`sensors`/`ros_io`（ROS2 出口）刻意不動以縮小 blast radius；GPU integration 在新 backend 上重跑當 regression gate；L1 `parse_urdf_expected` 對 Isaac Lab `UrdfConverterCfg` 輸出重校一次（已知有限成本）；`enable_cameras`+headless（issue #3250）遷移時驗相機 frame 仍在。**Rollback trigger**：新 backend 下 example GPU integration 無法復現 M2 的 L1-L4+camera frame 綠。版本相容已查證（Isaac Lab 2.3 ↔ Isaac Sim 5.1 ↔ Py3.11，官方 pairing），低風險。
+- **Assumption**：base#493 已 CLOSED（2026-06-01）且**已進 release v0.41.0**（2026-06-10）；isaac bump `.base` 進行中（PR #124，覆蓋 isaac#74）。**Isaac Sim 5.1 + Isaac Lab 2.3 + Python 3.11 + ROS 2 Humble 為主軸**。
 
 ## Out of Scope
 forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU integration / `make new-robot` codegen / workspace-template 一鍵 repo / controller abstraction（defer 第三 robot）/ 框架 baked 或 live-toggle（已定 mount）/ Gazebo `<gazebo>` tag→Isaac translator（無人維護）/ SDF→USD(gz-usd) model 轉換 / lidar・imu・zed 的 Isaac-side 實作（v1 stub，schema 已鎖）。
