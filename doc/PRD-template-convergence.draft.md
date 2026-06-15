@@ -278,7 +278,24 @@ forklift 應用邏輯開發 / ros1_bridge 反向搬遷 / per-layer 獨立 GPU in
 | 7b | 搬 forklift 內容/ADR + submodule base + boot smoke + **variant single-owner refactor（「3b」：SetVariantSelection 移出 scene_builder→materials）** | AFK | 3,7a | M3 | M | 20,27,28 |
 | 8 | 清 base repo（刪 `src/`、root README→base 4-lang、CHANGELOG、修 `src/README.md`、純淨度 grep lint）| AFK | 7b | M3 | M | 3,16,25,31 |
 
-**Stories 覆蓋稽核**：1–32 每條都出現在 ≥1 個 Stories 欄（5 個曾孤兒已歸位：9→#4、11→#3、17→#6、29→#2、32→#3）。1.0.0 = 所有 PRD 內容 = 全 issue 完成。
+**Stories 覆蓋稽核**：1–32 每條都出現在 ≥1 個 Stories 欄（5 個曾孤兒已歸位：9→#4、11→#3、17→#6、29→#2、32→#3）。
+
+### MR milestone issues（round-6，Isaac Lab re-base，ADR-0018；v1.0.0 在此 milestone 末 tag）
+
+6 個 tracer-bullet issue（GitHub milestone #6「MR - Isaac Lab spawn re-base (pre-v1.0.0)」，皆 `ready-for-agent`）。`sensors`/`ros_io`（OmniGraph ROS2 出口）不動、不開 issue。
+
+| 邏輯 # | GitHub | Issue | Blocked by | Size |
+|---|---|---|---|---|
+| MR-1 | #149 | bake Isaac Lab 2.3 進 image（base tool，Dockerfile 層 + pin + container import smoke）| — | S |
+| MR-2 | #150 | `model_import` 委派 Isaac Lab `UrdfConverterCfg`（lazy cache、留 PrimSummary L1、`parse_urdf_expected` 重校）| #149 | M |
+| MR-3 | #152 | `build_scene` → YAML→`sim_utils` cfg adapter（curated + `spawn_overrides` 直通）| #149,#150 | L |
+| MR-4 | #153 | `materials` 顏色→材質 cfg 參數（移除色變體 variant-set，結構性留）| #152 | S |
+| MR-5 | #151 | `driver` → `AppLauncher`+`SimulationContext`（`ISAAC_LIVESTREAM` 映射、`enable_cameras`、保留 lifecycle hooks）| #149 | M |
+| MR-6 | #154 | example + GPU integration 在新 backend 重做（L1-L4+cmd_vel+camera frame 綠、L1 baseline 重校、Compat Isaac Lab 軸）= **MR 完成點 → 人工 dry-run → tag v1.0.0** | #150,#152,#153,#151 | L |
+
+DAG：#149 ← (#150, #151)；#150 ← #152 ← #153；(#150,#152,#153,#151) ← #154。critical path = 149→150→152→154。
+
+**1.0.0 = 所有 PRD 內容 = M2 + MR 全 issue 完成**（M2 功能 MVP 已 merge，MR re-base 完成 + 人工 dry-run 後 tag v1.0.0）。
 
 \* #1 size=S 指 smoke 本身；HITL 取得 Isaac pipeline 跑通的前置努力 variable（pipeline 從沒在 Isaac 內跑通，見 R1）。**M0 證據 gate = integration-tier**（headless Isaac 真 boot + camera topic echo，非 hosted unit；115 unit 全 host-pure 不證 GPU path）。critical path = 3→4（框架→example，皆 L）。**M2 內 #4→#5→#6 為序**（Blocked-by 為準，非平行；僅 #5 的 README 撰寫可早啟；#4-int 於 #4 後 + PR #124 merge 後跑）；**#3 內 6 模組可平行抽，但 `ros_io` 是 greenfield 新撰非抽取**。CI/政策（GPU runner pin、coverage ratchet vector、headless+timeout+retry）折進 #3/#4，不另開 infra issue。
 6. **M1 + timeout calibrate**：pin 指定 GPU runner spec 後，量 warm time-to-first-topic 與 boot budget，把 M1「<30s」與 integration timeout 落成具體數字（promote 為 hard pre-publish blocker）。
