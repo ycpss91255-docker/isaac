@@ -87,3 +87,7 @@ PhysX 5.4.1 RigidBodyDynamics 原文把 L2 列為 canonical use cases 的核心:
 - **ADR-0004**:Model A-hybrid forklift_blocky — 本 ADR 把它的 5 cube 配置形式化為 `forklift_blocky_kin` 命名
 - **CONTEXT.md**:本 session 已新增 L2 / L3 詞條
 - **isaac#16**:reframed planning #57 — 本 ADR 縮小其範圍至「sustained motion stability」,前置 openbase L2 migration
+
+## Amendment: variant-set scope narrowed (ADR-0018, 2026-06-15)
+
+This ADR defines the USD variant naming `<model>_<suffix>` (`_kin` for all-L2, `_<part>_dyn`). ADR-0018 narrows *when a variant set is used at all*: variants that differ only by **color** (e.g. the iron / green / blue 擋板) are **not** variant sets, because color is a material *parameter* on the same mesh and texture rather than a different asset. Color is set via an Isaac Lab material cfg (`sim_utils.PreviewSurfaceCfg(diffuse_color=...)`, or an MDL cfg with a color param), carried through the adapter's `spawn_overrides` passthrough, and randomized there for domain-randomization image generation. USD variant sets are retained **only** for variants that are structurally distinct (different mesh / topology / texture file); which forklift variants are color-only versus structural is verified against the actual assets at the forklift migration (#136), and on current evidence (one texture, color-driven) the forklift variants are color-only. The L2 / L3 physics vocabulary and the PhysX kinematic/dynamic coexistence rules above are otherwise **unchanged**. See ADR-0018 (decision 7) and ADR-0017 section 9 (variant-owner note).

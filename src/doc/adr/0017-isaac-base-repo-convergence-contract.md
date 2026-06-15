@@ -387,11 +387,48 @@ section in ADR-0012.
   `check_test_md_drift.sh` continue to govern bats counts only (a sidecar harness issue tracks
   teaching the drift hook to count pytest).
 
+## Amendment: Isaac Lab spawn backend (ADR-0018, 2026-06-15)
+
+ADR-0018 adopts NVIDIA Isaac Lab `sim_utils` as the scene-spawn backend, before the `v1.0.0`
+tag. It does not void this contract; it amends three sections and leaves the rest (scene
+schema section 4, sensor catalog section 5, test contract section 7, import-safety section 8)
+in force. Summary of what changes here:
+
+- **Section 2 (mount, not baked) — clarified, not reversed.** The "mount, not baked" rule
+  governs `isaac_devkit` (the consumer-iterated, submodule-versioned framework). **Base tools**
+  — Isaac Sim, and now Isaac Lab — are **baked and version-pinned** (the base image is already
+  `nvcr.io/nvidia/isaac-sim:5.1.0`; Isaac Lab is pinned to 2.3 via a Dockerfile layer). The
+  distinction is: base tools = baked + pinned; framework = mounted + git-commit versioned.
+- **Section 3 (module set) — responsibilities re-based.** `scene.build_scene` becomes a
+  YAML -> Isaac Lab cfg adapter (curated fields + `spawn_overrides:` raw passthrough) instead
+  of raw `pxr` `DefinePrim`/`AddReference`. `model_import` delegates URDF -> USD to Isaac Lab
+  `UrdfConverterCfg` (lazy-cached offline conversion; the `PrimSummary` L1 diff=0 contract is
+  retained as a test on the Isaac-Lab-produced USD, with `parse_urdf_expected` recalibrated
+  once). `materials` slims to the structurally-distinct-variant case only (color becomes a
+  material-cfg parameter — see ADR-0008 amendment). `sensors` / `ros_io` are **unchanged** (the
+  OmniGraph ROS 2 bridge is the recommended outlet in Isaac Lab too, and is decoupled from
+  spawning).
+- **Section 9 (API contract) — two edits.** The driver lifecycle's first line changes from
+  `SimulationApp(parse_livestream_env(ISAAC_LIVESTREAM))` to Isaac Lab
+  `AppLauncher(...)` + `SimulationContext` (ADR-0009 amended; `ISAAC_LIVESTREAM` maps to
+  `HEADLESS`/`LIVESTREAM` env, `enable_cameras` for headless camera render). `load_scene` /
+  `build_scene` / `setup_sensors` / `setup_ros2_io` / `RosIo.latest` / `import_urdf` /
+  `PrimSummary` signatures are unchanged; `build_scene`'s body now constructs and spawns Isaac
+  Lab cfg objects. The "variant single owner = `materials`" / "3b" note applies only to
+  structurally-distinct variants; color-only variants are handled by an Isaac Lab material cfg
+  parameter and need no variant set.
+
+The cfg objects the adapter emits are the stable seam for a later, optional move to Isaac Lab
+`InteractiveScene` ("C") if parallel-environment / RL-style domain randomization is ever
+needed; the YAML schema and the adapter do not change across that upgrade. Full rationale and
+the grill record: ADR-0018 + PRD.
+
 ## Cross-references
 
 - PRD: `doc/PRD-template-convergence.draft.md` — Implementation Decisions, A1 (import
   safety), A2 (lifecycle), A4 (sensor schema), A5 (layout), A6 (versioning / consumption),
   A7 (API contract), Testing & Acceptance Criteria.
+- ADR-0018 (Isaac Lab spawn backend — amends sections 2 / 3 / 9 above).
 - Issues: #128 (this ADR), #127 (M0 camera smoke), #130 (framework extraction + parity
   baseline), #131 / #132 (example + GPU integration), #133 (ament templates), #134
   (scaffold), #135 (onboarding gate), #129 / #136 (isaac-forklift repo + migration), #137
