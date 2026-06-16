@@ -64,7 +64,14 @@ HOSTED_UNIT_BASELINE = 221
 #   passing on the RTX 5090 reference runner. assert_pytest_baseline.sh
 #   enforces that the GPU suite actually RAN (passed > 0); an all-skipped
 #   GPU job does NOT satisfy the M2 aggregate.
-GPU_INTEGRATION_BASELINE = 26
+#
+#   MR (#149, ADR-0018): bake Isaac Lab 2.3 as the spawn-backend base
+#   tool. Adds the Isaac Lab availability smoke
+#   (test_isaaclab_available.py: 1 in-container test -- AppLauncher
+#   headless boot, import isaaclab.sim, assert the spawner +
+#   UrdfConverter surfaces and the pinned 2.3 version). In-container GPU
+#   suite collects 25; aggregate GPU-integration = 25 + 2 (host xc) = 27.
+GPU_INTEGRATION_BASELINE = 27
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; with #132's GPU tests online the

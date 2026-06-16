@@ -137,6 +137,44 @@ ARG CONFIG_DIR="/tmp/config"
 # remain in <repo>/config/).
 ARG CONFIG_SRC="config"
 
+# [isaac #149 / ADR-0018] Isaac Lab as a baked base tool (alongside Isaac
+# Sim). It is the scene-spawn backend: sim_utils spawners (build_scene),
+# the UrdfConverter (model_import), and AppLauncher + SimulationContext
+# (driver). Installed against the bundled Isaac Sim binary via the
+# documented _isaac_sim symlink, into /isaac-sim's Python, so every stage
+# deriving from devel (headless / stream / devel-test) has it. Pinned to a
+# 2.3 tag (built on Isaac Sim 5.1, Python 3.11 -- NVIDIA's recommended
+# pairing). Kept early in devel so day-to-day config / app COPY changes
+# below do not invalidate this large layer. The framework (isaac_devkit)
+# stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
+# framework mounted).
+#
+# RL learning frameworks (rl_games / rsl_rl / sb3 / skrl / robomimic) are
+# NOT installed yet (`--install none` below): the current product is
+# single-scene + ROS 2 service, no reinforcement learning. They are
+# DEFERRED, not excluded -- parallel-environment / RL-style work is planned
+# later (the "C" / InteractiveScene direction in ADR-0018). When that
+# lands, replace the `--install none` line with the full install (the
+# cmake / build-essential that robomimic needs are already apt-installed
+# below):
+#
+#     /opt/IsaacLab/isaaclab.sh --install all && \
+#
+# or install only the frameworks you need, e.g.:
+#
+#     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
+#
+ARG ISAACLAB_VERSION="v2.3.2"
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git cmake build-essential && \
+    git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
+        https://github.com/isaac-sim/IsaacLab.git /opt/IsaacLab && \
+    ln -s /isaac-sim /opt/IsaacLab/_isaac_sim && \
+    /opt/IsaacLab/isaaclab.sh --install none && \
+    /isaac-sim/python.sh -m pip show isaaclab && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Add your application-specific packages here
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
