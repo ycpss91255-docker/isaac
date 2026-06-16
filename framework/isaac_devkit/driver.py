@@ -23,15 +23,19 @@ Subclass contract:
     if __name__ == "__main__":
         MyDriver().run()
 
-The base class owns the Kit init / signal handling / stage open / scene
-defaults / timeline play / shutdown lifecycle. The subclass owns the
-main loop -- this matches the IsaacLab / Isaac Sim standalone /
-Gymnasium / PyBullet pattern (see ADR-0009).
+The base class owns the Kit init (Isaac Lab ``AppLauncher``) / signal
+handling / stage open / scene defaults / timeline play / shutdown
+lifecycle. The subclass owns the main loop -- this matches the IsaacLab /
+Isaac Sim standalone / Gymnasium / PyBullet pattern (ADR-0009), launched
+on Isaac Lab's ``AppLauncher`` (ADR-0018). The ``SimulationContext`` loop
+manager is adopted with the example rework (#154), where the new
+spawn-backend scene flow handles its shutdown cleanly.
 
 This module is import-safe without Isaac Sim available: the pure-Python
-helpers (``parse_livestream_env``, ``resolve_repo_relative_usd``) can be
-unit-tested on the host. The Kit-side imports (``isaacsim``, ``omni.*``,
-``pxr``) are deferred into the ``IsaacDriver.run`` body so that
+helpers (``parse_livestream_env``, ``parse_livestream_applauncher``,
+``resolve_repo_relative_usd``) can be unit-tested on the host. The
+Kit-side imports (``isaaclab``, ``isaacsim``, ``omni.*``, ``pxr``) are
+deferred into the ``IsaacDriver.run`` body and friends so that
 constructing the class outside Kit does not raise.
 """
 
@@ -77,6 +81,36 @@ def parse_livestream_env(env_value: Optional[str]) -> Dict[str, Any]:
             "livestream": 2,
             "renderer": "RaytracedLighting",
         }
+    raise ValueError(
+        f"unsupported ISAAC_LIVESTREAM value {env_value!r}; "
+        "expected one of '', '0', '1', '2'"
+    )
+
+
+def parse_livestream_applauncher(env_value: Optional[str]) -> Dict[str, Any]:
+    """Translate ``ISAAC_LIVESTREAM`` into Isaac Lab ``AppLauncher`` args.
+
+    ADR-0018: the driver launches via Isaac Lab ``AppLauncher`` instead of
+    a raw ``SimulationApp``. ``AppLauncher`` takes ``headless`` /
+    ``livestream`` / ``enable_cameras`` (its ``HEADLESS`` / ``LIVESTREAM``
+    env-var convention), so the existing ``ISAAC_LIVESTREAM`` (0/1/2)
+    mapping is preserved through this helper:
+
+    - unset / empty / ``"0"`` -> headless, no streaming.
+    - ``"1"`` -> native streaming (livestream supersedes + forces headless).
+    - ``"2"`` -> WebRTC streaming.
+
+    ``enable_cameras=True`` is set in every mode so cameras render even
+    headless -- the ROS 2 camera publish chain needs rendered frames (the
+    headless+enable_cameras path the GPU integration relies on; cf. Isaac
+    Lab issue #3250). Unknown values raise, same as ``parse_livestream_env``.
+    """
+    if env_value is None or env_value == "" or env_value == "0":
+        return {"headless": True, "enable_cameras": True}
+    if env_value == "1":
+        return {"headless": True, "livestream": 1, "enable_cameras": True}
+    if env_value == "2":
+        return {"headless": True, "livestream": 2, "enable_cameras": True}
     raise ValueError(
         f"unsupported ISAAC_LIVESTREAM value {env_value!r}; "
         "expected one of '', '0', '1', '2'"
@@ -155,6 +189,7 @@ class IsaacDriver:
     def __init__(self) -> None:
         self._should_quit: bool = False
         self._app: Any = None
+        self._app_launcher: Any = None
         self._rclpy_inited: bool = False
 
     # -- Entry point ---------------------------------------------------------
@@ -162,15 +197,20 @@ class IsaacDriver:
     def run(self) -> None:
         """Walk the lifecycle: init Kit, open stage, set up, loop, shut down.
 
-        Order matters: SimulationApp must be the *first* Isaac Sim
-        construction, before any ``omni.*`` / ``pxr`` import resolves;
-        the signal handler override must come *after* SimulationApp init
-        because Kit installs its own SIGINT trap during construction.
+        Order matters (ADR-0018): Isaac Lab ``AppLauncher`` must be the
+        *first* Isaac Sim construction, before any ``omni.*`` / ``pxr`` /
+        ``isaaclab.sim`` import resolves; the signal handler override must
+        come *after* it because Kit installs its own SIGINT trap during
+        construction. ``AppLauncher.app`` is the ``SimulationApp`` instance,
+        so ``is_running`` / ``update`` / ``close`` keep working.
         """
-        from isaacsim import SimulationApp
+        from isaaclab.app import AppLauncher
 
-        kwargs = parse_livestream_env(os.environ.get("ISAAC_LIVESTREAM"))
-        self._app = SimulationApp(kwargs)
+        launcher_args = parse_livestream_applauncher(
+            os.environ.get("ISAAC_LIVESTREAM")
+        )
+        self._app_launcher = AppLauncher(launcher_args)
+        self._app = self._app_launcher.app
 
         # Override Kit's SIGINT (which swallows Ctrl+C) so the loop can
         # observe ``_should_quit`` and break out cleanly.
@@ -185,10 +225,10 @@ class IsaacDriver:
             self.main()
             self.shutdown()
         finally:
-            # SimulationApp.close() forces process _exit(0) on its way
-            # out and overrides any sys.exit(N) downstream. Subclasses
-            # that want to signal failure must do so before calling
-            # super().run() or via stdout markers.
+            # SimulationApp.close() (via AppLauncher.app) forces process
+            # _exit(0) on its way out and overrides any sys.exit(N)
+            # downstream. Subclasses that want to signal failure must do so
+            # before calling super().run() or via stdout markers.
             sys.stdout.flush()
             sys.stderr.flush()
             self._app.close()
