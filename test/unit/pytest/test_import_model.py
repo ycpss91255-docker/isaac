@@ -1,8 +1,14 @@
-"""Unit tests for isaac_devkit.model_import (former import_model.py) —
-host-runnable, no Isaac Sim required.
+"""Unit tests for isaac_devkit.model_import — host-runnable, no Isaac Sim.
 
-Tests cover: path resolution, existing file checks, material template
-generation, root composition generation, and output validation.
+ADR-0018 decision 6: model_import produces a SINGLE Isaac Lab
+instanceable USD at ``<output>/<name>.usd`` (the old multi-file "Asset
+Structure 3.0" geometry/material/textures layout is dropped). These
+tests cover the pure CLI plumbing that survives that change: path
+resolution, the single-USD existing-file check, output-dir creation, and
+the ``package://`` URDF preprocessing. The pure ``PrimSummary`` surface
+(``parse_urdf_expected`` / ``_summarize_prim_records``) is covered in
+``test_prim_summary.py``; the Isaac-Lab-produced USD structure is
+asserted GPU-side in ``test/integration/pytest/test_model_import.py``.
 """
 
 import sys
@@ -28,28 +34,24 @@ def tmp_model(tmp_path):
 
 
 class TestResolvePaths:
-    def test_returns_all_expected_keys(self, tmp_model):
+    def test_returns_single_usd_keys(self, tmp_model):
         args = SimpleNamespace(
             urdf=str(tmp_model["urdf"]),
             output=str(tmp_model["out_dir"]),
             name=tmp_model["name"],
         )
         paths = import_model._resolve_paths(args)
-        assert set(paths.keys()) == {
-            "urdf", "out_dir", "root", "geometry", "material", "textures",
-        }
+        # ADR-0018: single-USD output, no geometry/material/textures keys.
+        assert set(paths.keys()) == {"urdf", "out_dir", "usd"}
 
-    def test_paths_use_name_prefix(self, tmp_model):
+    def test_usd_uses_name(self, tmp_model):
         args = SimpleNamespace(
             urdf=str(tmp_model["urdf"]),
             output=str(tmp_model["out_dir"]),
             name="mybot",
         )
         paths = import_model._resolve_paths(args)
-        assert paths["root"].name == "mybot.usd"
-        assert paths["geometry"].name == "mybot_geometry.usda"
-        assert paths["material"].name == "mybot_material.usda"
-        assert paths["textures"].name == "textures"
+        assert paths["usd"].name == "mybot.usd"
 
     def test_urdf_not_found_exits(self, tmp_path):
         args = SimpleNamespace(
@@ -72,115 +74,44 @@ class TestResolvePaths:
 
 
 class TestCheckExisting:
-    def test_blocks_when_geometry_exists_no_force(self, tmp_model):
+    def test_blocks_when_usd_exists_no_force(self, tmp_model):
         out_dir = tmp_model["out_dir"]
         out_dir.mkdir(parents=True)
-        geom = out_dir / "test_robot_geometry.usda"
-        geom.write_text("existing")
+        usd = out_dir / "test_robot.usd"
+        usd.write_text("existing")
 
-        paths = {
-            "root": out_dir / "test_robot.usd",
-            "geometry": geom,
-        }
+        paths = {"usd": usd}
         with pytest.raises(SystemExit):
             import_model._check_existing(paths, force=False)
 
-    def test_allows_when_geometry_exists_with_force(self, tmp_model):
+    def test_allows_when_usd_exists_with_force(self, tmp_model):
         out_dir = tmp_model["out_dir"]
         out_dir.mkdir(parents=True)
-        geom = out_dir / "test_robot_geometry.usda"
-        geom.write_text("existing")
+        usd = out_dir / "test_robot.usd"
+        usd.write_text("existing")
 
-        paths = {
-            "root": out_dir / "test_robot.usd",
-            "geometry": geom,
-        }
+        paths = {"usd": usd}
         import_model._check_existing(paths, force=True)
 
-    def test_allows_when_no_existing_files(self, tmp_model):
+    def test_allows_when_no_existing_usd(self, tmp_model):
         out_dir = tmp_model["out_dir"]
-        paths = {
-            "root": out_dir / "test_robot.usd",
-            "geometry": out_dir / "test_robot_geometry.usda",
-        }
+        paths = {"usd": out_dir / "test_robot.usd"}
         import_model._check_existing(paths, force=False)
 
 
 class TestEnsureDirs:
-    def test_creates_output_and_textures(self, tmp_model):
-        paths = {
-            "out_dir": tmp_model["out_dir"],
-            "textures": tmp_model["out_dir"] / "textures",
-        }
+    def test_creates_output_dir(self, tmp_model):
+        paths = {"out_dir": tmp_model["out_dir"]}
         assert not paths["out_dir"].exists()
         import_model._ensure_dirs(paths)
         assert paths["out_dir"].is_dir()
-        assert paths["textures"].is_dir()
 
-
-class TestWriteMaterialTemplate:
-    def test_creates_template_when_missing(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        paths = {
-            "geometry": out_dir / "test_robot_geometry.usda",
-            "material": out_dir / "test_robot_material.usda",
-        }
-        import_model._write_material_template(paths)
-
-        content = paths["material"].read_text()
-        assert "#usda 1.0" in content
-        assert "@./test_robot_geometry.usda@" in content
-
-    def test_preserves_existing_material(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        paths = {
-            "geometry": out_dir / "test_robot_geometry.usda",
-            "material": out_dir / "test_robot_material.usda",
-        }
-        paths["material"].write_text("custom material content")
-        import_model._write_material_template(paths)
-
-        assert paths["material"].read_text() == "custom material content"
-
-    def test_sublayer_references_geometry(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        paths = {
-            "geometry": out_dir / "bot_geometry.usda",
-            "material": out_dir / "bot_material.usda",
-        }
-        import_model._write_material_template(paths)
-
-        content = paths["material"].read_text()
-        assert "@./bot_geometry.usda@" in content
-
-
-class TestWriteRootComposition:
-    def test_creates_root_file(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        paths = {
-            "root": out_dir / "test_robot.usd",
-            "material": out_dir / "test_robot_material.usda",
-        }
-        import_model._write_root_composition(paths)
-
-        content = paths["root"].read_text()
-        assert "#usda 1.0" in content
-        assert "@./test_robot_material.usda@" in content
-
-    def test_sublayer_chain_is_correct(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        paths = {
-            "root": out_dir / "r.usd",
-            "material": out_dir / "r_material.usda",
-        }
-        import_model._write_root_composition(paths)
-        content = paths["root"].read_text()
-        assert "@./r_material.usda@" in content
+    def test_idempotent_on_existing_dir(self, tmp_model):
+        paths = {"out_dir": tmp_model["out_dir"]}
+        paths["out_dir"].mkdir(parents=True)
+        # Must not raise on an already-existing output dir.
+        import_model._ensure_dirs(paths)
+        assert paths["out_dir"].is_dir()
 
 
 class TestPreprocessUrdf:
@@ -252,50 +183,12 @@ class TestPreprocessUrdf:
             resolved.unlink()
 
 
-class TestValidateOutput:
-    def test_passes_when_all_exist(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        (out_dir / "textures").mkdir()
-
-        paths = {
-            "root": out_dir / "a.usd",
-            "geometry": out_dir / "a_geometry.usda",
-            "material": out_dir / "a_material.usda",
-            "textures": out_dir / "textures",
-        }
-        for key in ("root", "geometry", "material"):
-            paths[key].write_text("x")
-
-        assert import_model._validate_output(paths) is True
-
-    def test_fails_when_geometry_missing(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-        (out_dir / "textures").mkdir()
-
-        paths = {
-            "root": out_dir / "a.usd",
-            "geometry": out_dir / "a_geometry.usda",
-            "material": out_dir / "a_material.usda",
-            "textures": out_dir / "textures",
-        }
-        paths["root"].write_text("x")
-        paths["material"].write_text("x")
-
-        assert import_model._validate_output(paths) is False
-
-    def test_fails_when_textures_dir_missing(self, tmp_model):
-        out_dir = tmp_model["out_dir"]
-        out_dir.mkdir(parents=True)
-
-        paths = {
-            "root": out_dir / "a.usd",
-            "geometry": out_dir / "a_geometry.usda",
-            "material": out_dir / "a_material.usda",
-            "textures": out_dir / "textures",
-        }
-        for key in ("root", "geometry", "material"):
-            paths[key].write_text("x")
-
-        assert import_model._validate_output(paths) is False
+class TestImportUrdfPrecondition:
+    def test_missing_urdf_raises_before_isaac(self, tmp_path):
+        # The URDF-existence precondition is checked before any Isaac
+        # import, so this fails fast with a normal Python error on a host
+        # with no Isaac Sim installed.
+        with pytest.raises(FileNotFoundError):
+            import_model.import_urdf(
+                tmp_path / "nope.urdf", tmp_path / "out.usd"
+            )
