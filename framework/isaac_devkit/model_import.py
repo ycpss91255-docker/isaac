@@ -25,9 +25,16 @@ Besides the CLI, this module exposes the ADR-0017 section 9 contract:
     import_urdf(urdf_path, out_usd_path) -> PrimSummary
 
 Import-safety invariant (ADR-0017 section 8 / PRD A1): pure functions
-live at module top; every ``omni`` / ``pxr`` / ``isaacsim`` import is
-function-local so this module imports cleanly on hosts without Isaac
-Sim.
+live at module top; every ``omni`` / ``pxr`` / ``isaacsim`` / ``isaaclab``
+import is function-local so this module imports cleanly on hosts without
+Isaac Sim. (``isaaclab`` transitively pulls in ``omni``, so its imports
+must be function-local too.)
+
+URDF -> USD conversion is delegated to Isaac Lab's
+``isaaclab.sim.converters.UrdfConverterCfg`` / ``UrdfConverter``
+(ADR-0018 decision 6), which wraps the same
+``isaacsim.asset.importer.urdf`` engine the legacy ``omni.kit.commands``
+path drove, while adding lazy cached conversion and instanceable output.
 """
 
 import argparse
@@ -214,51 +221,52 @@ def _preprocess_urdf(urdf_path):
 
 
 def _import_urdf(urdf_path, geometry_path, args):
-    """Run URDF import via Isaac Sim API. Must run inside container.
+    """Run URDF import via Isaac Lab ``UrdfConverter``. Run inside container.
 
-    Preprocesses the URDF to resolve package:// URIs before passing to
-    the importer.
+    Preprocesses the URDF to resolve ``package://`` URIs, then delegates
+    the conversion to ``isaaclab.sim.converters.UrdfConverterCfg`` /
+    ``UrdfConverter`` (ADR-0018 decision 6) -- the same engine the legacy
+    ``omni.kit.commands`` path drove, now via Isaac Lab's config-driven
+    interface. The converter writes the produced USD to
+    ``geometry_path``'s directory under ``geometry_path``'s name (keeping
+    the Asset Structure 3.0 ``<name>_geometry.usda`` layout).
+
+    All Isaac imports stay function-local (ADR-0017 section 8); isaaclab
+    transitively pulls in omni, so its imports are local too. SimulationApp
+    is created before importing isaaclab.sim so the running Kit app backs
+    the converter's omni dependencies.
     """
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
 
-    import omni.kit.commands
-    from isaacsim.asset.importer.urdf import _urdf as urdf_loader
+    from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
     resolved_urdf = _preprocess_urdf(urdf_path)
 
-    config = urdf_loader.ImportConfig()
-    config.merge_fixed_joints = not args.no_merge_fixed
-    config.fix_base = not args.no_fix_base
-    config.import_inertia_tensor = True
-    config.distance_scale = 1.0
-    config.density = 0.0
-    config.default_drive_strength = 1e7
-    config.default_position_drive_damping = 1e5
-
-    status, robot = omni.kit.commands.execute(
-        "URDFParseFile",
-        urdf_path=str(resolved_urdf),
-        import_config=config,
-    )
-    if not status:
-        print(f"error: URDF parse failed: {resolved_urdf}", file=sys.stderr, flush=True)
-        return False, app
-
-    status, stage_path = omni.kit.commands.execute(
-        "URDFImportRobot",
-        urdf_path=str(resolved_urdf),
-        urdf_robot=robot,
-        dest_path=str(geometry_path),
-        import_config=config,
+    cfg = UrdfConverterCfg(
+        asset_path=str(resolved_urdf),
+        usd_dir=str(geometry_path.parent),
+        usd_file_name=geometry_path.name,
+        fix_base=not args.no_fix_base,
+        merge_fixed_joints=not args.no_merge_fixed,
+        force_usd_conversion=True,
     )
 
-    # URDFImportRobot can return status=False on mesh resolution warnings
-    # while still producing a valid USD. Trust file existence as the
-    # authoritative signal. Do all post-import file work BEFORE
-    # app.close() because Kit shutdown can be abrupt on certain Isaac
-    # Sim builds (no traceback, just exits).
+    try:
+        UrdfConverter(cfg)
+    except Exception as exc:  # noqa: BLE001
+        # The converter can raise on mesh-resolution warnings while still
+        # producing a valid USD; trust file existence as the authoritative
+        # signal (same policy the legacy URDFImportRobot path used). Do all
+        # post-import file work BEFORE app.close() because Kit shutdown can
+        # be abrupt on certain Isaac Sim builds (no traceback, just exits).
+        print(
+            f"  warning: UrdfConverter raised, trusting file existence: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
     return geometry_path.exists(), app
 
 
@@ -309,6 +317,21 @@ def parse_urdf_expected(urdf_path, usd_path="", merge_fixed_joints=True):
     Parses the URDF XML directly (no Isaac) and derives the structural
     expectation against which the GPU-side ``import_urdf`` actual is
     compared (ADR-0017 section 7, L1 "diff = 0" -- M2 scope).
+
+    NOTE (ADR-0018 decision 6 -- L1 recalibration pending GPU run): the
+    actual import is now done by Isaac Lab's ``UrdfConverter`` (see
+    ``import_urdf``), which MAY name prims, scope the instanceable
+    wrapper, or count synthetic fixed joints (e.g. the ``fix_base``
+    ``root_joint``) differently from both this pure prediction and the
+    legacy ``omni.kit.commands`` importer. The authoritative L1 diff=0
+    assertion is committed-USD-vs-fresh-import (see
+    ``test_l1_urdf_to_usd_diff_zero``); this pure helper intentionally
+    stays the looser structural prediction. The camera_bot baseline the
+    GPU suite asserts (2 links / 2 joints / root ``/camera_bot``) may
+    need a ONE-LINE recalibration here or in the GPU test's
+    ``EXPECTED_*`` constants once the first Isaac-Lab GPU integration run
+    reports actual-vs-expected. Do not pre-emptively change the pure unit
+    expectations without that GPU evidence.
 
     Conventions mirrored from the Isaac URDF importer:
 
@@ -437,17 +460,33 @@ def _summarize_prim_records(prim_records, usd_path):
 def import_urdf(urdf_path, out_usd_path):
     """Import a URDF into a USD file and return its ``PrimSummary``.
 
-    ADR-0017 section 9 contract (greenfield -- not ported behavior).
-    Uses the importer defaults of the legacy CLI path
-    (``merge_fixed_joints=True``, ``fix_base=True``) and preprocesses
-    ``package://`` URIs via ``_preprocess_urdf``. Must run inside the
-    Isaac Sim container; the URDF-existence precondition is checked
-    before any Isaac import so hosted callers fail fast with a normal
-    Python error.
+    ADR-0017 section 9 contract (greenfield -- not ported behavior),
+    re-based onto Isaac Lab per ADR-0018 decision 6: the URDF -> USD
+    conversion is delegated to ``isaaclab.sim.converters.UrdfConverterCfg``
+    / ``UrdfConverter`` (which wraps the same
+    ``isaacsim.asset.importer.urdf`` engine the legacy ``omni.kit.commands``
+    path used), instead of the hand-rolled ``URDFParseFile`` /
+    ``URDFImportRobot`` command pair.
+
+    The importer defaults mirror the legacy CLI path
+    (``merge_fixed_joints=True``, ``fix_base=True``) and ``package://``
+    URIs are preprocessed via ``_preprocess_urdf``. ``UrdfConverter`` does
+    lazy cached conversion keyed on the (preprocessed) URDF, so the
+    offline-convert-and-commit workflow is preserved;
+    ``force_usd_conversion=True`` makes ``import_urdf`` always regenerate
+    (the commit step wants a deterministic fresh artifact). The produced
+    USD is **instanceable** (Isaac Lab default), which is what ADR-0018's
+    deferred "C" scene cloning needs.
+
+    Must run inside the Isaac Sim / Isaac Lab container; the URDF-existence
+    precondition is checked before any Isaac import so hosted callers fail
+    fast with a normal Python error.
 
     Args:
         urdf_path: Path to the URDF file.
-        out_usd_path: Output USD file path (parent dirs are created).
+        out_usd_path: Output USD file path (parent dirs are created). The
+            converter writes to this file's directory and name; the
+            traversal uses ``converter.usd_path``.
 
     Returns:
         ``PrimSummary`` describing the produced stage.
@@ -455,8 +494,7 @@ def import_urdf(urdf_path, out_usd_path):
     Raises:
         FileNotFoundError: If ``urdf_path`` does not exist (raised
             before Isaac Sim is touched).
-        ValueError: If URDF parsing fails or the import produces no
-            output file.
+        ValueError: If the converter produces no output file.
     """
     urdf = Path(urdf_path).resolve()
     if not urdf.exists():
@@ -464,55 +502,53 @@ def import_urdf(urdf_path, out_usd_path):
     out_usd = Path(out_usd_path).resolve()
     out_usd.parent.mkdir(parents=True, exist_ok=True)
 
+    # SimulationApp (Kit) must be created BEFORE importing isaaclab.sim:
+    # the converters submodule pulls in omni modules that need a running
+    # Kit app (same ordering the Isaac Lab AppLauncher runners rely on).
+    # All Isaac imports are function-local (ADR-0017 section 8): isaaclab
+    # transitively pulls in omni, so its imports must be local too.
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
     try:
-        import omni.kit.commands
-        from isaacsim.asset.importer.urdf import _urdf as urdf_loader
+        from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
         from pxr import Usd
 
         resolved_urdf = _preprocess_urdf(urdf)
 
-        config = urdf_loader.ImportConfig()
-        config.merge_fixed_joints = True
-        config.fix_base = True
-        config.import_inertia_tensor = True
-        config.distance_scale = 1.0
-        config.density = 0.0
-        config.default_drive_strength = 1e7
-        config.default_position_drive_damping = 1e5
-
-        status, robot = omni.kit.commands.execute(
-            "URDFParseFile",
-            urdf_path=str(resolved_urdf),
-            import_config=config,
+        cfg = UrdfConverterCfg(
+            asset_path=str(resolved_urdf),
+            usd_dir=str(out_usd.parent),
+            usd_file_name=out_usd.name,
+            fix_base=True,
+            merge_fixed_joints=True,
+            # Always regenerate: the offline commit step wants a fresh,
+            # deterministic artifact, not a cache hit.
+            force_usd_conversion=True,
         )
-        if not status:
-            raise ValueError(f"URDF parse failed: {resolved_urdf}")
+        converter = UrdfConverter(cfg)
 
-        omni.kit.commands.execute(
-            "URDFImportRobot",
-            urdf_path=str(resolved_urdf),
-            urdf_robot=robot,
-            dest_path=str(out_usd),
-            import_config=config,
-        )
-        # URDFImportRobot can return status=False on mesh resolution
-        # warnings while still producing a valid USD; file existence is
-        # the authoritative signal (same policy as _import_urdf).
-        if not out_usd.exists():
-            raise ValueError(f"URDF import did not produce {out_usd}")
+        # NOTE: ``converter.usd_path`` is the produced USD file path
+        # (AssetConverterBase property = usd_dir / usd_file_name). It is
+        # the authoritative output location; trust it over a precomputed
+        # path in case Isaac Lab normalizes the name.
+        produced = Path(converter.usd_path)
+        if not produced.exists():
+            raise ValueError(
+                f"UrdfConverter did not produce {produced} "
+                f"(requested {out_usd})"
+            )
 
-        stage = Usd.Stage.Open(str(out_usd))
+        stage = Usd.Stage.Open(str(produced))
         prim_records = [
             (str(prim.GetPath()), str(prim.GetTypeName()))
             for prim in stage.Traverse()
         ]
+        produced_path = str(produced)
     finally:
         app.close()
 
-    return _summarize_prim_records(prim_records, str(out_usd))
+    return _summarize_prim_records(prim_records, produced_path)
 
 
 def main():
