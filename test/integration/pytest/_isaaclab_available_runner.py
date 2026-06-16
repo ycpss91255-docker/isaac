@@ -53,8 +53,11 @@ def main() -> int:
         flush=True,
     )
 
-    simulation_app.close()
+    # Print the clean-exit marker BEFORE close(): Kit's app.close() calls
+    # _exit(0) on the way out and swallows anything after it (same
+    # convention as the other integration runners).
     print("[EXIT CLEAN]", flush=True)
+    simulation_app.close()
     return 0
 
 

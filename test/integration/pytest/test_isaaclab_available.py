@@ -27,8 +27,12 @@ PYTHON_SH = "/isaac-sim/python.sh"
 # shader cache on the runner can still take minutes; keep a generous ceiling.
 SUBPROC_TIMEOUT_SEC = 900
 
-# Pinned base-tool major.minor (ADR-0018; Dockerfile ISAACLAB_VERSION).
-EXPECTED_VERSION_PREFIX = "2.3"
+# Note: the `isaaclab` PACKAGE version (isaaclab.__version__, e.g. 0.54.2)
+# is independent of the Isaac Lab REPO/release tag pinned in the Dockerfile
+# (ISAACLAB_VERSION, e.g. v2.3.2). The repo tag is enforced at build time
+# (the git clone --branch + pip show fail the build); this runtime smoke
+# only confirms the package is importable, reports a resolved version, and
+# exposes the spawner + converter surfaces.
 
 
 def _dump_output(result):
@@ -54,9 +58,8 @@ def test_isaaclab_importable_in_container():
     )
     assert m, "Isaac Lab availability marker missing -- import failed inside the container."
     version, spawn, urdf_converter = m.group(1), m.group(2), m.group(3)
-    assert version.startswith(EXPECTED_VERSION_PREFIX), (
-        f"Isaac Lab version {version} does not match the pinned "
-        f"{EXPECTED_VERSION_PREFIX}.x (Dockerfile ISAACLAB_VERSION)."
+    assert version not in ("", "unknown"), (
+        "isaaclab.__version__ did not resolve (package not properly installed)."
     )
     assert spawn == "True", (
         "isaaclab.sim spawner surface (UsdFileCfg / GroundPlaneCfg) missing."
