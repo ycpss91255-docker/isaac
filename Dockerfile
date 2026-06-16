@@ -137,6 +137,60 @@ ARG CONFIG_DIR="/tmp/config"
 # remain in <repo>/config/).
 ARG CONFIG_SRC="config"
 
+# [isaac #149 / ADR-0018] Isaac Lab as a baked base tool (alongside Isaac
+# Sim). It is the scene-spawn backend: sim_utils spawners (build_scene),
+# the UrdfConverter (model_import), and AppLauncher + SimulationContext
+# (driver). Installed against the bundled Isaac Sim binary via the
+# documented _isaac_sim symlink, into /isaac-sim's Python, so every stage
+# deriving from devel (headless / stream / devel-test) has it. Pinned to a
+# 2.3 tag (built on Isaac Sim 5.1, Python 3.11 -- NVIDIA's recommended
+# pairing). Kept early in devel so day-to-day config / app COPY changes
+# below do not invalidate this large layer. The framework (isaac_devkit)
+# stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
+# framework mounted).
+#
+# RL learning frameworks (rl_games / rsl_rl / sb3 / skrl / robomimic) are
+# NOT installed yet (`--install none` below): the current product is
+# single-scene + ROS 2 service, no reinforcement learning. They are
+# DEFERRED, not excluded -- parallel-environment / RL-style work is planned
+# later (the "C" / InteractiveScene direction in ADR-0018). When that
+# lands, replace the `--install none` line with the full install (the
+# cmake / build-essential that robomimic needs are already apt-installed
+# below):
+#
+#     /opt/IsaacLab/isaaclab.sh --install all && \
+#
+# or install only the frameworks you need, e.g.:
+#
+#     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
+#
+ARG ISAACLAB_VERSION="v2.3.2"
+# Two build-env quirks are worked around here:
+#   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
+#      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
+#      terminal type" and set -e kills the script before install. TERM=xterm
+#      + ncurses-term make the terminfo lookup resolve.
+#   2. A core isaaclab dependency (flatdict 4.0.1) ships only an sdist with
+#      a legacy setup.py that does `from pkg_resources import ...`. pip's
+#      build isolation installs the latest setuptools, which removed
+#      pkg_resources (>= 81), so the wheel build dies with
+#      "No module named 'pkg_resources'" and the core `isaaclab` package
+#      never installs (`pip show isaaclab` then fails the build). PIP_CONSTRAINT
+#      pins setuptools < 80 (still ships pkg_resources) for every install AND
+#      the isolated build envs (pip >= 22.1 applies constraints to build deps).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
+    git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
+        https://github.com/isaac-sim/IsaacLab.git /opt/IsaacLab && \
+    ln -s /isaac-sim /opt/IsaacLab/_isaac_sim && \
+    printf 'setuptools<80\n' > /tmp/pip-constraint.txt && \
+    TERM=xterm PIP_CONSTRAINT=/tmp/pip-constraint.txt \
+        /opt/IsaacLab/isaaclab.sh --install none && \
+    rm -f /tmp/pip-constraint.txt && \
+    /isaac-sim/python.sh -m pip show isaaclab && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Add your application-specific packages here
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
