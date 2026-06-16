@@ -205,9 +205,9 @@ class TestLifecycleOrderSpy:
     Fake ``isaaclab`` / ``isaaclab.app`` modules are injected so ``run()``'s
     function-local ``from isaaclab.app import AppLauncher`` resolves on the
     host (ADR-0018); the Kit-touching internals are overridden with
-    recorders (``_start_sim`` is overridden, so no ``isaaclab.sim`` mock is
-    needed). ``monkeypatch`` restores ``sys.modules`` and ``signal.signal``
-    afterwards, keeping the import-safety invariant intact for siblings.
+    recorders. ``monkeypatch`` restores ``sys.modules`` and
+    ``signal.signal`` afterwards, keeping the import-safety invariant
+    intact for siblings.
     """
 
     @staticmethod
@@ -255,8 +255,8 @@ class TestLifecycleOrderSpy:
             def _ensure_scene_defaults(self, stage):
                 calls.append("ensure_scene_defaults")
 
-            def _start_sim(self):
-                calls.append("start_sim")
+            def _play_timeline(self):
+                calls.append("play_timeline")
 
             def setup(self, stage):
                 calls.append("setup")
@@ -273,7 +273,7 @@ class TestLifecycleOrderSpy:
             "app_launcher",
             "open_stage",
             "ensure_scene_defaults",
-            "start_sim",
+            "play_timeline",
             "setup",
             "main",
             "shutdown",

@@ -14,7 +14,7 @@ Subclass contract:
         def main(self):
             while not self._should_quit and self._app.is_running():
                 # per-tick work
-                self._sim.step()
+                self._app.update()
 
         def shutdown(self):
             # release rclpy node, close files, etc.
@@ -24,10 +24,12 @@ Subclass contract:
         MyDriver().run()
 
 The base class owns the Kit init (Isaac Lab ``AppLauncher``) / signal
-handling / stage open / scene defaults / ``SimulationContext`` start /
-shutdown lifecycle. The subclass owns the main loop -- this matches the
-IsaacLab / Isaac Sim standalone / Gymnasium / PyBullet pattern (ADR-0009),
-now realized on Isaac Lab's own primitives (ADR-0018).
+handling / stage open / scene defaults / timeline play / shutdown
+lifecycle. The subclass owns the main loop -- this matches the IsaacLab /
+Isaac Sim standalone / Gymnasium / PyBullet pattern (ADR-0009), launched
+on Isaac Lab's ``AppLauncher`` (ADR-0018). The ``SimulationContext`` loop
+manager is adopted with the example rework (#154), where the new
+spawn-backend scene flow handles its shutdown cleanly.
 
 This module is import-safe without Isaac Sim available: the pure-Python
 helpers (``parse_livestream_env``, ``parse_livestream_applauncher``,
@@ -178,7 +180,7 @@ class IsaacDriver:
 
     Internals (subclass should not override):
         ``_on_signal``, ``_open_stage``, ``_ensure_scene_defaults``,
-        ``_start_sim`` -- pieces of the ``run()`` recipe.
+        ``_play_timeline`` -- pieces of the ``run()`` recipe.
     """
 
     USD: str = ""
@@ -188,7 +190,6 @@ class IsaacDriver:
         self._should_quit: bool = False
         self._app: Any = None
         self._app_launcher: Any = None
-        self._sim: Any = None
         self._rclpy_inited: bool = False
 
     # -- Entry point ---------------------------------------------------------
@@ -219,7 +220,7 @@ class IsaacDriver:
         try:
             stage = self._open_stage()
             self._ensure_scene_defaults(stage)
-            self._start_sim()
+            self._play_timeline()
             self.setup(stage)
             self.main()
             self.shutdown()
@@ -238,9 +239,9 @@ class IsaacDriver:
         """Post-stage-open hook. Default is a no-op."""
 
     def main(self) -> None:
-        """Main loop. Default steps the SimulationContext until quit/stop."""
+        """Main loop. Default ticks until ``_should_quit`` or Kit stops."""
         while not self._should_quit and self._app.is_running():
-            self._sim.step()
+            self._app.update()
 
     def shutdown(self) -> None:
         """Pre-close cleanup hook. Default is a no-op."""
@@ -307,20 +308,15 @@ class IsaacDriver:
         if not stage.GetPrimAtPath("/World/SunLight").IsValid():
             UsdLux.DistantLight.Define(stage, "/World/SunLight")
 
-    def _start_sim(self) -> None:
-        """Create the Isaac Lab SimulationContext over the open stage, reset.
+    def _play_timeline(self) -> None:
+        """Set an effectively-infinite end time and start the timeline."""
+        import omni.timeline
 
-        ADR-0018: replaces the raw ``omni.timeline`` play with Isaac Lab's
-        ``SimulationContext`` -- the loop manager an ``InteractiveScene``
-        ("C") pairs with -- so the default ``main()`` steps via
-        ``sim.step()`` and a later move to ``InteractiveScene`` is small.
-        ``reset()`` plays the timeline and initialises the physics handles.
-        A handful of warmup ticks then lets physx settle so ``setup()``
-        sees a stable stage.
-        """
-        from isaaclab.sim import SimulationCfg, SimulationContext
-
-        self._sim = SimulationContext(SimulationCfg())
-        self._sim.reset()
+        timeline = omni.timeline.get_timeline_interface()
+        # 1e10 seconds is effectively infinite for any drive scenario.
+        timeline.set_end_time(1e10)
+        timeline.play()
+        # A handful of warmup ticks lets physx settle so subclass.setup()
+        # sees a stable stage.
         for _ in range(10):
             self._app.update()
