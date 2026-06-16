@@ -29,8 +29,12 @@
 #   the URDF + sensor swap surfaces exist, and the agent_proxy_gate.sh
 #   harness passes its structure precondition + its --audit mode fails on a
 #   framework-source read and passes on a clean log). Live count is now
-#   221 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 221
+#   221. MR (#151, ADR-0018): the driver moves onto Isaac Lab AppLauncher +
+#   SimulationContext; adds 8 hosted unit tests for the new pure helper
+#   parse_livestream_applauncher (the ISAAC_LIVESTREAM -> AppLauncher-args
+#   mapping; the lifecycle-order spy is rewritten in place, not added).
+#   Live count is now 229 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 229
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
