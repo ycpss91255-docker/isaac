@@ -165,12 +165,16 @@ ARG CONFIG_SRC="config"
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
 ARG ISAACLAB_VERSION="v2.3.2"
+# isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker build
+# (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown terminal type"
+# and set -e kills the script before install. Give it a valid TERM and
+# install ncurses-term so the terminfo lookup always resolves.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git cmake build-essential && \
+    apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
     git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
         https://github.com/isaac-sim/IsaacLab.git /opt/IsaacLab && \
     ln -s /isaac-sim /opt/IsaacLab/_isaac_sim && \
-    /opt/IsaacLab/isaaclab.sh --install none && \
+    TERM=xterm /opt/IsaacLab/isaaclab.sh --install none && \
     /isaac-sim/python.sh -m pip show isaaclab && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
