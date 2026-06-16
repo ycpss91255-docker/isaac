@@ -33,8 +33,15 @@
 #   SimulationContext; adds 8 hosted unit tests for the new pure helper
 #   parse_livestream_applauncher (the ISAAC_LIVESTREAM -> AppLauncher-args
 #   mapping; the lifecycle-order spy is rewritten in place, not added).
-#   Live count is now 229 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 229
+#   Live count is now 229. MR (#150/#153, ADR-0018): model_import emits a
+#   single Isaac Lab instanceable USD and materials map color to a
+#   spawn-time cfg param. test_import_model.py is rewritten to the
+#   single-USD CLI contract (the Asset-Structure-3.0 template/validate
+#   helpers are gone): 20 -> 14 (-6). test_material_setup.py adds 10
+#   tests for the new pure material_cfg_from_yaml (color-only -> per-prim
+#   cfg-param mapping). Net +4. Live count is now 233 -- the enforced
+#   floor.
+HOSTED_UNIT_BASELINE = 233
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -75,7 +82,21 @@ HOSTED_UNIT_BASELINE = 229
 #   headless boot, import isaaclab.sim, assert the spawner +
 #   UrdfConverter surfaces and the pinned 2.3 version). In-container GPU
 #   suite collects 25; aggregate GPU-integration = 25 + 2 (host xc) = 27.
-GPU_INTEGRATION_BASELINE = 27
+#
+#   MR (#153, ADR-0018 decision 7): color is a spawn-time material cfg
+#   param, not a USD variant set. The variant-set GPU coverage
+#   (test_material_setup_integration.py: 2 in-container tests, plus the
+#   _apply_materials_runner.py helper) is REMOVED; spawn-time material
+#   application gets GPU coverage later in the spawn-adapter work
+#   (#152/#154). MR (#150, ADR-0018 decision 6): the model_import GPU
+#   integration (test_model_import.py) is rewritten from the
+#   Asset-Structure-3.0 assertions to the single-USD contract, staying 3
+#   tests. In-container GPU suite collects 25 - 2 = 23; aggregate
+#   GPU-integration = 23 + 2 (host xc) = 25. This is a -2 baseline drop;
+#   it is intentional (the variant-set path no longer exists) and the
+#   removed coverage is reinstated at the spawn-adapter milestone -- an
+#   explicit exception to the ratchet, recorded here and in the PR body.
+GPU_INTEGRATION_BASELINE = 25
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; with #132's GPU tests online the
