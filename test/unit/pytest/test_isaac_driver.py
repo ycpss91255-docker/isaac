@@ -57,6 +57,62 @@ class TestParseLivestreamEnv:
             id_mod.parse_livestream_env("yes")
 
 
+# ---------- parse_livestream_applauncher (ADR-0018) ----------
+
+
+class TestParseLivestreamApplauncher:
+    """The ADR-0018 AppLauncher-args variant. Mirrors the ISAAC_LIVESTREAM
+    0/1/2 mapping but emits Isaac Lab AppLauncher kwargs (headless /
+    livestream / enable_cameras), with enable_cameras always on so cameras
+    render headless for the ROS 2 publish chain.
+    """
+
+    def test_unset_returns_headless_cameras(self):
+        assert id_mod.parse_livestream_applauncher(None) == {
+            "headless": True,
+            "enable_cameras": True,
+        }
+
+    def test_empty_string_returns_headless_cameras(self):
+        assert id_mod.parse_livestream_applauncher("") == {
+            "headless": True,
+            "enable_cameras": True,
+        }
+
+    def test_zero_returns_headless_cameras(self):
+        assert id_mod.parse_livestream_applauncher("0") == {
+            "headless": True,
+            "enable_cameras": True,
+        }
+
+    def test_one_returns_native_livestream(self):
+        assert id_mod.parse_livestream_applauncher("1") == {
+            "headless": True,
+            "livestream": 1,
+            "enable_cameras": True,
+        }
+
+    def test_two_returns_webrtc_livestream(self):
+        assert id_mod.parse_livestream_applauncher("2") == {
+            "headless": True,
+            "livestream": 2,
+            "enable_cameras": True,
+        }
+
+    def test_enable_cameras_always_on(self):
+        for value in (None, "", "0", "1", "2"):
+            assert id_mod.parse_livestream_applauncher(value)["enable_cameras"] is True
+
+    def test_unknown_value_raises(self):
+        with pytest.raises(ValueError) as ei:
+            id_mod.parse_livestream_applauncher("3")
+        assert "'3'" in str(ei.value)
+
+    def test_garbage_value_raises(self):
+        with pytest.raises(ValueError):
+            id_mod.parse_livestream_applauncher("yes")
+
+
 # ---------- resolve_repo_relative_usd ----------
 
 
@@ -146,21 +202,23 @@ class TestLifecycleOrderSpy:
     (ADR-0017 section 7: lifecycle call order is verified hosted via a
     pure-side spy). Greenfield addition on top of the ported baseline.
 
-    A fake ``isaacsim`` module is injected so ``run()``'s function-local
-    ``from isaacsim import SimulationApp`` resolves on the host; the
-    Kit-touching internals are overridden with recorders. ``monkeypatch``
-    restores ``sys.modules`` and ``signal.signal`` afterwards, keeping
-    the import-safety invariant intact for sibling tests.
+    Fake ``isaaclab`` / ``isaaclab.app`` modules are injected so ``run()``'s
+    function-local ``from isaaclab.app import AppLauncher`` resolves on the
+    host (ADR-0018); the Kit-touching internals are overridden with
+    recorders (``_start_sim`` is overridden, so no ``isaaclab.sim`` mock is
+    needed). ``monkeypatch`` restores ``sys.modules`` and ``signal.signal``
+    afterwards, keeping the import-safety invariant intact for siblings.
     """
 
     @staticmethod
-    def _fake_isaacsim(calls):
-        fake = types.ModuleType("isaacsim")
+    def _fake_isaaclab_app(calls):
+        # Parent package stub so ``from isaaclab.app import AppLauncher``
+        # resolves the parent before the submodule.
+        pkg = types.ModuleType("isaaclab")
+        pkg.__path__ = []  # mark as a package
+        app_mod = types.ModuleType("isaaclab.app")
 
         class _FakeApp:
-            def __init__(self, _kwargs):
-                calls.append("simulation_app")
-
             def is_running(self):
                 return False
 
@@ -170,12 +228,19 @@ class TestLifecycleOrderSpy:
             def close(self):
                 calls.append("close")
 
-        fake.SimulationApp = _FakeApp
-        return fake
+        class _FakeLauncher:
+            def __init__(self, _args):
+                calls.append("app_launcher")
+                self.app = _FakeApp()
+
+        app_mod.AppLauncher = _FakeLauncher
+        return pkg, app_mod
 
     def test_run_walks_lifecycle_in_order(self, monkeypatch):
         calls = []
-        monkeypatch.setitem(sys.modules, "isaacsim", self._fake_isaacsim(calls))
+        pkg, app_mod = self._fake_isaaclab_app(calls)
+        monkeypatch.setitem(sys.modules, "isaaclab", pkg)
+        monkeypatch.setitem(sys.modules, "isaaclab.app", app_mod)
         monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
         # Do not install real process-wide handlers from inside a test.
         monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
@@ -190,8 +255,8 @@ class TestLifecycleOrderSpy:
             def _ensure_scene_defaults(self, stage):
                 calls.append("ensure_scene_defaults")
 
-            def _play_timeline(self):
-                calls.append("play_timeline")
+            def _start_sim(self):
+                calls.append("start_sim")
 
             def setup(self, stage):
                 calls.append("setup")
@@ -205,10 +270,10 @@ class TestLifecycleOrderSpy:
         _SpyDriver().run()
 
         assert calls == [
-            "simulation_app",
+            "app_launcher",
             "open_stage",
             "ensure_scene_defaults",
-            "play_timeline",
+            "start_sim",
             "setup",
             "main",
             "shutdown",
