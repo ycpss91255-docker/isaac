@@ -165,16 +165,28 @@ ARG CONFIG_SRC="config"
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
 ARG ISAACLAB_VERSION="v2.3.2"
-# isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker build
-# (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown terminal type"
-# and set -e kills the script before install. Give it a valid TERM and
-# install ncurses-term so the terminfo lookup always resolves.
+# Two build-env quirks are worked around here:
+#   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
+#      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
+#      terminal type" and set -e kills the script before install. TERM=xterm
+#      + ncurses-term make the terminfo lookup resolve.
+#   2. A core isaaclab dependency (flatdict 4.0.1) ships only an sdist with
+#      a legacy setup.py that does `from pkg_resources import ...`. pip's
+#      build isolation installs the latest setuptools, which removed
+#      pkg_resources (>= 81), so the wheel build dies with
+#      "No module named 'pkg_resources'" and the core `isaaclab` package
+#      never installs (`pip show isaaclab` then fails the build). PIP_CONSTRAINT
+#      pins setuptools < 80 (still ships pkg_resources) for every install AND
+#      the isolated build envs (pip >= 22.1 applies constraints to build deps).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
     git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
         https://github.com/isaac-sim/IsaacLab.git /opt/IsaacLab && \
     ln -s /isaac-sim /opt/IsaacLab/_isaac_sim && \
-    TERM=xterm /opt/IsaacLab/isaaclab.sh --install none && \
+    printf 'setuptools<80\n' > /tmp/pip-constraint.txt && \
+    TERM=xterm PIP_CONSTRAINT=/tmp/pip-constraint.txt \
+        /opt/IsaacLab/isaaclab.sh --install none && \
+    rm -f /tmp/pip-constraint.txt && \
     /isaac-sim/python.sh -m pip show isaaclab && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
