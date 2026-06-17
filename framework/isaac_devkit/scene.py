@@ -88,9 +88,21 @@ def _validate_scene(scene, source):
 def resolve_model_path(model_rel, repo_root):
     """Resolve a repo-relative model path to absolute.
 
-    model_rel is relative to model/usd/, e.g. "robot/openbase/openbase.usd".
+    model_rel is normally relative to ``model/usd/`` (e.g.
+    "robot/openbase/openbase.usd"). As a transition shim it also accepts a
+    value that already carries the ``model/usd/`` segment (the example
+    scene's robot entry uses "model/usd/robot/camera_bot/camera_bot.usd"
+    while its object entry uses the bare "object/prop_cube/prop_cube.usda"
+    -- both resolve correctly under ``<repo_root>/model/usd/``). #154
+    normalizes the example scene to the bare convention when it rewrites
+    the example driver onto this adapter.
     """
-    resolved = Path(repo_root) / "model" / "usd" / model_rel
+    model_rel = str(model_rel)
+    base = Path(repo_root)
+    if model_rel.startswith("model/usd/"):
+        resolved = base / model_rel
+    else:
+        resolved = base / "model" / "usd" / model_rel
     if not resolved.exists():
         raise FileNotFoundError(
             f"model not found: {resolved} "

@@ -157,6 +157,17 @@ class TestResolveModelPath:
         resolved = scene_builder.resolve_model_path("object/pallet/pallet.usd", repo_root)
         assert resolved.exists()
 
+    def test_resolves_prefixed_model(self, repo_root):
+        # Transition shim: a value that already carries the model/usd/
+        # segment (the example scene's robot entry) resolves to the same
+        # path as the bare convention, not a doubled model/usd/model/usd/.
+        bare = scene_builder.resolve_model_path("robot/openbase/openbase.usd", repo_root)
+        prefixed = scene_builder.resolve_model_path(
+            "model/usd/robot/openbase/openbase.usd", repo_root
+        )
+        assert prefixed == bare
+        assert prefixed.exists()
+
     def test_rejects_missing_model(self, repo_root):
         with pytest.raises(FileNotFoundError, match="not found"):
             scene_builder.resolve_model_path("robot/nope/nope.usd", repo_root)
