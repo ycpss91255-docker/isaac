@@ -25,7 +25,7 @@ sys.path.insert(0, str(_FRAMEWORK_DIR))
 
 # Top-level Isaac namespaces that must never be imported at module top
 # anywhere in the package (function-local imports only).
-_ISAAC_TOP_LEVEL = ("omni", "pxr", "isaacsim")
+_ISAAC_TOP_LEVEL = ("omni", "pxr", "isaacsim", "isaaclab")
 
 # Every module of the package, plus the package itself (its curated
 # __init__ re-export surface must also stay pure).
