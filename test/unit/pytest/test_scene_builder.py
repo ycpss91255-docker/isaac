@@ -4,6 +4,7 @@ Tests cover: YAML loading, validation, model path resolution,
 multi-instance generation, and sensor config reference resolution.
 """
 
+import math
 import sys
 from pathlib import Path
 
@@ -220,3 +221,308 @@ class TestResolveSensorConfigs:
         scene = {}
         resolved = scene_builder.resolve_sensor_configs(scene, repo_root)
         assert resolved == []
+
+
+class TestRpyToQuat:
+    """Pure rpy(deg) -> (w,x,y,z) quaternion, XYZ intrinsic order."""
+
+    def test_identity(self):
+        w, x, y, z = scene_builder.rpy_to_quat([0, 0, 0])
+        assert (w, x, y, z) == pytest.approx((1.0, 0.0, 0.0, 0.0))
+
+    def test_yaw_90(self):
+        # 90 deg about Z -> (cos45, 0, 0, sin45).
+        w, x, y, z = scene_builder.rpy_to_quat([0, 0, 90])
+        s = math.sqrt(2) / 2
+        assert (w, x, y, z) == pytest.approx((s, 0.0, 0.0, s))
+
+    def test_roll_90(self):
+        # 90 deg about X -> (cos45, sin45, 0, 0).
+        w, x, y, z = scene_builder.rpy_to_quat([90, 0, 0])
+        s = math.sqrt(2) / 2
+        assert (w, x, y, z) == pytest.approx((s, s, 0.0, 0.0))
+
+    def test_pitch_90(self):
+        # 90 deg about Y -> (cos45, 0, sin45, 0).
+        w, x, y, z = scene_builder.rpy_to_quat([0, 90, 0])
+        s = math.sqrt(2) / 2
+        assert (w, x, y, z) == pytest.approx((s, 0.0, s, 0.0))
+
+    def test_unit_norm(self):
+        w, x, y, z = scene_builder.rpy_to_quat([30, 45, 60])
+        norm = math.sqrt(w * w + x * x + y * y + z * z)
+        assert norm == pytest.approx(1.0)
+
+
+def _scene_dict(robot=None, objects=None, environment=None):
+    base_robot = {
+        "model": "robot/openbase/openbase.usd",
+        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+    }
+    if robot:
+        base_robot.update(robot)
+    scene = {"robot": base_robot}
+    if objects is not None:
+        scene["objects"] = objects
+    if environment is not None:
+        scene["environment"] = environment
+    return scene
+
+
+class TestToIsaaclabCfg:
+    """Pure YAML -> SpawnSpec mapping; asserted without a live stage."""
+
+    def test_default_environment_emits_light_only(self, repo_root):
+        # No environment block -> no ground, but a default light is emitted.
+        specs = scene_builder.to_isaaclab_cfg(_scene_dict(), repo_root)
+        kinds = [s.kind for s in specs]
+        assert "ground_plane" not in kinds
+        assert kinds[0] == "distant_light"
+
+    def test_ground_plane_spec(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(environment={"ground_plane": True}), repo_root
+        )
+        ground = next(s for s in specs if s.kind == "ground_plane")
+        assert ground.prim_path == "/World/ground"
+        assert ground.mobility is None
+
+    def test_default_light_when_absent(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(environment={"ground_plane": True}), repo_root
+        )
+        light = next(s for s in specs if s.kind == "distant_light")
+        assert light.prim_path == "/World/light"
+        assert light.kwargs.get("intensity") == 3000.0
+
+    def test_curated_light_fields(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                environment={
+                    "light": {
+                        "intensity": 1500.0,
+                        "color": [0.5, 0.5, 0.5],
+                        "angle": 0.3,
+                    }
+                }
+            ),
+            repo_root,
+        )
+        light = next(s for s in specs if s.kind == "distant_light")
+        assert light.kwargs["intensity"] == 1500.0
+        assert light.kwargs["color"] == [0.5, 0.5, 0.5]
+        assert light.kwargs["angle"] == 0.3
+
+    def test_emits_specs_in_order(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                environment={"ground_plane": True},
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [1, 0, 0], "rpy": [0, 0, 0]},
+                    }
+                ],
+            ),
+            repo_root,
+        )
+        kinds = [s.kind for s in specs]
+        # ground, light, robot usd, object usd -- in that order.
+        assert kinds == ["ground_plane", "distant_light", "usd", "usd"]
+
+    def test_robot_usd_spec(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(robot={"pose": {"xyz": [1.0, 2.0, 3.0], "rpy": [0, 0, 0]}}),
+            repo_root,
+        )
+        robot = next(s for s in specs if s.prim_path == "/World/Robot")
+        assert robot.kind == "usd"
+        assert robot.kwargs["usd_path"].endswith("openbase.usd")
+        assert robot.translation == pytest.approx((1.0, 2.0, 3.0))
+        assert robot.orientation == pytest.approx((1.0, 0.0, 0.0, 0.0))
+        assert robot.mobility is None
+
+    def test_object_usd_spec_translation_and_path(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [3.0, 0.5, 0.8], "rpy": [0, 0, 0]},
+                        "mobility": "dynamic",
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        assert obj.prim_path == "/World/Objects/pallet_0_0"
+        assert obj.kwargs["usd_path"].endswith("pallet.usd")
+        assert obj.translation == pytest.approx((3.0, 0.5, 0.8))
+        assert obj.mobility == "dynamic"
+
+    def test_object_static_mobility(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                        "mobility": "static",
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        assert obj.mobility == "static"
+
+    def test_object_rpy_to_orientation(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 90]},
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        s = math.sqrt(2) / 2
+        assert obj.orientation == pytest.approx((s, 0.0, 0.0, s))
+
+    def test_instance_expansion_flows_through(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [3.0, 1.0, 0.8], "rpy": [0, 0, 0]},
+                        "count": 3,
+                        "spacing": [0, 0.2, 0],
+                        "mobility": "dynamic",
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        objs = [
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        ]
+        assert len(objs) == 3
+        assert objs[0].prim_path == "/World/Objects/pallet_0_0"
+        assert objs[2].prim_path == "/World/Objects/pallet_0_2"
+        assert objs[1].translation == pytest.approx((3.0, 1.2, 0.8))
+        assert objs[2].translation == pytest.approx((3.0, 1.4, 0.8))
+        assert all(o.mobility == "dynamic" for o in objs)
+
+    def test_spawn_overrides_spread_onto_kwargs(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                robot={
+                    "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                    "spawn_overrides": {"scale": (2.0, 2.0, 2.0)},
+                }
+            ),
+            repo_root,
+        )
+        robot = next(s for s in specs if s.prim_path == "/World/Robot")
+        assert robot.kwargs["scale"] == (2.0, 2.0, 2.0)
+
+    def test_spawn_overrides_win_over_curated(self, repo_root):
+        # An override on usd_path beats the curated resolved path.
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                robot={
+                    "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                    "spawn_overrides": {"usd_path": "/override/path.usd"},
+                }
+            ),
+            repo_root,
+        )
+        robot = next(s for s in specs if s.prim_path == "/World/Robot")
+        assert robot.kwargs["usd_path"] == "/override/path.usd"
+
+    def test_variant_carried_as_variants_kwarg(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                        "variant": {"shape": "tall"},
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        assert obj.kwargs["variants"] == {"shape": "tall"}
+
+    def test_specs_are_json_serializable(self, repo_root):
+        import json
+
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(environment={"ground_plane": True}), repo_root
+        )
+        # NamedTuple -> list of fields; every field is plain data.
+        json.dumps([list(s) for s in specs])
+
+    def test_material_diffuse_recorded(self, repo_root, tmp_path):
+        # A material YAML referenced by an object records a diffuse color
+        # under visual_material_diffuse so build_scene can attach it.
+        material = {
+            "materials": {
+                "/Looks/Body": {
+                    "shader": "OmniPBR",
+                    "diffuse_color": [0.1, 0.2, 0.3],
+                }
+            }
+        }
+        mat_path = repo_root / "model" / "usd" / "object" / "pallet" / "mat.yaml"
+        mat_path.write_text(yaml.dump(material))
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                        "material": "model/usd/object/pallet/mat.yaml",
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        assert obj.kwargs["visual_material_diffuse"] == pytest.approx(
+            (0.1, 0.2, 0.3)
+        )
+
+    def test_no_material_no_diffuse_key(self, repo_root):
+        specs = scene_builder.to_isaaclab_cfg(
+            _scene_dict(
+                objects=[
+                    {
+                        "model": "object/pallet/pallet.usd",
+                        "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]},
+                    }
+                ]
+            ),
+            repo_root,
+        )
+        obj = next(
+            s for s in specs if s.prim_path.startswith("/World/Objects/")
+        )
+        assert "visual_material_diffuse" not in obj.kwargs
