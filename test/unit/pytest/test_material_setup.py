@@ -196,3 +196,116 @@ class TestResolveTexturePath:
     def test_rejects_missing_texture(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="texture"):
             material_setup.resolve_texture_path("textures/gone.png", tmp_path)
+
+
+@pytest.fixture
+def color_material_cfg(tmp_path):
+    """A color-only variant config (ADR-0018 decision 7: iron/green/blue)."""
+    cfg = {
+        "variants": {
+            "iron": {
+                "/board/panel": {
+                    "shader": "OmniPBR",
+                    "diffuse_color": [0.5, 0.5, 0.5],
+                    "roughness": 0.3,
+                    "metallic": 0.9,
+                },
+            },
+            "green": {
+                "/board/panel": {
+                    "shader": "OmniPBR",
+                    "diffuse_color": [0.1, 0.6, 0.1],
+                    "roughness": 0.5,
+                },
+            },
+            "blue": {
+                "/board/panel": {
+                    "shader": "OmniPBR",
+                    "diffuse_color": [0.1, 0.1, 0.8],
+                },
+            },
+        },
+        "default_variant": "iron",
+    }
+    path = tmp_path / "material.yaml"
+    path.write_text(yaml.dump(cfg))
+    return {"path": path, "model_dir": tmp_path}
+
+
+class TestMaterialCfgFromYaml:
+    """ADR-0018 decision 7: color via spawn cfg param, no USD variant set."""
+
+    def test_returns_per_prim_mapping(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="green")
+        assert "/board/panel" in spawn_cfg
+        entry = spawn_cfg["/board/panel"]
+        assert entry["shader"] == "OmniPBR"
+
+    def test_diffuse_color_is_float_tuple(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="green")
+        color = spawn_cfg["/board/panel"]["diffuse_color"]
+        assert color == (0.1, 0.6, 0.1)
+        assert isinstance(color, tuple)
+        assert all(isinstance(c, float) for c in color)
+
+    def test_default_variant_used_when_none(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg)
+        # default_variant: iron
+        assert spawn_cfg["/board/panel"]["diffuse_color"] == (0.5, 0.5, 0.5)
+
+    def test_color_varies_per_variant(self, color_material_cfg):
+        """The randomization target: same prim, different color per variant."""
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        iron = material_setup.material_cfg_from_yaml(cfg, variant="iron")
+        blue = material_setup.material_cfg_from_yaml(cfg, variant="blue")
+        assert (
+            iron["/board/panel"]["diffuse_color"]
+            != blue["/board/panel"]["diffuse_color"]
+        )
+
+    def test_passthrough_roughness_metallic_as_floats(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="iron")
+        entry = spawn_cfg["/board/panel"]
+        assert entry["roughness"] == 0.3
+        assert entry["metallic"] == 0.9
+        assert isinstance(entry["roughness"], float)
+
+    def test_omits_absent_optional_keys(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="blue")
+        entry = spawn_cfg["/board/panel"]
+        # blue declares no roughness/metallic/texture.
+        assert "roughness" not in entry
+        assert "metallic" not in entry
+        assert "albedo_texture" not in entry
+
+    def test_passthrough_texture_relative(self, pallet_material_cfg):
+        cfg = material_setup.load_material_config(pallet_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="blue")
+        entry = spawn_cfg["/pallet/body"]
+        # Texture stays a relative path; the adapter resolves at spawn.
+        assert entry["albedo_texture"] == "textures/blue.png"
+
+    def test_single_material_mode(self, single_material_cfg):
+        cfg = material_setup.load_material_config(single_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg)
+        entry = spawn_cfg["/robot/base_link/visual"]
+        assert entry["shader"] == "OmniPBR"
+        assert entry["diffuse_color"] == (0.3, 0.3, 0.3)
+
+    def test_result_is_json_serializable(self, color_material_cfg):
+        import json
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        spawn_cfg = material_setup.material_cfg_from_yaml(cfg, variant="iron")
+        # GPU-free, plain mapping: round-trips through JSON (tuples -> lists).
+        round_tripped = json.loads(json.dumps(spawn_cfg))
+        assert round_tripped["/board/panel"]["shader"] == "OmniPBR"
+
+    def test_rejects_unknown_variant(self, color_material_cfg):
+        cfg = material_setup.load_material_config(color_material_cfg["path"])
+        with pytest.raises(ValueError, match="variant.*not found"):
+            material_setup.material_cfg_from_yaml(cfg, variant="purple")

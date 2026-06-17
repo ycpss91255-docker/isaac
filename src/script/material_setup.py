@@ -10,17 +10,17 @@ New code should import ``isaac_devkit.materials`` directly.
 """
 
 from isaac_devkit.materials import (
-    apply_materials,
     get_prim_material_map,
     get_variant_names,
     load_material_config,
+    material_cfg_from_yaml,
     resolve_texture_path,
 )
 
 __all__ = [
-    "apply_materials",
     "get_prim_material_map",
     "get_variant_names",
     "load_material_config",
+    "material_cfg_from_yaml",
     "resolve_texture_path",
 ]

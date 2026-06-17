@@ -1,29 +1,32 @@
-"""Material setup — YAML-config-driven OmniPBR + USD Variant Set.
+"""Material setup — YAML-config-driven material cfg parameters.
 
-Reads a material YAML per model and applies OmniPBR materials to
-specified prims. Supports two modes:
+Reads a material YAML per model and maps it to the cfg-param structure
+the Isaac Lab spawn adapter consumes (ADR-0018 decision 7): visual
+material (including color) is applied at SPAWN time as an Isaac Lab
+``sim_utils`` material cfg parameter, NOT as a USD variant set.
 
-1. **Variant mode** (color switching): multiple named variants, each
-   mapping prims to different materials. USD Variant Set created for
-   runtime switching. Used for objects like pallets.
+Color-only "variants" (e.g. the iron / green / blue boards) are no
+longer USD variant sets -- color is a material parameter on the same
+mesh/texture, varied at spawn (and randomized there for
+domain-randomization image generation). The variant *naming* in the YAML
+schema is retained only for structurally-distinct variants (different
+mesh / topology / texture file); ``material_cfg_from_yaml`` collapses a
+chosen variant down to a flat per-prim cfg-param mapping the spawn
+adapter (#152) attaches to ``sim_utils.PreviewSurfaceCfg`` /
+``visual_material``.
 
-2. **Single material mode**: direct prim-to-material mapping without
-   variants. Used for robots or objects with fixed appearance.
-
-Host-side functions (load, validate, query) work without Isaac Sim.
-apply_materials() requires Isaac Sim (Kit-side modules).
-
-Variant-selection ownership note (mechanical 3a, isaac#130):
-``_apply_variant_materials`` builds the variant set and selects
-``default_variant``, while ``isaac_devkit.scene.build_scene`` also calls
-``SetVariantSelection`` for scene-YAML ``variant:`` entries. This split
-is preserved as-is; the single-owner refactor is issue #136.
+This module is entirely pure / host-runnable: it reads and validates the
+YAML and produces a plain, JSON-serializable, GPU-free mapping. The
+actual spawn-time material binding (the Isaac Sim / GPU side) lives in
+the spawn adapter (#152) and gets its GPU coverage there (#154).
 
 Usage:
 
-    from isaac_devkit.materials import load_material_config, apply_materials
+    from isaac_devkit.materials import (
+        load_material_config, material_cfg_from_yaml,
+    )
     cfg = load_material_config("model/usd/object/pallet/material.yaml")
-    apply_materials(cfg, stage, model_dir)
+    spawn_material = material_cfg_from_yaml(cfg, variant="blue")
 """
 
 from pathlib import Path
@@ -80,20 +83,54 @@ def resolve_texture_path(texture_rel, model_dir):
     return resolved
 
 
-def apply_materials(cfg, stage, model_dir):
-    """Apply materials to a live USD stage. Requires Isaac Sim.
+def material_cfg_from_yaml(cfg, variant=None):
+    """Map a material YAML spec to spawn-time cfg parameters (ADR-0018 dec 7).
 
-    In variant mode: creates a USD Variant Set with all variants,
-    each binding different OmniPBR materials to the target prims.
-    Selects default_variant after creation.
+    Produces the cfg-param structure the Isaac Lab spawn adapter (#152)
+    attaches to a ``sim_utils`` visual material (e.g.
+    ``PreviewSurfaceCfg(diffuse_color=...)`` or an MDL/OmniPBR cfg with a
+    color param), instead of authoring a USD variant set. The result is a
+    plain, JSON-serializable, GPU-free mapping; no Isaac / pxr import.
 
-    In single material mode: creates and binds OmniPBR materials
-    directly to the target prims.
+    Per prim, the returned dict carries:
+
+    * ``shader`` -- the shader name from the YAML (e.g. ``"OmniPBR"``),
+      so the adapter can pick the matching ``sim_utils`` cfg class;
+    * ``diffuse_color`` -- an ``(r, g, b)`` tuple of floats, when the
+      YAML declares one (this is the color-only randomization target);
+    * ``albedo_texture`` / ``roughness`` / ``metallic`` -- passed through
+      verbatim when present (textures stay relative paths; the adapter
+      resolves them against the model dir at spawn).
+
+    Args:
+        cfg: A loaded material config (from ``load_material_config``).
+        variant: Variant name to resolve in variant mode; ``None`` uses
+            ``default_variant``. Ignored in single-material mode.
+
+    Returns:
+        ``{prim_path: {"shader": str, "diffuse_color": (r,g,b)?, ...}}``.
+
+    Raises:
+        ValueError: If ``variant`` is unknown (via
+            ``get_prim_material_map``).
     """
-    if "variants" in cfg:
-        _apply_variant_materials(cfg, stage, model_dir)
-    else:
-        _apply_single_materials(cfg, stage, model_dir)
+    prim_map = get_prim_material_map(cfg, variant=variant)
+
+    spawn_cfg = {}
+    for prim_path, props in prim_map.items():
+        entry = {"shader": props["shader"]}
+        if "diffuse_color" in props:
+            entry["diffuse_color"] = tuple(
+                float(c) for c in props["diffuse_color"]
+            )
+        for key in ("albedo_texture", "roughness", "metallic"):
+            if key in props:
+                value = props[key]
+                if key in ("roughness", "metallic"):
+                    value = float(value)
+                entry[key] = value
+        spawn_cfg[prim_path] = entry
+    return spawn_cfg
 
 
 def _validate(cfg, source):
@@ -141,108 +178,3 @@ def _validate_materials(cfg, source):
             raise ValueError(
                 f"{source}: materials.{prim_path} needs 'shader'"
             )
-
-
-def _apply_variant_materials(cfg, stage, model_dir):
-    """Create USD Variant Set with OmniPBR materials per variant."""
-    from pxr import UsdShade
-
-    variants = cfg["variants"]
-    default_variant = cfg["default_variant"]
-
-    all_prims = set()
-    for prim_map in variants.values():
-        all_prims.update(prim_map.keys())
-
-    for prim_path in all_prims:
-        prim = stage.GetPrimAtPath(prim_path)
-        if not prim.IsValid():
-            continue
-
-        variant_set = prim.GetVariantSets().AddVariantSet("color")
-        for vname in variants:
-            variant_set.AddVariant(vname)
-
-        for vname, prim_map in variants.items():
-            if prim_path not in prim_map:
-                continue
-            mat_props = prim_map[prim_path]
-
-            variant_set.SetVariantSelection(vname)
-            with variant_set.GetVariantEditContext():
-                mtl_prim = _create_omnipbr(
-                    stage, f"/World/Looks/{prim.GetName()}_{vname}",
-                    mat_props, model_dir,
-                )
-                mtl = UsdShade.Material(mtl_prim)
-                UsdShade.MaterialBindingAPI.Apply(prim)
-                UsdShade.MaterialBindingAPI(prim).Bind(mtl)
-
-        variant_set.SetVariantSelection(default_variant)
-
-
-def _apply_single_materials(cfg, stage, model_dir):
-    """Create and bind OmniPBR materials directly."""
-    from pxr import UsdShade
-
-    for prim_path, mat_props in cfg["materials"].items():
-        prim = stage.GetPrimAtPath(prim_path)
-        if not prim.IsValid():
-            continue
-
-        mtl_prim = _create_omnipbr(
-            stage, f"/World/Looks/{prim.GetName()}_mat",
-            mat_props, model_dir,
-        )
-        mtl = UsdShade.Material(mtl_prim)
-        UsdShade.MaterialBindingAPI.Apply(prim)
-        UsdShade.MaterialBindingAPI(prim).Bind(mtl)
-
-
-def _create_omnipbr(stage, mtl_path, mat_props, model_dir):
-    """Create an OmniPBR material prim with given properties."""
-    import omni.kit.commands
-    from pxr import Sdf
-
-    mtl_created_list = []
-    omni.kit.commands.execute(
-        "CreateAndBindMdlMaterialFromLibrary",
-        mdl_name="OmniPBR.mdl",
-        mtl_name="OmniPBR",
-        mtl_created_list=mtl_created_list,
-        prim_name=mtl_path.split("/")[-1],
-    )
-
-    mtl_prim = stage.GetPrimAtPath(mtl_created_list[0])
-
-    if "albedo_texture" in mat_props:
-        tex_path = resolve_texture_path(mat_props["albedo_texture"], model_dir)
-        import omni.usd
-        omni.usd.create_material_input(
-            mtl_prim, "diffuse_texture",
-            str(tex_path), Sdf.ValueTypeNames.Asset,
-        )
-
-    if "diffuse_color" in mat_props:
-        import omni.usd
-        color = tuple(float(c) for c in mat_props["diffuse_color"])
-        omni.usd.create_material_input(
-            mtl_prim, "diffuse_color_constant",
-            color, Sdf.ValueTypeNames.Color3f,
-        )
-
-    if "roughness" in mat_props:
-        import omni.usd
-        omni.usd.create_material_input(
-            mtl_prim, "reflection_roughness_constant",
-            float(mat_props["roughness"]), Sdf.ValueTypeNames.Float,
-        )
-
-    if "metallic" in mat_props:
-        import omni.usd
-        omni.usd.create_material_input(
-            mtl_prim, "metallic_constant",
-            float(mat_props["metallic"]), Sdf.ValueTypeNames.Float,
-        )
-
-    return mtl_prim

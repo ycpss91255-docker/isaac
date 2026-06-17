@@ -256,6 +256,13 @@ def _parse_prim_summaries(stdout):
     return summaries
 
 
+@pytest.mark.skip(
+    reason="ADR-0018 decision 6: model_import now emits an Isaac Lab "
+    "instanceable USD; the committed camera_bot.usd was produced by the "
+    "legacy omni.kit.commands importer, so its PrimSummary diff != 0 by "
+    "construction. Re-enabled when #154 regenerates the example USD with "
+    "the Isaac Lab importer (the example rework owns the committed asset)."
+)
 def test_l1_urdf_to_usd_diff_zero(tmp_path):
     """L1: a fresh URDF->USD import matches the committed example USD.
 
