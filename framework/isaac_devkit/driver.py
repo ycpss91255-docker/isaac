@@ -295,18 +295,26 @@ class IsaacDriver:
         return ctx.get_stage()
 
     def _ensure_scene_defaults(self, stage: Any) -> None:
-        """Add a SunLight if the USD does not bring its own (opt-out).
+        """Add a SunLight if the scene does not already bring a light.
 
         ADR-0009 calls for a SunLight + GroundPlane default. GroundPlane
         creation through ``omni.kit.commands.CreateGroundPlane`` is
         Kit-version-sensitive and deferred to a follow-up; SunLight via
         ``UsdLux.DistantLight`` is stable across 5.x and is enough to
         keep viewport-less debug renders readable.
+
+        ADR-0018: ``scene.build_scene`` now spawns a distant light at
+        ``/World/light`` via the ``sim_utils`` adapter. This default is
+        opt-out so the scene never ends up with two SunLights -- if a
+        light already exists at ``/World/light`` or ``/World/SunLight``,
+        skip. (The example driver consolidation is #154.)
         """
         from pxr import UsdLux
 
-        if not stage.GetPrimAtPath("/World/SunLight").IsValid():
-            UsdLux.DistantLight.Define(stage, "/World/SunLight")
+        for existing in ("/World/light", "/World/SunLight"):
+            if stage.GetPrimAtPath(existing).IsValid():
+                return
+        UsdLux.DistantLight.Define(stage, "/World/SunLight")
 
     def _play_timeline(self) -> None:
         """Set an effectively-infinite end time and start the timeline."""
