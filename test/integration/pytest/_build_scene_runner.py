@@ -76,10 +76,10 @@ def _main() -> None:
         for path in ("/World/ground", "/World/light", "/World/Robot"):
             print(f"[ADAPTER PRIM] path={path} valid={_valid(path)}", flush=True)
 
-        # base_link presence depends on the committed camera_bot.usd carrying
-        # a referenceable default/root prim; the committed asset is the legacy
-        # importer's output until #154 regenerates it, so this is reported,
-        # not asserted strictly.
+        # base_link resolves now that the committed camera_bot.usd carries a
+        # defaultPrim (/camera_bot, set in #154's fb6f580): the adapter's
+        # UsdFileCfg reference brings in the referenced content, so
+        # /World/Robot/base_link is valid. Asserted strictly by the test.
         base_link = _valid("/World/Robot/base_link")
         print(f"[ADAPTER BASE_LINK] valid={base_link}", flush=True)
 
