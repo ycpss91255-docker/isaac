@@ -102,7 +102,13 @@ def _main() -> None:
         )
         print("[EXIT CLEAN]", flush=True)
     except Exception as exc:  # noqa: BLE001
+        import traceback
+
         print(f"[RAISED] {type(exc).__name__}: {exc}", flush=True)
+        # Full traceback to stdout (the pytest layer captures stdout; stderr
+        # gets truncated in the CompletedProcess repr) so a spawn failure
+        # reports its exact frame.
+        print("[TRACEBACK]\n" + traceback.format_exc(), flush=True)
         raise
     finally:
         app.close()

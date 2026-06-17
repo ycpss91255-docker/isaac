@@ -408,7 +408,21 @@ def _set_active_stage(stage):
 def _materialize_cfg(sim_utils, spec):
     """Turn a SpawnSpec into the concrete ``sim_utils`` cfg dataclass."""
     if spec.kind == "ground_plane":
-        return sim_utils.GroundPlaneCfg(**spec.kwargs)
+        # Isaac Lab's GroundPlaneCfg defaults usd_path to a nucleus asset
+        # (ISAAC_NUCLEUS_DIR/Environments/Grid/default_environment.usd). The
+        # base repo runs OFFLINE (no nucleus): that path resolves to None and
+        # the spawn dies with ArgumentError GetPrimAtPath(Stage, NoneType).
+        # Spawn a procedural collision cuboid floor instead -- fully
+        # offline-safe, no external asset (same principle as the example's
+        # asset-free custom camera). A caller that genuinely has a ground USD
+        # can pass ``usd_path`` via ``environment.ground_overrides`` -> a
+        # UsdFileCfg path, but the default is procedural.
+        kwargs = dict(spec.kwargs)
+        if "usd_path" in kwargs:
+            return sim_utils.UsdFileCfg(**kwargs)
+        kwargs.setdefault("size", (50.0, 50.0, 0.1))
+        kwargs.setdefault("collision_props", sim_utils.CollisionPropertiesCfg())
+        return sim_utils.CuboidCfg(**kwargs)
 
     if spec.kind == "distant_light":
         return sim_utils.DistantLightCfg(**spec.kwargs)
