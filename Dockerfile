@@ -164,7 +164,21 @@ ARG CONFIG_SRC="config"
 #
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
-ARG ISAACLAB_VERSION="v2.3.2"
+# Pinned to v2.3.0 (NOT the latest 2.3.x) on purpose. Isaac Lab PR #4000
+# (merged 2025-12-02, first shipped in v2.3.1/v2.3.2) made UrdfConverter
+# hard-enable the URDF importer extension "isaacsim.asset.importer.urdf-2.4.31"
+# and call ImportConfig.set_merge_fixed_ignore_inertia(). Isaac Sim 5.1.0
+# bundles importer 2.4.30, and the offline GPU runner cannot reach the Kit
+# extension registry to fetch 2.4.31 -- so the enable fails and the call
+# raises AttributeError ("ImportConfig has no attribute
+# set_merge_fixed_ignore_inertia"), leaving model_import unable to emit a USD.
+# v2.3.0 predates #4000: it enables the bundled importer generically and
+# never calls the missing method, so URDF->USD conversion works against the
+# 2.4.30 importer that ships in isaac-sim:5.1.0. Patching v2.3.2 to skip the
+# call would just fall back to 2.4.30 anyway -- same result, extra vendored
+# hackery. Bump back to >= v2.3.2 once an isaac-sim image bundles importer
+# 2.4.31 (no 5.1.x patch exists yet; 6.0 is a separate major migration).
+ARG ISAACLAB_VERSION="v2.3.0"
 # Two build-env quirks are worked around here:
 #   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
 #      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
