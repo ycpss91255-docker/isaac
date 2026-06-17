@@ -368,6 +368,13 @@ def build_scene(scene, stage, repo_root):
     import isaaclab.sim as sim_utils
 
     _set_active_stage(stage)
+    if stage is None:
+        try:
+            import omni.usd
+
+            stage = omni.usd.get_context().get_stage()
+        except Exception:  # noqa: BLE001  (spawners still use the active context)
+            stage = None
 
     for spec in to_isaaclab_cfg(scene, repo_root):
         cfg = _materialize_cfg(sim_utils, spec)
@@ -377,6 +384,7 @@ def build_scene(scene, stage, repo_root):
             translation=spec.translation,
             orientation=spec.orientation,
         )
+        _apply_mobility_physics(spec, stage)
 
     sensor_paths = resolve_sensor_configs(scene, repo_root)
     if sensor_paths:
@@ -434,18 +442,42 @@ def _materialize_cfg(sim_utils, spec):
             kwargs["visual_material"] = sim_utils.PreviewSurfaceCfg(
                 diffuse_color=tuple(diffuse)
             )
-        if spec.mobility == "dynamic":
-            kwargs.setdefault(
-                "rigid_props", sim_utils.RigidBodyPropertiesCfg()
-            )
-            kwargs.setdefault("mass_props", sim_utils.MassPropertiesCfg())
-            kwargs.setdefault(
-                "collision_props", sim_utils.CollisionPropertiesCfg()
-            )
-        elif spec.mobility == "static":
-            kwargs.setdefault(
-                "collision_props", sim_utils.CollisionPropertiesCfg()
-            )
+        # NOTE (ADR-0018): mobility physics is DEFINED post-spawn in
+        # ``_apply_mobility_physics``, NOT via UsdFileCfg props. Isaac Lab's
+        # UsdFileCfg ``rigid_props`` / ``collision_props`` go through
+        # ``schemas.modify_*`` -- they only EDIT an EXISTING RigidBodyAPI, so
+        # they cannot turn a geometry-only USD (the prop_cube) into a rigid
+        # body. The three-file schema declares mobility at the SCENE
+        # (object.yaml: "physics level declared at the scene, not baked into
+        # the model"), so build_scene applies the schema itself after spawn.
         return sim_utils.UsdFileCfg(**kwargs)
 
     raise ValueError(f"unknown SpawnSpec kind: {spec.kind!r}")
+
+
+def _apply_mobility_physics(spec, stage):
+    """DEFINE physics schemas for a scene-declared mobility (post-spawn).
+
+    Isaac Lab's ``UsdFileCfg`` rigid/collision props only MODIFY an existing
+    ``RigidBodyAPI`` (``schemas.modify_*``), so they cannot make a
+    geometry-only USD a rigid body. The three-file schema declares mobility
+    at the SCENE, not in the model, so apply the schema on the spawned prim:
+
+      * ``dynamic`` -> ``RigidBodyAPI`` + ``CollisionAPI`` (a free rigid body);
+      * ``static``  -> ``CollisionAPI`` only (a static collider);
+      * ``None``     -> nothing.
+
+    Physics is only authored here (the example uses the timeline loop, not a
+    stepped ``SimulationContext``); collider-on-mesh refinement is deferred
+    with the simulation stepping.
+    """
+    if spec.kind != "usd" or spec.mobility is None or stage is None:
+        return
+    from pxr import UsdPhysics
+
+    prim = stage.GetPrimAtPath(spec.prim_path)
+    if not prim or not prim.IsValid():
+        return
+    UsdPhysics.CollisionAPI.Apply(prim)
+    if spec.mobility == "dynamic":
+        UsdPhysics.RigidBodyAPI.Apply(prim)

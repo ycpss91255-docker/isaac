@@ -13,10 +13,10 @@ overrides ``run()`` to walk the SCENE-driven lifecycle (ADR-0017 section
     install signal handlers (override Kit SIGINT)
     scene = load_scene(SCENE)        # pure: read + merge three files
     stage = get_stage()              # from SimulationApp/World
-    build_scene(scene, stage)        # Isaac: robot URDF->USD + objects
+    build_scene(scene, stage)        # framework Isaac Lab sim_utils adapter
     setup_sensors(scene, stage)      # L3 outbound: camera -> ROS 2
     self.io = setup_ros2_io(scene, stage)  # inbound: /cmd_vel subscribe
-    ensure_scene_defaults(stage)     # SunLight
+    ensure_scene_defaults(stage)     # base: SunLight (skipped, adapter lit)
     play_timeline()
     setup(stage); main(); shutdown(); app.close()
 
@@ -40,7 +40,7 @@ import os
 import signal
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Sequence, Tuple
 
 import yaml
 
@@ -234,33 +234,31 @@ class ExampleDriver(IsaacDriver):
         return omni.usd.get_context().get_stage()
 
     def _build_scene(self, scene: Dict[str, Any], stage: Any) -> None:
-        """Reference the robot USD under ``/World/Robot`` and pose it.
+        """Spawn the scene via the framework Isaac Lab adapter (#154).
 
-        The robot ``model`` is the pre-built USD (``model/usd/robot/
-        camera_bot/camera_bot.usd``) produced offline from the source
-        URDF by the L1 ``import_urdf`` pipeline. The import runs in its
-        OWN ``SimulationApp`` (a one-shot CLI step, ``just import-model``
-        / committed output), so it is NOT re-run inside this live driver
-        (two ``SimulationApp`` instances in one process crash Kit).
-        Referencing the USD here puts ``base_link`` at
-        ``/World/Robot/base_link`` so the camera placement's
+        Delegates to ``isaac_devkit.scene.build_scene`` -- the
+        ``to_isaaclab_cfg`` -> ``sim_utils`` cfg -> ``cfg.func()`` spawn
+        path (ADR-0018 decisions 1, 3). The example no longer carries its
+        own raw-``pxr`` ``DefinePrim`` / ``GetReferences().AddReference``
+        spawn: the adapter spawns the environment ground + light, the
+        robot USD at ``/World/Robot`` (referencing
+        ``camera_bot.usd`` whose ``defaultPrim`` is ``/camera_bot``), and
+        each object instance under ``/World/Objects``. ``base_link`` then
+        resolves at ``/World/Robot/base_link`` so the camera placement's
         ``parent_prim`` resolves.
+
+        ``repo_root`` is ``<repo>/example/sim`` -- the example's model
+        paths resolve there (``resolve_model_path`` tolerates the robot
+        entry's ``model/usd/``-prefixed value). The adapter's own sensor
+        tail fires only for TOP-LEVEL ``scene.sensors`` (the example has
+        none -- its camera placement is nested under
+        ``scene.robot.sensors`` and is wired by ``_setup_sensors``), so
+        there is no double sensor setup.
         """
-        from pxr import Sdf
+        from isaac_devkit.scene import build_scene
 
-        robot = scene["robot"]
-        usd_rel = robot["model"]
-        usd_abs = _REPO_ROOT / "example" / "sim" / usd_rel
-
-        # The imported USD (Asset Structure 3.0) declares the robot at
-        # /<robot_name> with no defaultPrim, so reference that explicit
-        # prim path rather than relying on a defaultPrim.
-        robot_root = f"/{robot.get('name', 'camera_bot')}"
-        robot_prim = stage.DefinePrim(self._robot_prim_path, "Xform")
-        robot_prim.GetReferences().AddReference(
-            str(usd_abs), Sdf.Path(robot_root)
-        )
-        self._apply_pose(robot_prim, robot.get("pose"))
+        example_root = _REPO_ROOT / "example" / "sim"
+        build_scene(scene, stage, example_root)
 
     def _setup_sensors(self, scene: Dict[str, Any], stage: Any) -> None:
         """Build the camera publish chain (L3 outbound, proven path).
@@ -329,13 +327,6 @@ class ExampleDriver(IsaacDriver):
             attr_reader=ros_io._og_attr_reader, topic_paths=topic_paths
         )
 
-    def _ensure_scene_defaults(self, stage: Any) -> None:
-        """Add a SunLight if the scene does not bring its own."""
-        from pxr import UsdLux
-
-        if not stage.GetPrimAtPath("/World/SunLight").IsValid():
-            UsdLux.DistantLight.Define(stage, "/World/SunLight")
-
     def _play_timeline(self) -> None:
         """Set an effectively-infinite end time and start the timeline."""
         import omni.timeline
@@ -345,19 +336,6 @@ class ExampleDriver(IsaacDriver):
         timeline.play()
         for _ in range(10):
             self._app.update()
-
-    def _apply_pose(self, prim: Any, pose: Optional[Dict[str, Any]]) -> None:
-        """Apply translate + rotateXYZ (degrees) to a USD prim."""
-        if not pose:
-            return
-        from pxr import Gf, UsdGeom
-
-        xformable = UsdGeom.Xformable(prim)
-        xformable.ClearXformOpOrder()
-        x, y, z = pose["xyz"]
-        xformable.AddTranslateOp().Set(Gf.Vec3d(float(x), float(y), float(z)))
-        r, p, yaw = pose["rpy"]
-        xformable.AddRotateXYZOp().Set(Gf.Vec3f(float(r), float(p), float(yaw)))
 
     # -- Subclass hooks --------------------------------------------------
 

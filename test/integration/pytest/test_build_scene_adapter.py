@@ -16,7 +16,6 @@ Runtime: inside the Isaac Sim / Isaac Lab devel-test container
 (``/isaac-sim/python.sh -m pytest``).
 """
 
-import os
 import re
 import subprocess
 import sys
@@ -55,7 +54,15 @@ def test_adapter_runner_clean_exit(adapter_run):
 
 
 def test_adapter_spawns_ground_light_robot(adapter_run):
-    """environment ground + light + robot USD spawn via the cfg adapter."""
+    """environment ground + light + robot USD spawn via the cfg adapter.
+
+    Strengthened in #154: also asserts /World/Robot/base_link RESOLVES
+    through the adapter reference. The committed camera_bot.usd now carries
+    a defaultPrim (/camera_bot, fb6f580), so the adapter's UsdFileCfg
+    reference pulls in the referenced robot content and base_link lands at
+    /World/Robot/base_link. (Reported-not-asserted before the defaultPrim
+    fix -- the legacy-importer asset had no referenceable root prim.)
+    """
     m = re.search(
         r"\[ADAPTER OK\] ground=(\w+) light=(\w+) robot=(\w+) objects=(\d+)",
         adapter_run.stdout,
@@ -66,24 +73,34 @@ def test_adapter_spawns_ground_light_robot(adapter_run):
     assert m.group(3) == "True", "robot USD not spawned at /World/Robot"
     assert int(m.group(4)) >= 1, "no object instance spawned under /World/Objects"
 
+    base_link = re.search(r"\[ADAPTER BASE_LINK\] valid=(\w+)", adapter_run.stdout)
+    assert base_link, f"no [ADAPTER BASE_LINK] marker:\n{adapter_run.stdout}"
+    assert base_link.group(1) == "True", (
+        "/World/Robot/base_link did not resolve through the adapter "
+        "reference (defaultPrim regression?)"
+    )
+
 
 def test_adapter_spawns_mobility_dynamic_object(adapter_run):
-    """A mobility: dynamic object materializes + spawns via its rigid cfg.
+    """A mobility: dynamic object spawns AND carries RigidBodyAPI.
 
     object.yaml declares the prop_cube as ``mobility: dynamic``; the
     adapter builds a ``UsdFileCfg`` with ``rigid_props`` + ``mass_props`` +
-    ``collision_props`` and ``cfg.func`` spawns it -- this test proves that
-    dynamic-mobility cfg path runs end-to-end (the prim is authored).
+    ``collision_props`` and ``cfg.func`` spawns it.
 
-    The resulting ``UsdPhysics.RigidBodyAPI`` is NOT asserted here: the
-    committed ``prop_cube.usda`` is a legacy-importer asset with no
-    ``defaultPrim``, so the ``UsdFileCfg`` reference resolves empty and the
-    physics API lands on absent referenced content. That assertion is #154's
-    once the example assets are regenerated (with a ``defaultPrim``) by the
-    Isaac Lab importer. ``rigidbody=`` is reported by the runner for that
-    follow-up.
+    Strengthened in #154: the resulting ``UsdPhysics.RigidBodyAPI`` IS now
+    asserted. The committed ``prop_cube.usda`` carries a defaultPrim
+    (/prop_cube, fb6f580), so the ``UsdFileCfg`` reference resolves to the
+    referenced content and the dynamic-mobility props land on a real prim
+    (``rigidbody=True``). Before the defaultPrim fix the reference resolved
+    empty and the API landed on absent content (reported-not-asserted).
     """
-    assert re.search(
-        r"\[ADAPTER OBJECT\] path=\S+ valid=True rigidbody=\w+",
+    m = re.search(
+        r"\[ADAPTER OBJECT\] path=(\S+) valid=True rigidbody=(\w+)",
         adapter_run.stdout,
-    ), f"no dynamic object spawned via the adapter:\n{adapter_run.stdout}"
+    )
+    assert m, f"no dynamic object spawned via the adapter:\n{adapter_run.stdout}"
+    assert m.group(2) == "True", (
+        f"dynamic object {m.group(1)} spawned without RigidBodyAPI; the "
+        "defaultPrim reference did not resolve the rigid-body content"
+    )

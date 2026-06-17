@@ -208,10 +208,11 @@ replacements = [
         'SCENE = "example/sim/scene/scene.yaml"',
         'SCENE = "src/isaac/sim/scene/scene.yaml"',
     ),
-    # asset base for the USD reference -> the driver's own sim dir.
+    # asset base (repo_root) for the framework build_scene adapter -> the
+    # driver's own sim dir, so the adapter resolves the consumer's models.
     (
-        'usd_abs = _REPO_ROOT / "example" / "sim" / usd_rel',
-        "usd_abs = _SIM_DIR / usd_rel",
+        'example_root = _REPO_ROOT / "example" / "sim"',
+        "example_root = _SIM_DIR",
     ),
     # asset base for the sensor config -> the driver's own sim dir.
     (
