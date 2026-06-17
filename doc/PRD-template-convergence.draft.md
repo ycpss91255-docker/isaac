@@ -214,7 +214,7 @@ run():
 | 軸 | v1 supported | CI |
 |---|---|---|
 | Isaac Sim | 5.1（Asset Structure 3.0） | integration 實跑 |
-| Isaac Lab | 2.3（baked base tool，pin；spawn backend，round-6/ADR-0018） | example GPU integration 實跑（spawn via `sim_utils`） |
+| Isaac Lab | 2.3（baked base tool，pin；spawn backend，round-6/ADR-0018） | **CI-exercised（#154 起）**：example GPU integration 透過 framework `build_scene` adapter（`to_isaaclab_cfg`→`sim_utils` cfg→`cfg.func()`）實跑 spawn；`test_build_scene_adapter.py` + `test_example_gpu_integration.py` 在新 backend 上重跑綠（L1-L4 + cmd_vel + camera frame）。MR-1（#149）的 `test_isaaclab_available.py` 另驗 baked Isaac Lab 2.3 import |
 | ROS 2 distro | Humble（主驗證軸） | integration 實跑；Jazzy 僅 smoke 驗 lib 存在 + 標 best-effort（未在 integration 實跑） |
 | GPU / VRAM | NVIDIA，VRAM ≥ 8GB | self-hosted GPU runner |
 | sensor type | camera（實作）；lidar/imu（schema 鎖、實作漸進） | camera integration 實跑；lidar/imu unit 驗 stub |
