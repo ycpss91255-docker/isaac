@@ -1,6 +1,6 @@
 # TEST.md
 
-**64 tests** total.
+**57 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (8)
 
@@ -32,44 +32,30 @@ Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-
 | `runheadless: invalid public_ip -> rc 1 (shared parser rejects)` | Garbage in host.yaml fails fast via the shared `resolve_public_ip`. |
 | `runheadless: forwards extra args after the built kit-args` | Trailing `"$@"` (e.g. a scene USD) is appended after the constructed args. |
 
-## test/smoke/bats/pre_run_hook_spec.bats (4)
+## test/smoke/bats/post_run_hook_spec.bats (10)
 
-Pre-run hook (`script/hooks/pre/run.sh`, base #440): creates the per-instance cache dir tree for `run.sh --instance NAME`.
-
-| Test | Description |
-|------|-------------|
-| `pre-run: --instance creates the 8 cache subdirs (absolute path)` | The kit/ov/nvidia cache subtree is created under an absolute `INSTANCE_CACHE_DIR`. |
-| `pre-run: relative INSTANCE_CACHE_DIR resolves against FILE_PATH` | A relative cache path resolves against the repo root. |
-| `pre-run: no --instance is a no-op (creates nothing)` | Without `--instance` the hook does nothing (the default instance is handled elsewhere). |
-| `pre-run: --instance with missing env warns but does not fail` | A named instance with no overlay env warns on stderr and exits 0. |
-
-## test/smoke/bats/post_run_hook_spec.bats (12)
-
-Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the web-viewer. Exercised via `POST_RUN_DRYRUN=1`.
+Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the default Isaac container and starts the default `owv` web-viewer. Single-sim only -- same-repo multi-instance was removed (ADR-0019). Exercised via `POST_RUN_DRYRUN=1`.
 
 | Test | Description |
 |------|-------------|
 | `post-run: non-stream target is a no-op` | A non-`stream` target produces no actions. |
 | `post-run: stream without -d is a no-op` | The stream stage without `-d/--detach` produces no actions. |
 | `post-run: stream + -d starts the viewer with stream-only UI mode` | Viewer `docker run` carries `VIEWER_UI_MODE=stream-only`; negative guards that `usd-viewer` and the dropped `VIEWER_AUTO_LAUNCH` flag never appear (#123). |
-| `post-run: viewer ports come from the instance env via --env-file (#123)` | A named instance hands its overlay env to the viewer via `docker --env-file config/instances/<name>.env` (no literal `-e` port fallback). |
-| `post-run: viewer container is named per instance and removed first` | `docker rm -f owv-<name>` precedes `docker run --name owv-<name>` (idempotent). |
-| `post-run: default instance falls back to owv-default + literal -e ports` | With no `--instance` (no env-file), the viewer is `owv-default` with literal `-e SIGNALING_PORT=49100` + `-e SERVE_PORT=5173`. |
-| `post-run: host.yaml present is copied into the Isaac container` | A present host.yaml is `docker cp`'d to the per-instance Isaac container at `/etc/host.yaml`. |
+| `post-run: viewer ports are the literal default -e flags` | The viewer is launched with literal `-e SIGNALING_PORT=49100` + `-e SERVE_PORT=5173`; no per-instance `--env-file` overlay (ADR-0019). |
+| `post-run: viewer container is the default owv and removed first` | `docker rm -f owv` precedes `docker run --name owv` (idempotent); no `owv-<instance>` suffix (ADR-0019). |
+| `post-run: host.yaml present is copied into the default Isaac container` | A present host.yaml is `docker cp`'d to the default Isaac container `${USER_NAME}-${IMAGE_NAME}-stream` at `/etc/host.yaml` (no `-<instance>` suffix). |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
-| `post-run: identity is read from .env.generated, not .env (base A2 model)` | With `.env` absent, identity comes from `.env.generated`: container name is `alice-isaac-stream-foo` (no leading dash) and the viewer image is `alice/...` (not `local/...`). |
-| `post-run: .env overlays .env.generated identity (user override wins)` | `.env` (sourced second) overrides `.env.generated`: a `USER_NAME=bob` overlay yields `bob-isaac-stream-foo`. |
-| `post-run: every committed instance env cache dir is ./-prefixed or absolute` | Grep guard that every committed `config/instances/*.env` `INSTANCE_CACHE_DIR` is `./`-prefixed or absolute (never a bare relative compose source). |
+| `post-run: identity is read from .env.generated, not .env (base A2 model)` | With `.env` absent, identity comes from `.env.generated`: container name is `alice-isaac-stream` (no leading dash) and the viewer image is `alice/...` (not `local/...`). |
+| `post-run: .env overlays .env.generated identity (user override wins)` | `.env` (sourced second) overrides `.env.generated`: a `USER_NAME=bob` overlay yields `bob-isaac-stream`. |
 | `post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime` (owv renamed serve->runtime, #123); regression guard that the old short stale `owv:runtime` is not launched. |
 
-## test/smoke/bats/post_stop_hook_spec.bats (2)
+## test/smoke/bats/post_stop_hook_spec.bats (1)
 
-Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compose web-viewer that `stop.sh` does not see.
+Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compose web-viewer that `stop.sh` does not see. Single-sim only (ADR-0019).
 
 | Test | Description |
 |------|-------------|
-| `post-stop: --instance stops the per-instance viewer` | `stop.sh --instance <name>` removes `owv-<name>`. |
-| `post-stop: no --instance stops the default viewer` | `stop.sh` (no instance) removes `owv-default`. |
+| `post-stop: stops the default viewer owv` | `stop.sh` removes the default `owv` viewer; no `owv-<instance>` suffix (ADR-0019). |
 
 ## test/smoke/bats/docker_env.bats (4)
 
