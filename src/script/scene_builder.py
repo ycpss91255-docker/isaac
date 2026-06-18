@@ -17,6 +17,7 @@ from isaac_devkit.scene import (
     load_scene,
     resolve_model_path,
     resolve_sensor_configs,
+    to_isaaclab_cfg,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "load_scene",
     "resolve_model_path",
     "resolve_sensor_configs",
+    "to_isaaclab_cfg",
 ]

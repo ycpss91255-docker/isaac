@@ -29,7 +29,7 @@ SUBPROC_TIMEOUT_SEC = 900
 
 # Note: the `isaaclab` PACKAGE version (isaaclab.__version__, e.g. 0.54.2)
 # is independent of the Isaac Lab REPO/release tag pinned in the Dockerfile
-# (ISAACLAB_VERSION, e.g. v2.3.2). The repo tag is enforced at build time
+# (ISAACLAB_VERSION, e.g. v2.3.0). The repo tag is enforced at build time
 # (the git clone --branch + pip show fail the build); this runtime smoke
 # only confirms the package is importable, reports a resolved version, and
 # exposes the spawner + converter surfaces.

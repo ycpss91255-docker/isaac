@@ -39,7 +39,7 @@ include = ["isaac_devkit*"]
 extend-select = ["TID253"]
 
 [tool.ruff.lint.flake8-tidy-imports]
-banned-module-level-imports = ["omni", "pxr", "isaacsim"]
+banned-module-level-imports = ["omni", "pxr", "isaacsim", "isaaclab"]
 
 # ADR-0017 section 7: coverage counts the framework PURE surface;
 # Isaac-side function-local code is excluded via this config block
@@ -65,16 +65,13 @@ exclude_also = [
     # Standard non-runtime lines.
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
-    # model_import: Isaac-side import + CLI driver.
-    "def _import_urdf\\(",
+    # model_import: Isaac-side conversion + CLI driver.
+    "def _convert_urdf\\(",
     "def import_urdf\\(",
     "def _parse_args\\(",
     "def main\\(",
-    # materials: Isaac-side appliers + dispatcher.
-    "def apply_materials\\(",
-    "def _apply_variant_materials\\(",
-    "def _apply_single_materials\\(",
-    "def _create_omnipbr\\(",
+    # materials is now fully pure (color is a spawn-time cfg param,
+    # ADR-0018 decision 7); no Isaac-side appliers to exclude.
     # sensors: Isaac-side dispatchers / builders.
     "def setup_sensor\\(",
     "def _setup_camera_dispatch\\(",
@@ -88,9 +85,12 @@ exclude_also = [
     "def _build_graph_topology\\(",
     "def _resolve_asset_url\\(",
     "def _set_xform_pose\\(",
-    # scene: Isaac-side stage build + pose application.
+    # scene: Isaac-side stage build + sim_utils cfg materialization
+    # (ADR-0018). The pure adapter (to_isaaclab_cfg / rpy_to_quat /
+    # _usd_spec / _material_diffuse_for) stays counted.
     "def build_scene\\(",
-    "def _apply_pose\\(",
+    "def _set_active_stage\\(",
+    "def _materialize_cfg\\(",
     # ros_io: Isaac-side OmniGraph attribute reader.
     "def _og_attr_reader\\(",
     # driver: Kit lifecycle (run + Kit-touching internals).

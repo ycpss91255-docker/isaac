@@ -6,8 +6,12 @@ L1-L4 + ``/cmd_vel`` round-trip assertions the PRD lists (Testing &
 Acceptance Criteria) as committed test code:
 
 * L1 -- ``/World/Robot/base_link`` IsValid + RigidBodyAPI present +
-  link/joint counts + URDF->USD prim/joint diff == 0 (pure URDF parse
-  expected vs live-stage PrimSummary actual).
+  link/joint counts (2 links / 2 joints / root ``/camera_bot``) on the
+  live committed-USD robot subtree, now spawned through the framework
+  Isaac Lab adapter (#154). The former URDF->USD diff==0 leg is RETIRED
+  (#154): the committed asset is a curated legacy-importer USD, so a fresh
+  re-import diff is non-zero by construction; the "fresh import is
+  structurally correct" contract lives in ``test_model_import.py`` (#150).
 * L3 -- camera topic exists, type ``sensor_msgs/Image``, ``frame_id`` ==
   expected, and >= 1 message within budget.
 * ros_io / cmd_vel round-trip -- ``io.latest()`` is None before any
@@ -42,7 +46,6 @@ Run inside the GPU-enabled test container (requires the
         <repo>/test/integration/pytest/test_example_gpu_integration.py -s
 """
 
-import os
 import re
 import subprocess
 import sys
@@ -52,18 +55,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_example_headless_runner.py"
-SUMMARY_RUNNER = Path(__file__).parent / "_prim_summary_runner.py"
-FRAMEWORK_DIR = REPO_ROOT / "framework"
-EXAMPLE_SIM_DIR = REPO_ROOT / "example" / "sim"
-SOURCE_URDF = EXAMPLE_SIM_DIR / "model" / "camera_bot.urdf"
-COMMITTED_USD = (
-    EXAMPLE_SIM_DIR / "model" / "usd" / "robot" / "camera_bot"
-    / "camera_bot.usd"
-)
 PYTHON_SH = "/isaac-sim/python.sh"
-
-# Single Kit boot for the importer + a second for the summarizer.
-L1_IMPORT_TIMEOUT_SEC = 240
 
 # Boot budget = warm Kit boot + camera graph + first frame + cmd_vel
 # round-trip. On the reference GPU runner (RTX 5090) a warm shader cache
@@ -78,9 +70,7 @@ SUBPROC_TIMEOUT_SEC = int(BOOT_BUDGET_SEC * 1.5)
 MAX_RETRIES = 1
 
 # robot.yaml name + custom.yaml ros: section -> expected L1 / L3 values.
-EXPECTED_ROBOT_PRIM = "/World/Robot"
 EXPECTED_BASE_LINK = "/World/Robot/base_link"
-EXPECTED_ROBOT_ROOT = "/camera_bot"
 EXPECTED_CAMERA_TOPIC = "/camera_bot/camera/color/image_raw"
 EXPECTED_CAMERA_FRAME_ID = "camera_bot_camera_color_optical_frame"
 
@@ -239,98 +229,23 @@ def test_l1_link_and_joint_counts(example_run):
     )
 
 
-def _parse_prim_summaries(stdout):
-    """Map tag -> (prim, joint, links, root) from [PRIM SUMMARY] lines."""
-    summaries = {}
-    for m in re.finditer(
-        r"\[PRIM SUMMARY\] tag=(\S+) prim=(\d+) joint=(\d+) "
-        r"links=(\d+) root=(\S+)",
-        stdout,
-    ):
-        summaries[m.group(1)] = (
-            int(m.group(2)),
-            int(m.group(3)),
-            int(m.group(4)),
-            m.group(5),
-        )
-    return summaries
-
-
-def test_l1_urdf_to_usd_diff_zero(tmp_path):
-    """L1: a fresh URDF->USD import matches the committed example USD.
-
-    The PRD's L1 "diff = 0" contract -- the committed example USD must be
-    in sync with its source URDF through the framework import pipeline.
-    Re-imports ``camera_bot.urdf`` with the framework importer subprocess
-    (the proven ``test_model_import.py`` pattern -- one SimulationApp per
-    URDF import), then summarizes both the committed USD and the fresh
-    one in a single Kit boot and asserts prim/joint/links/root all
-    diff == 0. (A pure ``parse_urdf_expected`` model is asserted on the
-    hosted-unit side; it intentionally does not model the importer's
-    synthetic ``root_joint`` / USD scopes, so the authoritative L1 diff
-    is committed-USD vs fresh-import here.)
-    """
-    fresh_dir = tmp_path / "fresh"
-    env = dict(os.environ)
-    env["PYTHONPATH"] = (
-        str(FRAMEWORK_DIR) + os.pathsep + env.get("PYTHONPATH", "")
-    )
-    imp = subprocess.run(
-        [
-            PYTHON_SH, "-m", "isaac_devkit.model_import",
-            "--urdf", str(SOURCE_URDF),
-            "--output", str(fresh_dir),
-            "--name", "camera_bot",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=L1_IMPORT_TIMEOUT_SEC,
-        env=env,
-    )
-    fresh_usd = fresh_dir / "camera_bot.usd"
-    if not fresh_usd.is_file():
-        sys.stderr.write(
-            "\n--- import stdout ---\n" + imp.stdout
-            + "\n--- import stderr ---\n" + imp.stderr
-        )
-    assert fresh_usd.is_file(), "fresh URDF import produced no camera_bot.usd"
-
-    dump = subprocess.run(
-        [
-            PYTHON_SH, str(SUMMARY_RUNNER),
-            "--framework", str(FRAMEWORK_DIR),
-            "--usd", f"committed={COMMITTED_USD}",
-            "--usd", f"fresh={fresh_usd}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=L1_IMPORT_TIMEOUT_SEC,
-    )
-    summaries = _parse_prim_summaries(dump.stdout)
-    if "committed" not in summaries or "fresh" not in summaries:
-        sys.stderr.write(
-            "\n--- summary stdout ---\n" + dump.stdout
-            + "\n--- summary stderr ---\n" + dump.stderr
-        )
-    assert "committed" in summaries, "no committed-USD PrimSummary emitted."
-    assert "fresh" in summaries, "no fresh-import PrimSummary emitted."
-
-    committed = summaries["committed"]
-    fresh = summaries["fresh"]
-    assert committed == fresh, (
-        f"URDF->USD diff != 0: committed {committed} vs fresh {fresh}"
-    )
-    # And the structure is the importer truth this suite asserts.
-    assert committed[1] == EXPECTED_JOINT_COUNT, (
-        f"joint count {committed[1]} != expected {EXPECTED_JOINT_COUNT}"
-    )
-    assert committed[2] == EXPECTED_LINK_COUNT, (
-        f"link count {committed[2]} != expected {EXPECTED_LINK_COUNT}"
-    )
-    assert committed[3] == EXPECTED_ROBOT_ROOT_PRIM_NAME, (
-        f"root {committed[3]!r} != expected "
-        f"{EXPECTED_ROBOT_ROOT_PRIM_NAME!r}"
-    )
+# test_l1_urdf_to_usd_diff_zero RETIRED (#154, ADR-0018 decision 6).
+#
+# It re-imported camera_bot.urdf and asserted a byte/structure diff == 0
+# against the COMMITTED camera_bot.usd. The committed USD is a curated
+# legacy-importer asset (a defaultPrim was added in fb6f580 so the
+# UsdFileCfg reference resolves, but the asset was NOT regenerated by the
+# new Isaac Lab instanceable importer), so a fresh-import vs committed
+# diff is non-zero BY CONSTRUCTION and regenerating the committed asset is
+# an out-of-band GPU step the example rework deliberately does not take.
+#
+# The "a fresh import is structurally correct" contract is already covered
+# by test_model_import.py (the openbase single-USD import, #150). The L1
+# structure of the live committed USD is still asserted here by
+# test_l1_link_and_joint_counts (2 links / 2 joints / root /camera_bot) and
+# test_l1_base_link_valid_and_rigidbody. The collected GPU baseline drops
+# by 1 (the retired test) -- a documented ratchet exception, recorded in
+# test/pytest-baseline.txt and the PR body.
 
 
 def test_l3_camera_topic_frame_and_message(example_run):
