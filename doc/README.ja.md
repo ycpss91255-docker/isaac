@@ -58,7 +58,6 @@ cp config/host.yaml.example config/host.yaml
 # idle な stream コンテナ + host.yaml + web-viewer を起動。
 # post-run hook（base #440）が host.yaml をコピーし viewer を起動する。
 make run -- -t stream -d
-# (マルチインスタンス: --instance <name> を追加；後述の Multi-Instance を参照)
 
 # Isaac Sim をコンテナに起動 -- 明示的なステップ（run = infra、
 # exec = workload）。driver スクリプトを使う場合：
@@ -78,9 +77,9 @@ make stop
 
 `config/host.yaml` は gitignored・per-machine。`network.public_ip` が両方の container にマウントされ、Isaac 側は `runheadless-host-config.sh` が読んで Kit `publicEndpointAddress` 引数に注入、web-viewer 側は entrypoint が読んで `SIGNALING_SERVER` に設定する。
 
-マルチインスタンス時、`./run.sh --instance <name>` は `config/instances/<name>.{yaml,env}` を compose overlay として load し（base #465）、post-run hook がインスタンスごとにペアの web-viewer を起動する（後述の [Multi-Instance](#multi-instance) を参照）。さらに `network.public_ip` を `SIGNALING_SERVER` env として viewer container に渡す — defense in depth として、ローカルキャッシュの viewer image が `omniverse_web_viewer#12`（`/etc/host.yaml` を読む entrypoint）より古い場合でも正しい host IP を取得できる。`web_viewer/` submodule pointer 更新後は `owv:runtime` を手動 rebuild して新しい entrypoint を取り込むこと。
+post-run hook はさらに `network.public_ip` を `SIGNALING_SERVER` env として viewer container に渡す — defense in depth として、ローカルキャッシュの viewer image が `omniverse_web_viewer#12`（`/etc/host.yaml` を読む entrypoint）より古い場合でも正しい host IP を取得できる。`web_viewer/` submodule pointer 更新後は `owv:runtime` を手動 rebuild して新しい entrypoint を取り込むこと。
 
-要件：Chrome または Chromium（Firefox 非互換）。Isaac Sim インスタンスごとに 1 つのインタラクティブ client のみ接続可能。
+要件：Chrome または Chromium（Firefox 非互換）。稼働中の Isaac Sim ごとに 1 つのインタラクティブ client のみ接続可能。
 
 注意：
 
@@ -170,64 +169,6 @@ make stop                      # 後片付け
 ```
 
 `headless` と `stream` stage は **同時起動不可**（kit プロセスは一度に 1 つのみ） — 両者とも WebRTC port 8211 を bind する。セッション毎に 1 つ選択。
-
-## Multi-Instance
-
-複数の Isaac Sim インスタンスを同一 GPU 上で実行できる。各インスタンスは衝突を避けるため独立した port と cache ディレクトリを持つ。
-
-### 前提条件
-
-- 同一 GPU をインスタンス間で共有（VRAM はすべての稼働 sim を収容できる必要がある）
-- `setup.conf` の `pid=host`（GPU プロセス可視性のために必須）
-- 起動をずらす — 次を起動する前に各インスタンスが "is loaded" を報告するまで待つ
-- 各インスタンスは独立した cache ディレクトリを持つ必要がある（共有すると破損を招く）
-
-### 使い方
-
-```bash
-# Author per-instance overlays from the committed template (ports + cache).
-# These live in config/instances/<name>.{yaml,env} (base #465 convention)
-# and are gitignored except the example template.
-cp config/instances/example.env  config/instances/warehouse.env
-cp config/instances/example.yaml config/instances/warehouse.yaml
-# edit warehouse.env: bump the ports for a second concurrent instance
-
-# Start instances (stagger — wait for "is loaded" between launches).
-# The pre-run hook creates the cache tree; the post-run hook copies
-# host.yaml in and starts the per-instance web-viewer.
-./run.sh -t stream -d --instance warehouse
-# ... wait for "is loaded" ...
-./run.sh -t stream -d --instance factory
-
-# Launch Isaac Sim into a specific instance (container is
-# ${USER_NAME}-isaac-stream-<name>):
-./exec.sh -t stream --instance warehouse /isaac-sim/python.sh <script>
-
-# Tear down (the post-stop hook also removes the per-instance web-viewer)
-./stop.sh --instance warehouse
-./stop.sh --instance factory
-```
-
-### Port レイアウト
-
-各インスタンスには固有の port セットが割り当てられ、`config/instances/<name>.env`（`example.env` からコピー）に手動で記述する：
-
-| Port | 用途 | Instance 1（デフォルト） | Instance 2 | Step |
-|------|------|---------------------|------------|------|
-| Signal | NVCF livestream signaling（`--/app/livestream/port`） | 49100 | 49200 | +100 |
-| Media | WebRTC media（`--/app/livestream/fixedHostPort`） | 47998 | 48098 | +100 |
-| API | Kit HTTP API（`--/exts/omni.services.transport.server.http/port`） | 8011 | 8012 | +1 |
-| Viewer | omniverse_web_viewer（`SERVE_PORT`） | 5173 | 5174 | +1 |
-
-`config/instances/example.env` はデフォルトインスタンスの値を同梱し、インスタンスごとの offset を inline で記載している。自動割り当てジェネレータは存在しない：同時実行するインスタンスごとにテンプレートをコピーして port を step 分だけ増やす。overlay `<name>.yaml` は port を container env に流し込み（これにより `runheadless-host-config.sh` が対応する Kit 引数を組み立てる）、cache mount を remap する。
-
-### Cache 分離
-
-各インスタンスは runtime state を共有デフォルト path ではなく自身の `INSTANCE_CACHE_DIR`（デフォルト `instance/<name>`、docker repo root からの相対）配下に保存する。pre-run hook（`script/hooks/pre/run.sh`）が `run.sh --instance <name>` 実行時にこのディレクトリツリーを自動作成する。**インスタンス間で cache ディレクトリを共有してはならない** — 同一 shader cache や kit data ディレクトリへの並行書き込みは破損とクラッシュを招く。
-
-### 接続
-
-各インスタンスを、そのインスタンスの signal port を指す専用の `omniverse_web_viewer` とペアにするか、native WebRTC client を使う（インスタンスごとに 1 client）。
 
 ## Cache レイアウト
 
