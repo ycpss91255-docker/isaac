@@ -20,14 +20,6 @@ isaac-sim/
 # Per-host deployment config (use config/host.yaml.example as template)
 config/host.yaml
 
-# Per-instance overlays (base #465) — machine-specific (ports / cache
-# paths). The committed example.{env,yaml} template is the exception.
-/config/instances/*
-!/config/instances/example.env
-!/config/instances/example.yaml
-# Per-instance cache trees — created by the pre-run hook.
-/instance/
-
 runtime.env
 
 .env.generated
