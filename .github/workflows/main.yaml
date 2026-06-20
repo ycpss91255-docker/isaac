@@ -47,7 +47,7 @@ jobs:
   # fork dispatches onto the fork owner's runner); this host only ever runs
   # same-repo refs.
   python-tests:
-    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.1.0
     with:
       run-script: ./test/ci/gpu_suite.sh
       timeout-minutes: 30
