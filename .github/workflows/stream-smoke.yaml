@@ -1,0 +1,75 @@
+name: Stream Smoke (GPU)
+
+# Tier A producer-side smoke (isaac#172): boot the stream stage on a
+# self-hosted GPU runner and assert Isaac's WebRTC livestream signaling
+# port comes up. Hosted runners have no GPU, so this is the only place the
+# "Isaac actually boots + livestream is reachable" path is exercised in CI.
+# Heavy (minutes) + occasionally flaky -> nightly + manual, NOT per-PR.
+# Tier B (browser frames) builds on this: isaac#173 + omniverse_web_viewer#48.
+
+on:
+  schedule:
+    - cron: '0 19 * * *'   # nightly (UTC)
+  workflow_dispatch:
+
+# Only one Isaac on the GPU at a time; never cancel a run mid-teardown
+# (would orphan a GPU-holding container).
+concurrency:
+  group: stream-smoke
+  cancel-in-progress: false
+
+jobs:
+  stream-smoke:
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 25
+    steps:
+      # Pre-checkout self-heal: a prior GPU run can leave root-owned residue
+      # in the bind-mounted workspace that breaks the non-root runner's
+      # checkout clean step. Mirror python-tests (main.yaml). Refs
+      # ycpss91255-docker/github_runner#77.
+      - name: Pre-checkout cleanup (clear stale root-owned residue)
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}":/w -w /w busybox:1 sh -c '
+            find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
+            rm -rf isaac-sim 2>/dev/null
+            true'
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # base detect_ws_path mis-detects the self-CI _work/<repo>/<repo>
+      # layout; pin WS_PATH to the checkout root in the derived cache after
+      # apply so the compose mounts resolve. Same fix as python-tests; base
+      # follow-up base#586.
+      - name: Generate .env + compose.yaml (pin WS_PATH)
+        run: |
+          ./script/setup.sh apply
+          sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env.generated
+
+      - name: Build stream stage (cached if unchanged)
+        run: ./script/build.sh -t stream
+
+      # The stream compose bind-mounts ${WS_PATH}/isaac-sim/* caches; with
+      # WS_PATH pinned to the checkout root they do not pre-exist, so the
+      # daemon (root) would auto-create them unwritable by the non-root
+      # container user. Create the leaf dirs as the runner user first.
+      - name: Pre-create Isaac Sim cache mount dirs (writable)
+        run: |
+          mkdir -p \
+            isaac-sim/kit/cache isaac-sim/kit/data isaac-sim/kit/logs \
+            isaac-sim/ov/cache isaac-sim/ov/data isaac-sim/ov/logs \
+            isaac-sim/pip isaac-sim/nvidia/glcache \
+            isaac-sim/nvidia/computecache isaac-sim/documents
+
+      # Boots the stream stage + launches Isaac + waits for the signaling
+      # port; tears down (docker rm -f) on every exit via its own trap.
+      - name: Stream smoke (Isaac boots + livestream up)
+        run: bash script/ci/stream_smoke.sh
+
+      - name: Upload kit log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-smoke-kit-log
+          path: isaac-sim/kit/logs/stream-smoke.log
+          if-no-files-found: ignore
