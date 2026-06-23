@@ -395,12 +395,13 @@ COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/bats/ /smoke_test/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
-# [base #465/#440] Scripts under test by the migrated specs: the
-# livestream wrapper + the per-instance run/stop hooks. Both hooks are
-# named run.sh / stop.sh inside their pre/post dirs, so they are baked
-# under distinct flat names that match the *_spec.bats files.
+# [base #440] Scripts under test by the migrated specs: the livestream
+# wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
+# inside their post dir, so they are baked under distinct flat names that
+# match the *_spec.bats files. The pre/run.sh hook is a no-op stub
+# (ADR-0019 removed its per-instance cache logic), so it has no spec and
+# is not baked.
 COPY --chmod=0755 script/runheadless-host-config.sh /smoke_test/runheadless-host-config.sh
-COPY --chmod=0755 script/hooks/pre/run.sh /smoke_test/pre_run_hook.sh
 COPY --chmod=0755 script/hooks/post/run.sh /smoke_test/post_run_hook.sh
 COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
 

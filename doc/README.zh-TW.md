@@ -58,7 +58,6 @@ cp config/host.yaml.example config/host.yaml
 # Bring up the idle stream container + host.yaml + web-viewer.
 # The post-run hook (base #440) copies host.yaml in and starts the viewer.
 make run -- -t stream -d
-# (multi-instance: append --instance <name>; see Multi-Instance below)
 
 # Launch Isaac Sim into the container -- an explicit step (run = infra,
 # exec = workload). Either a driver script:
@@ -78,9 +77,9 @@ make stop
 
 `config/host.yaml` 是 gitignored、per-machine。它的 `network.public_ip` 會 mount 進兩個 container：Isaac 端由 `runheadless-host-config.sh` 讀取轉成 Kit `publicEndpointAddress` 參數；web-viewer 端由 entrypoint 讀取設成 `SIGNALING_SERVER`。
 
-Multi-instance 模式下，`./run.sh --instance <name>` 會把 `config/instances/<name>.{yaml,env}` 當 compose overlay 載入（base #465），並由 post-run hook 為每個 instance 啟動配對 web-viewer（見下方 [Multi-Instance](#multi-instance)）。hook 同時也把 `network.public_ip` 當 `SIGNALING_SERVER` env 傳給 viewer container — defense in depth，當本機 cache 的 viewer image 早於 `omniverse_web_viewer#12`（讀 `/etc/host.yaml` 的 entrypoint）時還能拿到正確的 host IP。`web_viewer/` submodule pointer 升級後請手動 rebuild `owv:runtime` 拉取新 entrypoint。
+post-run hook 同時也把 `network.public_ip` 當 `SIGNALING_SERVER` env 傳給 viewer container — defense in depth，當本機 cache 的 viewer image 早於 `omniverse_web_viewer#12`（讀 `/etc/host.yaml` 的 entrypoint）時還能拿到正確的 host IP。`web_viewer/` submodule pointer 升級後請手動 rebuild `owv:runtime` 拉取新 entrypoint。
 
-需求：Chrome 或 Chromium（Firefox 不相容）。每個 Isaac Sim instance 只能同時連一個互動 client。
+需求：Chrome 或 Chromium（Firefox 不相容）。每個正在跑的 Isaac Sim 只能同時連一個互動 client。
 
 注意：
 
@@ -172,64 +171,6 @@ make stop                      # 收尾
 
 `headless` 與 `stream` stage 都是一次只能跑一個 kit process — 兩個都 bind WebRTC port 8211。每次選一個。
 
-## Multi-Instance
-
-同一張 GPU 可以同時跑多個 Isaac Sim instance。每個 instance 都拿到隔離的 port 與 cache 目錄以避免衝突。
-
-### 前置需求
-
-- 多個 instance 共用同一張 GPU（VRAM 必須容納所有正在跑的 sim）
-- `setup.conf` 設 `pid=host`（GPU process 可見性所需）
-- 錯峰啟動 — 每個 instance 等到回報 "is loaded" 再啟動下一個
-- 每個 instance 必須有隔離的 cache 目錄（共用會造成損毀）
-
-### 用法
-
-```bash
-# Author per-instance overlays from the committed template (ports + cache).
-# These live in config/instances/<name>.{yaml,env} (base #465 convention)
-# and are gitignored except the example template.
-cp config/instances/example.env  config/instances/warehouse.env
-cp config/instances/example.yaml config/instances/warehouse.yaml
-# edit warehouse.env: bump the ports for a second concurrent instance
-
-# Start instances (stagger — wait for "is loaded" between launches).
-# The pre-run hook creates the cache tree; the post-run hook copies
-# host.yaml in and starts the per-instance web-viewer.
-./run.sh -t stream -d --instance warehouse
-# ... wait for "is loaded" ...
-./run.sh -t stream -d --instance factory
-
-# Launch Isaac Sim into a specific instance (container is
-# ${USER_NAME}-isaac-stream-<name>):
-./exec.sh -t stream --instance warehouse /isaac-sim/python.sh <script>
-
-# Tear down (the post-stop hook also removes the per-instance web-viewer)
-./stop.sh --instance warehouse
-./stop.sh --instance factory
-```
-
-### Port 配置
-
-每個 instance 分配到一組獨立的 port，在 `config/instances/<name>.env` 內手動填寫（從 `example.env` 複製）：
-
-| Port | 用途 | Instance 1（預設） | Instance 2 | Step |
-|------|------|---------------------|------------|------|
-| Signal | NVCF livestream signaling (`--/app/livestream/port`) | 49100 | 49200 | +100 |
-| Media | WebRTC media (`--/app/livestream/fixedHostPort`) | 47998 | 48098 | +100 |
-| API | Kit HTTP API (`--/exts/omni.services.transport.server.http/port`) | 8011 | 8012 | +1 |
-| Viewer | omniverse_web_viewer (`SERVE_PORT`) | 5173 | 5174 | +1 |
-
-`config/instances/example.env` 內附預設 instance 的值，並以 inline 註解標明每個 instance 的 offset。沒有自動分配 generator：複製 template，再為每個並行 instance 按其 step 調整 port。overlay `<name>.yaml` 會把這些 port 餵進 container env（讓 `runheadless-host-config.sh` 組出對應的 Kit 參數）並 remap cache mount。
-
-### Cache 隔離
-
-每個 instance 把 runtime state 存在自己的 `INSTANCE_CACHE_DIR`（預設 `instance/<name>`，相對於 docker repo root），而非共用的預設 path。pre-run hook（`script/hooks/pre/run.sh`）會在 `run.sh --instance <name>` 時自動建立這個目錄樹。**Instance 之間絕對不可共用 cache 目錄** — 對同一份 shader cache 或 kit data 目錄並行寫入會造成損毀與 crash。
-
-### 連接
-
-讓每個 instance 配對自己的 `omniverse_web_viewer`，指向該 instance 的 signal port；或用原生 WebRTC client（一個 client 對一個 instance）。
-
 ## Cache 路徑
 
 所有 Isaac Sim runtime state 都持久化在 host 端的 `${WS_PATH}/isaac-sim/`（即 `isaac_ws/isaac-sim/`）：
@@ -248,8 +189,6 @@ cp config/instances/example.yaml config/instances/warehouse.yaml
 | `isaac-sim/documents` | `/home/${USER_NAME}/Documents` | User Documents（USD scenes 等）|
 
 2026-05-21 以前的 layout（`cache/{kit,ov,pip,glcache,computecache}`、flat `logs/`、flat `data/`)會在升版後第一次跑 `./script/init_isaac_dirs.sh` 自動 migrate 到新的 namespaced path(issue #21 fix-A）。已累積的 shader / pip / compute cache 透過 mv 保留。
-
-Multi-instance 設定使用 per-instance cache 目錄，位於每個 instance 的 `INSTANCE_CACHE_DIR`（預設 `instance/<name>`，鏡像上方相同的子目錄結構）。這些目錄由 pre-run hook（`script/hooks/pre/run.sh`）建立，不可與共用的預設 path 或其他 instance 重疊。
 
 首次 headless 啟動需 1–3 分鐘編譯 shader；之後啟動 cache hit `< 30 秒`。
 
