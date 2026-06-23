@@ -126,8 +126,68 @@ def _ensure_dirs(paths):
 _PACKAGE_URI_RE = re.compile(r'filename="package://([^/]+)/([^"]+)"')
 
 
+def _is_xacro(urdf_path, content):
+    """Detect a xacro input by extension or by xacro namespace/tags.
+
+    A xacro URDF is either named ``*.xacro`` or carries the xacro XML
+    namespace (``xmlns:xacro=...``) / ``xacro:`` element prefixes. The
+    Isaac importer cannot read xacro, so a positive detection means the
+    preprocess must expand it to plain URDF first (#169).
+    """
+    if urdf_path.suffix == ".xacro" or urdf_path.name.endswith(".urdf.xacro"):
+        return True
+    return "xmlns:xacro" in content or "xacro:" in content
+
+
+def _expand_xacro(urdf_path):
+    """Expand a xacro URDF to plain-URDF text (offline, no ROS env).
+
+    Uses the standalone ``xacro`` PyPI package: ``xacro.process_file``
+    expands macros and properties without a live ROS environment
+    (verified in a plain ``python:3.11-slim`` container). Only declared
+    property/macro defaults are resolved -- runtime ROS launch args are
+    out of scope (#169); a passed ``mappings`` dict is the supported way
+    to override defaults, not a full ROS launch context.
+
+    Args:
+        urdf_path: Path to the ``.xacro`` (or xacro-tagged) URDF.
+
+    Returns:
+        Plain-URDF XML as a string, with all ``xacro:`` macros/properties
+        expanded.
+
+    Raises:
+        RuntimeError: If the ``xacro`` package is not importable, with an
+            actionable message (it is a pure-Python PyPI dep; install it
+            in the offline commit environment).
+    """
+    try:
+        import xacro
+    except ImportError as exc:
+        raise RuntimeError(
+            "xacro input detected but the 'xacro' package is not installed. "
+            "Install it in the offline commit environment "
+            "('pip install xacro'), or expand manually with "
+            f"'xacro {urdf_path} > expanded.urdf' before import."
+        ) from exc
+
+    doc = xacro.process_file(str(urdf_path))
+    return doc.toprettyxml(indent="  ")
+
+
 def _preprocess_urdf(urdf_path):
-    """Substitute package://<name>/<rel> URIs with absolute file paths.
+    """Expand xacro and resolve ``package://`` URIs.
+
+    The deterministic, offline cleanup of a CAD-exported URDF
+    (ADR-0020 decision 6), in order:
+
+    1. **xacro (#169)**: if the input is a xacro (``.xacro`` extension or
+       ``xmlns:xacro`` / ``xacro:`` tags), expand it to plain URDF first
+       -- the Isaac importer cannot read xacro. Expansion is standalone
+       (the ``xacro`` PyPI package, no live ROS).
+    2. **``package://``**: substitute ``package://<name>/<rel>`` mesh URIs
+       with resolved file paths (DAE refs kept intact, ADR-0020
+       decision 1).
 
     Isaac Sim's URDF importer resolves package:// via ROS_PACKAGE_PATH,
     which is not set in our container. The URDFs in this repo use names
@@ -144,6 +204,12 @@ def _preprocess_urdf(urdf_path):
     """
     urdf_dir = urdf_path.parent
     content = urdf_path.read_text()
+
+    if _is_xacro(urdf_path, content):
+        print(f"  xacro input detected: expanding {urdf_path.name}",
+              flush=True)
+        content = _expand_xacro(urdf_path)
+
     unresolved = []
 
     def resolve(match):

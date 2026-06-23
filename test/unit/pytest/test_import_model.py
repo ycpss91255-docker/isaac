@@ -192,3 +192,108 @@ class TestImportUrdfPrecondition:
             import_model.import_urdf(
                 tmp_path / "nope.urdf", tmp_path / "out.usd"
             )
+
+
+_XACRO_FIXTURE = (
+    '<?xml version="1.0"?>\n'
+    '<robot name="bot" xmlns:xacro="http://www.ros.org/wiki/xacro">\n'
+    '  <xacro:property name="w" value="0.5"/>\n'
+    '  <xacro:macro name="box_link" params="lname size">\n'
+    '    <link name="${lname}">\n'
+    '      <visual><geometry><box size="${size}"/></geometry></visual>\n'
+    '    </link>\n'
+    '  </xacro:macro>\n'
+    '  <xacro:box_link lname="base_link" size="${w} ${w} 0.1"/>\n'
+    '</robot>\n'
+)
+
+xacro = pytest.importorskip("xacro")
+
+
+class TestXacroDetection:
+    """#169: xacro inputs are detected by extension or namespace/tags."""
+
+    def test_detects_dot_xacro_extension(self, tmp_path):
+        p = tmp_path / "robot.xacro"
+        assert import_model._is_xacro(p, "<robot/>") is True
+
+    def test_detects_urdf_xacro_suffix(self, tmp_path):
+        p = tmp_path / "robot.urdf.xacro"
+        assert import_model._is_xacro(p, "<robot/>") is True
+
+    def test_detects_xacro_namespace(self, tmp_path):
+        p = tmp_path / "robot.urdf"
+        assert import_model._is_xacro(p, _XACRO_FIXTURE) is True
+
+    def test_plain_urdf_not_xacro(self, tmp_path):
+        p = tmp_path / "robot.urdf"
+        assert import_model._is_xacro(p, "<robot name='x'/>") is False
+
+
+class TestXacroExpansion:
+    """#169: a xacro URDF expands to plain, well-formed URDF."""
+
+    def test_expand_resolves_macros_and_properties(self, tmp_path):
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        out = import_model._expand_xacro(src)
+        assert "xacro:" not in out
+        assert "${" not in out
+        assert 'name="base_link"' in out
+        assert 'size="0.5 0.5 0.1"' in out
+
+    def test_expand_output_is_well_formed_xml(self, tmp_path):
+        import xml.etree.ElementTree as ET
+
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        out = import_model._expand_xacro(src)
+        root = ET.fromstring(out)
+        assert root.tag == "robot"
+
+    def test_preprocess_expands_xacro_input(self, tmp_path):
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        resolved = import_model._preprocess_urdf(src)
+        try:
+            content = resolved.read_text()
+            assert "xacro:" not in content
+            assert "${" not in content
+            assert 'name="base_link"' in content
+        finally:
+            resolved.unlink()
+
+    def test_missing_xacro_package_raises_actionable_error(
+        self, tmp_path, monkeypatch
+    ):
+        # If the standalone xacro package is unavailable, expansion raises
+        # a clear, actionable RuntimeError (the offline-commit fallback the
+        # ADR's raise-path describes) rather than a bare ImportError.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "xacro":
+                raise ImportError("no xacro")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        with pytest.raises(RuntimeError, match="pip install xacro"):
+            import_model._expand_xacro(src)
+
+    def test_preprocess_leaves_plain_urdf_unexpanded(self, tmp_path):
+        # A plain URDF (no xacro markers) passes through unchanged by the
+        # xacro stage (still package://-resolved).
+        urdf_dir = tmp_path / "robot"
+        urdf_dir.mkdir()
+        src = urdf_dir / "robot.urdf"
+        src.write_text("<robot name='plain'/>")
+        resolved = import_model._preprocess_urdf(src)
+        try:
+            assert resolved.read_text() == "<robot name='plain'/>"
+        finally:
+            resolved.unlink()
+
