@@ -50,19 +50,20 @@
 #   a value that already carries the model/usd/ segment (the example scene's
 #   robot entry) and adds 1 test for it (test_resolves_prefixed_model):
 #   38 -> 39. Live count is now 255 -- the enforced floor.
-#   Ingestion xacro (#169, ADR-0020 decision 6): the URDF preprocess
-#   (model_import._preprocess_urdf) gains xacro expansion -- a xacro input
-#   is expanded to plain URDF before the package:// resolution, since the
-#   Isaac importer cannot read xacro. test_import_model.py adds 9 hosted
-#   tests (14 -> 23): xacro detection (4 -- .xacro extension / .urdf.xacro
-#   suffix / xmlns:xacro namespace / plain-URDF negative) and xacro
-#   expansion (5 -- macro+property resolution, well-formed XML,
+#   Ingestion (#169/#170, ADR-0020 decision 6): the URDF preprocess
+#   (model_import._preprocess_urdf) gains xacro expansion (#169) and a
+#   best-effort meters unit sanity check (#170). test_import_model.py adds
+#   14 hosted tests (14 -> 28): xacro detection (4 -- .xacro extension /
+#   .urdf.xacro suffix / xmlns:xacro namespace / plain-URDF negative),
+#   xacro expansion (5 -- macro+property resolution, well-formed XML,
 #   _preprocess_urdf expands a xacro input, plain URDF passes through, and
-#   a missing-xacro-package raise-path with an actionable message). The 9
-#   xacro tests pytest.importorskip the standalone 'xacro' PyPI package;
-#   the hosted CI runner (assert_pytest_baseline.sh) now installs it so
-#   they collect and run. Live count is now 264 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 264
+#   a missing-xacro-package raise-path with an actionable message), and the
+#   units heuristic (5 -- meters no-warn, mm warns, large <mesh scale>
+#   warns, malformed XML stays silent, the path-wrapper). The 8 xacro tests
+#   pytest.importorskip the standalone 'xacro' PyPI package; the hosted CI
+#   runner (assert_pytest_baseline.sh) now installs it so they collect and
+#   run. Live count is now 269 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 269
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

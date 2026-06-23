@@ -297,3 +297,58 @@ class TestXacroExpansion:
         finally:
             resolved.unlink()
 
+
+class TestUnitSanityCheck:
+    """#170: best-effort meters heuristic (REP-103), warns not raises."""
+
+    _METERS = (
+        '<robot name="m">'
+        '<link name="l"><visual><geometry>'
+        '<box size="0.2 0.3 0.1"/></geometry></visual></link>'
+        '<joint name="j" type="fixed">'
+        '<origin xyz="0.0 0.5 1.2"/>'
+        '<parent link="l"/><child link="l2"/></joint>'
+        '<link name="l2"/></robot>'
+    )
+    _MILLIMETERS = (
+        '<robot name="mm">'
+        '<link name="l"><visual><geometry>'
+        '<box size="200 300 100"/></geometry></visual></link>'
+        '<joint name="j" type="fixed">'
+        '<origin xyz="0 500 1200"/>'
+        '<parent link="l"/><child link="l2"/></joint>'
+        '<link name="l2"/></robot>'
+    )
+
+    def test_meters_urdf_no_warning(self, capsys):
+        flagged = import_model._check_urdf_units_text(self._METERS)
+        assert flagged is False
+        assert "unit sanity check" not in capsys.readouterr().err
+
+    def test_millimeter_urdf_warns(self, capsys):
+        flagged = import_model._check_urdf_units_text(self._MILLIMETERS)
+        assert flagged is True
+        err = capsys.readouterr().err
+        assert "unit sanity check" in err
+        assert "meters" in err
+
+    def test_large_mesh_scale_warns(self, capsys):
+        urdf = (
+            '<robot name="s"><link name="l"><visual><geometry>'
+            '<mesh filename="x.dae" scale="1000 1000 1000"/>'
+            '</geometry></visual></link></robot>'
+        )
+        assert import_model._check_urdf_units_text(urdf) is True
+        assert "unit sanity check" in capsys.readouterr().err
+
+    def test_malformed_xml_does_not_warn(self, capsys):
+        # Malformed XML is the importer's problem; the unit check stays
+        # silent rather than masking it.
+        assert import_model._check_urdf_units_text("<robot>") is False
+        assert "unit sanity check" not in capsys.readouterr().err
+
+    def test_check_urdf_units_path_wrapper(self, tmp_path, capsys):
+        p = tmp_path / "mm.urdf"
+        p.write_text(self._MILLIMETERS)
+        assert import_model._check_urdf_units(p) is True
+        assert "unit sanity check" in capsys.readouterr().err
