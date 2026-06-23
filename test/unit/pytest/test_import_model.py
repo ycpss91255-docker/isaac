@@ -192,3 +192,163 @@ class TestImportUrdfPrecondition:
             import_model.import_urdf(
                 tmp_path / "nope.urdf", tmp_path / "out.usd"
             )
+
+
+_XACRO_FIXTURE = (
+    '<?xml version="1.0"?>\n'
+    '<robot name="bot" xmlns:xacro="http://www.ros.org/wiki/xacro">\n'
+    '  <xacro:property name="w" value="0.5"/>\n'
+    '  <xacro:macro name="box_link" params="lname size">\n'
+    '    <link name="${lname}">\n'
+    '      <visual><geometry><box size="${size}"/></geometry></visual>\n'
+    '    </link>\n'
+    '  </xacro:macro>\n'
+    '  <xacro:box_link lname="base_link" size="${w} ${w} 0.1"/>\n'
+    '</robot>\n'
+)
+
+xacro = pytest.importorskip("xacro")
+
+
+class TestXacroDetection:
+    """#169: xacro inputs are detected by extension or namespace/tags."""
+
+    def test_detects_dot_xacro_extension(self, tmp_path):
+        p = tmp_path / "robot.xacro"
+        assert import_model._is_xacro(p, "<robot/>") is True
+
+    def test_detects_urdf_xacro_suffix(self, tmp_path):
+        p = tmp_path / "robot.urdf.xacro"
+        assert import_model._is_xacro(p, "<robot/>") is True
+
+    def test_detects_xacro_namespace(self, tmp_path):
+        p = tmp_path / "robot.urdf"
+        assert import_model._is_xacro(p, _XACRO_FIXTURE) is True
+
+    def test_plain_urdf_not_xacro(self, tmp_path):
+        p = tmp_path / "robot.urdf"
+        assert import_model._is_xacro(p, "<robot name='x'/>") is False
+
+
+class TestXacroExpansion:
+    """#169: a xacro URDF expands to plain, well-formed URDF."""
+
+    def test_expand_resolves_macros_and_properties(self, tmp_path):
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        out = import_model._expand_xacro(src)
+        assert "xacro:" not in out
+        assert "${" not in out
+        assert 'name="base_link"' in out
+        assert 'size="0.5 0.5 0.1"' in out
+
+    def test_expand_output_is_well_formed_xml(self, tmp_path):
+        import xml.etree.ElementTree as ET
+
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        out = import_model._expand_xacro(src)
+        root = ET.fromstring(out)
+        assert root.tag == "robot"
+
+    def test_preprocess_expands_xacro_input(self, tmp_path):
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        resolved = import_model._preprocess_urdf(src)
+        try:
+            content = resolved.read_text()
+            assert "xacro:" not in content
+            assert "${" not in content
+            assert 'name="base_link"' in content
+        finally:
+            resolved.unlink()
+
+    def test_missing_xacro_package_raises_actionable_error(
+        self, tmp_path, monkeypatch
+    ):
+        # If the standalone xacro package is unavailable, expansion raises
+        # a clear, actionable RuntimeError (the offline-commit fallback the
+        # ADR's raise-path describes) rather than a bare ImportError.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "xacro":
+                raise ImportError("no xacro")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        src = tmp_path / "robot.urdf.xacro"
+        src.write_text(_XACRO_FIXTURE)
+        with pytest.raises(RuntimeError, match="pip install xacro"):
+            import_model._expand_xacro(src)
+
+    def test_preprocess_leaves_plain_urdf_unexpanded(self, tmp_path):
+        # A plain URDF (no xacro markers) passes through unchanged by the
+        # xacro stage (still package://-resolved).
+        urdf_dir = tmp_path / "robot"
+        urdf_dir.mkdir()
+        src = urdf_dir / "robot.urdf"
+        src.write_text("<robot name='plain'/>")
+        resolved = import_model._preprocess_urdf(src)
+        try:
+            assert resolved.read_text() == "<robot name='plain'/>"
+        finally:
+            resolved.unlink()
+
+
+class TestUnitSanityCheck:
+    """#170: best-effort meters heuristic (REP-103), warns not raises."""
+
+    _METERS = (
+        '<robot name="m">'
+        '<link name="l"><visual><geometry>'
+        '<box size="0.2 0.3 0.1"/></geometry></visual></link>'
+        '<joint name="j" type="fixed">'
+        '<origin xyz="0.0 0.5 1.2"/>'
+        '<parent link="l"/><child link="l2"/></joint>'
+        '<link name="l2"/></robot>'
+    )
+    _MILLIMETERS = (
+        '<robot name="mm">'
+        '<link name="l"><visual><geometry>'
+        '<box size="200 300 100"/></geometry></visual></link>'
+        '<joint name="j" type="fixed">'
+        '<origin xyz="0 500 1200"/>'
+        '<parent link="l"/><child link="l2"/></joint>'
+        '<link name="l2"/></robot>'
+    )
+
+    def test_meters_urdf_no_warning(self, capsys):
+        flagged = import_model._check_urdf_units_text(self._METERS)
+        assert flagged is False
+        assert "unit sanity check" not in capsys.readouterr().err
+
+    def test_millimeter_urdf_warns(self, capsys):
+        flagged = import_model._check_urdf_units_text(self._MILLIMETERS)
+        assert flagged is True
+        err = capsys.readouterr().err
+        assert "unit sanity check" in err
+        assert "meters" in err
+
+    def test_large_mesh_scale_warns(self, capsys):
+        urdf = (
+            '<robot name="s"><link name="l"><visual><geometry>'
+            '<mesh filename="x.dae" scale="1000 1000 1000"/>'
+            '</geometry></visual></link></robot>'
+        )
+        assert import_model._check_urdf_units_text(urdf) is True
+        assert "unit sanity check" in capsys.readouterr().err
+
+    def test_malformed_xml_does_not_warn(self, capsys):
+        # Malformed XML is the importer's problem; the unit check stays
+        # silent rather than masking it.
+        assert import_model._check_urdf_units_text("<robot>") is False
+        assert "unit sanity check" not in capsys.readouterr().err
+
+    def test_check_urdf_units_path_wrapper(self, tmp_path, capsys):
+        p = tmp_path / "mm.urdf"
+        p.write_text(self._MILLIMETERS)
+        assert import_model._check_urdf_units(p) is True
+        assert "unit sanity check" in capsys.readouterr().err
