@@ -205,6 +205,14 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# xacro: the offline URDF preprocess (isaac_devkit.model_import,
+# ADR-0020 decision 6, isaac#169) expands a .xacro input to plain URDF
+# before the Isaac importer runs. The standalone PyPI 'xacro' package is
+# pure Python and expands without a live ROS environment (xacro.process_file).
+# Installed into the Isaac python so the offline commit step
+# (/isaac-sim/python.sh -m isaac_devkit.model_import) can import it.
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir xacro
+
 # Add your application-specific packages here
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \

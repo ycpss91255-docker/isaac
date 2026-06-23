@@ -125,9 +125,172 @@ def _ensure_dirs(paths):
 
 _PACKAGE_URI_RE = re.compile(r'filename="package://([^/]+)/([^"]+)"')
 
+# Heuristic threshold for the URDF units sanity check (#170, ADR-0020
+# decision 6). URDF carries NO units field -- it is meters by convention
+# (ROS REP-103). A hard "assert meters" is therefore impossible from
+# metadata, so this is a best-effort WARNING, not a hard failure.
+#
+# A mm-export looks like a metre-export with every length multiplied by
+# ~1000. We flag a URDF whose largest length magnitude (joint origin xyz,
+# box/cylinder/sphere geometry dims, or a <mesh scale="...">) exceeds this
+# threshold. 100.0 metres is chosen so a generously large real robot
+# (e.g. a 30 m gantry, or a few-metre forklift with margin) never trips
+# it, while an mm export of even a 10 cm part (0.1 m -> 100 mm == 100.0)
+# sits right at the boundary and a realistic robot (sub-metre to several
+# metres of geometry) in mm (hundreds to thousands) trips it cleanly. It
+# is a heuristic for a likely-mm export, not a precise unit detector.
+_UNIT_WARN_MAGNITUDE_M = 100.0
+
+
+def _check_urdf_units(urdf_path):
+    """Best-effort sanity check that a URDF looks like meters (REP-103).
+
+    URDF has no unit field; it is meters by convention (ROS REP-103).
+    A CAD exporter can silently emit millimetres, which produces a
+    wrongly-sized USD. The reference SolidWorks exporter emits meters,
+    so this guard is cheap insurance against a mis-exported URDF.
+
+    Because there is no metadata to assert against, this is a documented
+    HEURISTIC that emits a WARNING (it does not raise): if the largest
+    length magnitude in the model -- joint ``<origin xyz=...>``,
+    primitive ``<box>``/``<cylinder>``/``<sphere>`` dimensions, or a
+    ``<mesh scale=...>`` factor -- exceeds ``_UNIT_WARN_MAGNITUDE_M``
+    metres, the URDF is most likely a millimetre (or otherwise mis-scaled)
+    export. The threshold (100 m) is far above any plausible single robot
+    dimension in meters yet well below the hundreds/thousands a mm export
+    produces. The user normalizes units upstream if their exporter does
+    not emit meters.
+
+    Args:
+        urdf_path: Path to the (already xacro-expanded) URDF file.
+
+    Returns:
+        ``True`` if a likely-mm / mis-scaled magnitude was found and a
+        warning was emitted; ``False`` if the URDF looks like meters.
+    """
+    return _check_urdf_units_text(urdf_path.read_text())
+
+
+def _check_urdf_units_text(content):
+    """Units sanity check on URDF XML text; see ``_check_urdf_units``."""
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        # Malformed XML is the importer's problem to report, not the
+        # unit check's; do not mask it with a unit warning.
+        return False
+
+    max_mag = 0.0
+    worst = ""
+
+    def consider(values, label):
+        nonlocal max_mag, worst
+        for token in values:
+            try:
+                mag = abs(float(token))
+            except (TypeError, ValueError):
+                continue
+            if mag > max_mag:
+                max_mag = mag
+                worst = label
+
+    for origin in root.iter("origin"):
+        xyz = origin.get("xyz")
+        if xyz:
+            consider(xyz.split(), f"<origin xyz=\"{xyz}\">")
+    for box in root.iter("box"):
+        size = box.get("size")
+        if size:
+            consider(size.split(), f"<box size=\"{size}\">")
+    for cyl in root.iter("cylinder"):
+        consider([cyl.get("radius"), cyl.get("length")],
+                 "<cylinder radius/length>")
+    for sphere in root.iter("sphere"):
+        consider([sphere.get("radius")], "<sphere radius>")
+    for mesh in root.iter("mesh"):
+        scale = mesh.get("scale")
+        if scale:
+            consider(scale.split(), f"<mesh scale=\"{scale}\">")
+
+    if max_mag > _UNIT_WARN_MAGNITUDE_M:
+        print(
+            "  warning: URDF unit sanity check -- largest length magnitude "
+            f"{max_mag:g} (from {worst}) exceeds {_UNIT_WARN_MAGNITUDE_M:g} m; "
+            "URDF is assumed meters (REP-103) and this looks like a "
+            "millimetre or mis-scaled export. If your CAD exporter does not "
+            "emit meters, normalize units upstream before import.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+    return False
+
+
+def _is_xacro(urdf_path, content):
+    """Detect a xacro input by extension or by xacro namespace/tags.
+
+    A xacro URDF is either named ``*.xacro`` or carries the xacro XML
+    namespace (``xmlns:xacro=...``) / ``xacro:`` element prefixes. The
+    Isaac importer cannot read xacro, so a positive detection means the
+    preprocess must expand it to plain URDF first (#169).
+    """
+    if urdf_path.suffix == ".xacro" or urdf_path.name.endswith(".urdf.xacro"):
+        return True
+    return "xmlns:xacro" in content or "xacro:" in content
+
+
+def _expand_xacro(urdf_path):
+    """Expand a xacro URDF to plain-URDF text (offline, no ROS env).
+
+    Uses the standalone ``xacro`` PyPI package: ``xacro.process_file``
+    expands macros and properties without a live ROS environment
+    (verified in a plain ``python:3.11-slim`` container). Only declared
+    property/macro defaults are resolved -- runtime ROS launch args are
+    out of scope (#169); a passed ``mappings`` dict is the supported way
+    to override defaults, not a full ROS launch context.
+
+    Args:
+        urdf_path: Path to the ``.xacro`` (or xacro-tagged) URDF.
+
+    Returns:
+        Plain-URDF XML as a string, with all ``xacro:`` macros/properties
+        expanded.
+
+    Raises:
+        RuntimeError: If the ``xacro`` package is not importable, with an
+            actionable message (it is a pure-Python PyPI dep; install it
+            in the offline commit environment).
+    """
+    try:
+        import xacro
+    except ImportError as exc:
+        raise RuntimeError(
+            "xacro input detected but the 'xacro' package is not installed. "
+            "Install it in the offline commit environment "
+            "('pip install xacro'), or expand manually with "
+            f"'xacro {urdf_path} > expanded.urdf' before import."
+        ) from exc
+
+    doc = xacro.process_file(str(urdf_path))
+    return doc.toprettyxml(indent="  ")
+
 
 def _preprocess_urdf(urdf_path):
-    """Substitute package://<name>/<rel> URIs with absolute file paths.
+    """Expand xacro, sanity-check units, and resolve ``package://`` URIs.
+
+    The deterministic, offline cleanup of a CAD-exported URDF
+    (ADR-0020 decision 6), in order:
+
+    1. **xacro (#169)**: if the input is a xacro (``.xacro`` extension or
+       ``xmlns:xacro`` / ``xacro:`` tags), expand it to plain URDF first
+       -- the Isaac importer cannot read xacro. Expansion is standalone
+       (the ``xacro`` PyPI package, no live ROS).
+    2. **units (#170)**: a best-effort meters sanity check on the
+       expanded URDF (REP-103); a likely-mm / mis-scaled export emits a
+       WARNING (does not raise).
+    3. **``package://``**: substitute ``package://<name>/<rel>`` mesh URIs
+       with resolved file paths (DAE refs kept intact, ADR-0020
+       decision 1).
 
     Isaac Sim's URDF importer resolves package:// via ROS_PACKAGE_PATH,
     which is not set in our container. The URDFs in this repo use names
@@ -144,6 +307,16 @@ def _preprocess_urdf(urdf_path):
     """
     urdf_dir = urdf_path.parent
     content = urdf_path.read_text()
+
+    if _is_xacro(urdf_path, content):
+        print(f"  xacro input detected: expanding {urdf_path.name}",
+              flush=True)
+        content = _expand_xacro(urdf_path)
+
+    # Units sanity check (#170) runs on the expanded URDF, before the
+    # path substitution (which does not change any magnitudes).
+    _check_urdf_units_text(content)
+
     unresolved = []
 
     def resolve(match):
