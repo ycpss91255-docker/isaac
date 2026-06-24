@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<!--
+  two_link_revolute: a synthetic articulated fixture for the #168
+  joint-drive GPU test. NOT the forklift application model -- a minimal,
+  license-clean robot authored for this repo's test suite.
+
+  Structure:
+    base_link   a fixed-base box
+    arm_link    a box, joined to base_link by a single REVOLUTE joint
+
+  The revolute joint "joint1" is what the import-time joint_drive
+  (UrdfConverterCfg.joint_drive=JointDriveCfg) and the runtime
+  apply_joint_drive (modify_joint_drive_properties) write a DriveAPI to.
+  Both links carry inertials so the importer keeps the revolute joint
+  (merge_fixed_joints only collapses fixed joints; a revolute joint always
+  survives). Geometry is primitive boxes -- no external mesh asset.
+
+  GPU test (#168) asserts: with a joint_drive, the revolute joint prim
+  gains a UsdPhysics.DriveAPI("angular") carrying the configured
+  stiffness/damping. "The joint physically reaches a commanded target"
+  needs stepped physics (SimulationContext, deferred #151) and is NOT
+  asserted here -- only that the drive is structurally CONFIGURED.
+-->
+<robot name="two_link_revolute">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.1"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="arm_link">
+    <inertial>
+      <origin xyz="0.15 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.005"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.15 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.05 0.05"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.15 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.05 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint1" type="revolute">
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="arm_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="10.0" velocity="2.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+</robot>
