@@ -46,6 +46,47 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import NamedTuple
 
+# Isaac Lab's Kit experience file (cloned to /opt/IsaacLab in the image,
+# ADR-0018 decision 4 / 5). It pins the URDF importer extension
+# "isaacsim.asset.importer.urdf" to {version = "2.4.31", exact = true}
+# (Isaac Lab PR #4000, shipped in v2.3.1+). model_import boots its
+# SimulationApp with this experience so the converter loads the 2.4.31
+# importer (which restores merge_fixed_joints; ADR-0020 decision 4)
+# instead of the default Isaac Sim 5.1 experience, which loads the bundled
+# 2.4.30 importer FIRST and then makes the manager's swap to 2.4.31 a
+# constraint conflict ("isaacsim.asset.importer.urdf-2.4.31 is incompatible
+# with other constraints"). Pinning the experience means 2.4.30 is never
+# loaded, so UrdfConverter's enable of 2.4.31 resolves cleanly (the GPU
+# runner HAS network and fetches it from the Kit extension registry).
+# Overridable via ISAACLAB_KIT_EXPERIENCE for a non-default install path.
+_ISAACLAB_KIT_EXPERIENCE = "/opt/IsaacLab/apps/isaaclab.python.kit"
+
+
+def _simulation_app_kwargs():
+    """SimulationApp kwargs that pin Isaac Lab's 2.4.31-importer experience.
+
+    Boots Kit with Isaac Lab's ``isaaclab.python.kit`` experience (which
+    pins ``isaacsim.asset.importer.urdf-2.4.31`` exact) instead of the
+    default Isaac Sim experience that pre-loads the bundled 2.4.30 importer
+    -- the pre-load is the root cause of the ``set_merge_fixed_ignore_inertia``
+    ``AttributeError`` (#177): with 2.4.30 already resolved, the manager
+    cannot swap to 2.4.31 and ``UrdfConverter`` runs against the older
+    importer that lacks the merge method.
+
+    The experience path is taken from ``ISAACLAB_KIT_EXPERIENCE`` if set,
+    else the baked default ``/opt/IsaacLab/apps/isaaclab.python.kit``. If
+    the file does not exist (e.g. a hosted/dev box with no Isaac Lab clone),
+    the experience key is omitted so ``SimulationApp`` falls back to its
+    default experience rather than failing on a missing file.
+    """
+    kwargs = {"headless": True}
+    experience = os.environ.get(
+        "ISAACLAB_KIT_EXPERIENCE", _ISAACLAB_KIT_EXPERIENCE
+    )
+    if experience and Path(experience).exists():
+        kwargs["experience"] = experience
+    return kwargs
+
 
 def _parse_args():
     parser = argparse.ArgumentParser(
@@ -612,10 +653,13 @@ def import_urdf(urdf_path, out_usd_path):
     # the converters submodule pulls in omni modules that need a running
     # Kit app (same ordering the Isaac Lab AppLauncher runners rely on).
     # All Isaac imports are function-local (ADR-0017 section 8): isaaclab
-    # transitively pulls in omni, so its imports must be local too.
+    # transitively pulls in omni, so its imports must be local too. The
+    # experience pins the 2.4.31 URDF importer (see _simulation_app_kwargs
+    # / #177); without it the default experience pre-loads 2.4.30 and the
+    # converter raises AttributeError: set_merge_fixed_ignore_inertia.
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    app = SimulationApp(_simulation_app_kwargs())
     try:
         from pxr import Usd
 
@@ -652,9 +696,11 @@ def main():
     _ensure_dirs(paths)
 
     # SimulationApp (Kit) must be created BEFORE importing isaaclab.sim.
+    # The experience pins the 2.4.31 URDF importer (see
+    # _simulation_app_kwargs / #177).
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    app = SimulationApp(_simulation_app_kwargs())
     produced = None
     try:
         produced = _convert_urdf(

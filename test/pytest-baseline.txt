@@ -62,8 +62,18 @@
 #   warns, malformed XML stays silent, the path-wrapper). The 8 xacro tests
 #   pytest.importorskip the standalone 'xacro' PyPI package; the hosted CI
 #   runner (assert_pytest_baseline.sh) now installs it so they collect and
-#   run. Live count is now 269 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 269
+#   run.
+#
+#   #177 (Isaac Lab v2.3.2 + the 2.4.31 importer via Isaac Lab's Kit
+#   experience) adds 5 hosted tests (test_import_model.py 28 -> 33,
+#   TestSimulationAppKwargs): _simulation_app_kwargs is always headless,
+#   omits the experience key when the kit file is absent (falls back to the
+#   default experience), pins it when present, lets ISAACLAB_KIT_EXPERIENCE
+#   override the baked default, and the default constant points at Isaac
+#   Lab's python.kit (which pins the 2.4.31 importer). Pure (env +
+#   filesystem only, no Isaac import). Live count is now 274 -- the
+#   enforced floor.
+HOSTED_UNIT_BASELINE = 274
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
