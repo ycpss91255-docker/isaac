@@ -109,6 +109,22 @@ requires Python 3.11, which the container already runs. The supported stack is t
 **Isaac Lab 2.3 + Isaac Sim 5.1 + Python 3.11** — no version blocker. The Compatibility Matrix
 (PRD) gains an "Isaac Lab" axis = 2.3, exercised by the example GPU integration.
 
+The pin within the 2.3 line is **`v2.3.2`** — NVIDIA's official Isaac Sim 5.1.0 pairing
+(recommended/latest 2.3.x) (#177). An earlier interim pin was `v2.3.0`: `v2.3.1+` (Isaac Lab PR
+#4000) makes `UrdfConverter` hard-enable the URDF importer extension
+`isaacsim.asset.importer.urdf-2.4.31` (which restores `merge_fixed_joints`, removed from the
+`2.4.30` importer bundled in `isaac-sim:5.1.0`; ADR-0020 decision 4). The first `v2.3.2` attempt
+failed (`AttributeError: set_merge_fixed_ignore_inertia`, no USD) because `model_import` booted a
+bare `SimulationApp({"headless": True})` — the **default** Isaac Sim experience pre-loads the
+bundled `2.4.30`, so the manager cannot swap to `2.4.31` (constraint conflict) and the converter
+runs against `2.4.30`. The fix is a **boot-config** change: `model_import` now boots Kit with
+Isaac Lab's own experience `/opt/IsaacLab/apps/isaaclab.python.kit`, which pins
+`"isaacsim.asset.importer.urdf" = {version = "2.4.31", exact = true}` so `2.4.30` is never loaded
+and the `2.4.31` enable resolves from the Kit registry (the GPU runner has network). This is not a
+build-time fetch (the image build runs on a non-GPU host where Kit cannot start; the importer is
+not on pypi.nvidia.com). See `framework/isaac_devkit/model_import.py` (`_simulation_app_kwargs`)
+and ADR-0020 decision 4.
+
 ### 6. `model_import` delegates URDF -> USD to Isaac Lab `UrdfConverterCfg`
 
 The hand-rolled `omni.kit.commands` importer is replaced by `isaaclab.sim.converters`

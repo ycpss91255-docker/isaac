@@ -10,7 +10,8 @@ re-discovered per robot.
 This ADR records what survives, what is lost, and what must be configured (not inferred) when a
 CAD-exported URDF is ingested, for the reference exporter
 `ycpss91255-research/solidworks_urdf_exporter` and the pinned importer stack
-(Isaac Sim 5.1.0 + Isaac Lab `v2.3.0` -> bundled URDF importer `2.4.30`). It amends ADR-0018
+(Isaac Sim 5.1.0 + Isaac Lab `v2.3.2` -> URDF importer `2.4.31`, loaded via Isaac Lab's Kit
+experience; #177, see decision 4). It amends ADR-0018
 decision 6. The running example stays the camera-bot; this ADR is the contract a real forklift
 ingestion is checked against.
 
@@ -70,17 +71,36 @@ decoupled.
 
 ### 4. Importer `merge_fixed_joints` behavior is version-sensitive; mount sensors on a surviving link + offset
 
-`UrdfConverterCfg.merge_fixed_joints` defaults to `True` (it would consolidate fixed-jointed
-links). **But the URDF importer bundled in Isaac Sim 5.1.0 (`2.4.30`, the one the pinned Isaac
-Lab `v2.3.0` actually drives) removed merge-joints support** (IsaacLab PR #4000:
-"Latest URDF importer in Isaac Sim 5.1 removed the support for merge-joints"; issue #3943), so on
-the current pin **nothing is merged and every fixed-joint frame survives** (the committed
-`camera_bot.usd` keeps `base_link` + `camera_link` + `camera_mount`). A merge-capable importer
-(`2.4.31`+) would merge by default, and even then inertia-bearing fixed links are not merged.
+`UrdfConverterCfg.merge_fixed_joints` defaults to `True` (it consolidates fixed-jointed links).
+The URDF importer bundled in Isaac Sim 5.1.0 (`2.4.30`) **removed** merge-joints support (IsaacLab
+PR #4000: "Latest URDF importer in Isaac Sim 5.1 removed the support for merge-joints"; issue
+#3943); importer **`2.4.31`** (shipped with the Isaac Lab `v2.3.1+` line) **restores** it.
 
-- Do not rely on a massless fixed-joint frame surviving a future importer bump. The robust
-  pattern (already used by the example): declare sensor placements on a **surviving link
-  (`base_link`) + an `xyz`/`rpy` offset** in the scene YAML, not on a fixed-joint frame.
+**The pin is now Isaac Lab `v2.3.2` + URDF importer `2.4.31`** (#177, superseding the earlier
+`v2.3.0`-downgrade workaround). `v2.3.1+` makes `UrdfConverter` hard-enable
+`isaacsim.asset.importer.urdf-2.4.31` and call `ImportConfig.set_merge_fixed_ignore_inertia()`.
+A bare `SimulationApp({"headless": True})` loads the **default** Isaac Sim experience, which
+pre-loads the bundled `2.4.30`; the manager then cannot swap to `2.4.31` (constraint conflict:
+"isaacsim.asset.importer.urdf-2.4.31 is incompatible with other constraints"), so the converter
+runs against `2.4.30` and raises `AttributeError: set_merge_fixed_ignore_inertia` -- the original
+v2.3.2 failure. The fix is to boot Kit with **Isaac Lab's own experience**
+(`/opt/IsaacLab/apps/isaaclab.python.kit`), which pins
+`"isaacsim.asset.importer.urdf" = {version = "2.4.31", exact = true}`: `2.4.30` is never loaded,
+and the enable resolves `2.4.31` from the Kit registry (the GPU runner has network). This is a
+**boot-config** change in `model_import` (`_simulation_app_kwargs`), not a build-time fetch -- the
+image build runs on a non-GPU host where Kit cannot start, and the importer is not on pypi.
+
+With `2.4.31`, fixed-jointed **massless** frames merge into their parent rigid body by default;
+**inertia-bearing** fixed links are still NOT merged (the documented caveat). On a fresh import
+the committed `camera_bot.usd`'s massless `camera_mount` would now merge into `base_link` -- so
+prim/joint counts on a fresh `2.4.31` import differ from the legacy-importer committed asset
+(GPU-side test recalibration, #177). The committed `camera_bot.usd` is NOT regenerated here
+(issue 3b follow-up); sensor placement is `base_link` + offset (below), unaffected by the merge.
+
+- Do not rely on a massless fixed-joint frame surviving an importer change. The robust pattern
+  (already used by the example): declare sensor placements on a **surviving link (`base_link`) +
+  an `xyz`/`rpy` offset** in the scene YAML, not on a fixed-joint frame -- this holds under both
+  the non-merging `2.4.30` and the merging `2.4.31`.
 
 ### 5. Inertia is the CAD's responsibility, not a conversion loss
 
