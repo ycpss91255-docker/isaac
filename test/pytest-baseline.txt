@@ -73,7 +73,22 @@
 #   Lab's python.kit (which pins the 2.4.31 importer). Pure (env +
 #   filesystem only, no Isaac import). Live count is now 274 -- the
 #   enforced floor.
-HOSTED_UNIT_BASELINE = 274
+#
+#   Ingestion (#167/#168, ADR-0020 decisions 2/3): collider_type and the
+#   import-time joint drive are made configurable in model_import.
+#   test_import_model.py adds 22 hosted tests (33 -> 55): collider_type
+#   plumbing (#167 -- default-is-convex_hull, the built-in tuple, validate
+#   accepts the two built-ins / rejects unsupported (5 parametrized), and
+#   import_urdf rejects a bad collider before any Isaac import: 9), the
+#   import-time joint-drive gain resolution (#168 -- both-None is no drive,
+#   both-supplied float pair, one-sided raises (2 parametrized), negative
+#   raises (2 parametrized), and import_urdf rejects a one-sided drive
+#   before Isaac: 7), and the CLI plumbing (#167/#168 -- collider default /
+#   flag / unsupported-rejected, joint-drive flags default None / parse as
+#   floats: 6). All pure (no Isaac import: the JointDriveCfg build and the
+#   apply_joint_drive runtime helper are function-local isaaclab imports,
+#   GPU-covered). Live count is now 296 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 296
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -163,11 +178,45 @@ HOSTED_UNIT_BASELINE = 274
 #   collected delta; the strengthenings are in place); aggregate
 #   GPU-integration = 25 in-container + 2 host xc = 27. The enforced GPU
 #   baseline ratchets 28 -> 27 (the one documented exception above).
-GPU_INTEGRATION_BASELINE = 27
+#
+#   Ingestion (#167/#168, ADR-0020 decisions 2/3): the GPU suite gains 4
+#   in-container tests (25 -> 29) that exercise the configurable
+#   collider_type + joint drive against synthetic, license-clean fixtures
+#   (NOT the real forklift):
+#     * test_collider_type_integration.py (2): the concave U-shape fixture
+#       (concave_ushape.urdf -> mesh/ushape.stl) imported via
+#       import_urdf(collider_type=...) BOTH ways -- convex_hull records the
+#       UsdPhysics.MeshCollisionAPI approximation "convexHull" (notch
+#       filled), convex_decomposition records "convexDecomposition" (the
+#       concavity preserved); the contrast is asserted (different token).
+#       The decomposition pieces are cooked at sim time by PhysX, not
+#       authored as USD prims, so the stage-level contrast is the
+#       approximation token, not a prim count. The runner traverses WITH
+#       instance proxies so the collision mesh inside the instanceable
+#       prototype is visited. Subprocess-per-import + [COLLIDER SUMMARY]
+#       marker (one SimulationApp per import).
+#     * test_joint_drive_integration.py (2): the two-link revolute fixture
+#       (two_link_revolute.urdf) driven (a) at import via
+#       import_urdf(joint_drive_stiffness=, joint_drive_damping=) ->
+#       UrdfConverterCfg.joint_drive=JointDriveCfg(PDGainsCfg, force/
+#       position), and (b) at runtime via apply_joint_drive ->
+#       modify_joint_drive_properties (stage-only, no SimulationContext).
+#       Both assert the revolute joint's UsdPhysics.DriveAPI("angular")
+#       carries the configured gains -- stored in per-radian units: Isaac
+#       Lab applies the deterministic *pi/180 per-degree->per-radian
+#       conversion on an angular joint, so stiffness=800 lands as 13.96 on
+#       the DriveAPI (still fully user-controllable; only the unit differs).
+#       STRUCTURAL "drive CONFIGURED" check. The "joint physically reaches a
+#       target" check needs stepped physics (a SimulationContext, DEFERRED
+#       #151) and is NOT attempted. [DRIVE SUMMARY] marker.
+#   In-container GPU suite collects 29; aggregate GPU-integration = 29
+#   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
+#   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 31
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the MR re-base the live
-#   aggregate is 282 (255 hosted-unit + 27 GPU-integration), well past the
+#   126). Recorded for traceability; after the ingestion work the live
+#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.

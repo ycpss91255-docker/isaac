@@ -46,6 +46,15 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import NamedTuple
 
+# Built-in collision approximations exposed by ``UrdfConverterCfg.collider_type``
+# (ADR-0020 decision 2). ``"convex_hull"`` is Isaac Lab's default: the whole
+# part's convex hull, which fills in every concavity. ``"convex_decomposition"``
+# breaks the mesh into multiple convex pieces, preserving a concavity (e.g. the
+# gap between a forklift's forks). Neither is a full-resolution triangle-mesh
+# collider; full-mesh (static-only) and SDF colliders are out of scope (#167).
+_COLLIDER_TYPES = ("convex_hull", "convex_decomposition")
+_DEFAULT_COLLIDER_TYPE = "convex_hull"
+
 # Isaac Lab's Kit experience file (cloned to /opt/IsaacLab in the image,
 # ADR-0018 decision 4 / 5). It pins the URDF importer extension
 # "isaacsim.asset.importer.urdf" to {version = "2.4.31", exact = true}
@@ -123,6 +132,36 @@ def _parse_args():
         "--no-merge-fixed",
         action="store_true",
         help="Keep fixed-joint links separate (default: merge into rigid body).",
+    )
+    parser.add_argument(
+        "--collider-type",
+        choices=_COLLIDER_TYPES,
+        default=_DEFAULT_COLLIDER_TYPE,
+        help=(
+            "Collision approximation (ADR-0020 decision 2). Default "
+            "'convex_hull' fills concavities (the whole part's hull); a "
+            "concave part (e.g. forklift forks) must opt into "
+            "'convex_decomposition' (multiple convex pieces) or supply a "
+            "hand-authored simplified collision mesh. Importing the visual "
+            "mesh does NOT give full-resolution collision."
+        ),
+    )
+    parser.add_argument(
+        "--joint-drive-stiffness",
+        type=float,
+        default=None,
+        help=(
+            "Import-time default-drive position Kp (ADR-0020 decision 3). "
+            "Maps to UrdfConverterCfg.joint_drive=JointDriveCfg(position/"
+            "force). Must be paired with --joint-drive-damping; omit both "
+            "to keep the fixed-joint-safe joint_drive=None default."
+        ),
+    )
+    parser.add_argument(
+        "--joint-drive-damping",
+        type=float,
+        default=None,
+        help="Import-time default-drive velocity Kd (pairs with stiffness).",
     )
     return parser.parse_args()
 
@@ -387,7 +426,224 @@ def _preprocess_urdf(urdf_path):
     return tmp
 
 
-def _convert_urdf(urdf_path, usd_path, *, fix_base, merge_fixed_joints):
+def _validate_collider_type(collider_type):
+    """Validate a ``collider_type`` against the built-in approximations.
+
+    Pure (host-runnable): the plumbing guard that fails fast before any
+    Isaac import if a caller passes an unsupported collision approximation.
+    Only Isaac Lab's two built-ins are accepted (ADR-0020 decision 2);
+    full-resolution triangle-mesh and SDF colliders are out of scope (#167).
+
+    Args:
+        collider_type: One of ``"convex_hull"`` / ``"convex_decomposition"``.
+
+    Returns:
+        The validated ``collider_type`` unchanged.
+
+    Raises:
+        ValueError: If ``collider_type`` is not a built-in approximation.
+    """
+    if collider_type not in _COLLIDER_TYPES:
+        raise ValueError(
+            f"unsupported collider_type {collider_type!r}; expected one of "
+            f"{_COLLIDER_TYPES} (ADR-0020 decision 2; full-mesh / SDF "
+            "colliders are out of scope, #167)"
+        )
+    return collider_type
+
+
+def _resolve_joint_drive_gains(stiffness, damping):
+    """Normalize import-time joint-drive gains into a ``(stiffness, damping)``.
+
+    Pure (host-runnable): the scalar plumbing that maps a CLI / kwarg
+    stiffness+damping pair into the gains a ``JointDriveCfg`` needs, without
+    importing Isaac Lab. The actual ``JointDriveCfg`` is built function-local
+    in ``_build_joint_drive_cfg`` from this validated pair.
+
+    Both must be supplied together or both omitted: a position drive needs a
+    Kp (stiffness) and a Kd (damping). ``None`` for both means "no import-time
+    drive" -- the fixed-joint-safe default (ADR-0020 decision 3).
+
+    Args:
+        stiffness: Position-control Kp, or ``None`` for no drive.
+        damping: Velocity Kd, or ``None`` for no drive.
+
+    Returns:
+        ``None`` if both are ``None`` (no drive), else the validated
+        ``(stiffness, damping)`` float pair.
+
+    Raises:
+        ValueError: If exactly one of the two is supplied, or a supplied
+            gain is negative.
+    """
+    if stiffness is None and damping is None:
+        return None
+    if stiffness is None or damping is None:
+        raise ValueError(
+            "joint drive needs BOTH stiffness and damping (got "
+            f"stiffness={stiffness!r}, damping={damping!r}); supply both for "
+            "a position drive or neither for the fixed-joint-safe default"
+        )
+    stiffness = float(stiffness)
+    damping = float(damping)
+    if stiffness < 0.0 or damping < 0.0:
+        raise ValueError(
+            f"joint drive gains must be non-negative (got stiffness="
+            f"{stiffness}, damping={damping})"
+        )
+    return (stiffness, damping)
+
+
+def _build_joint_drive_cfg(stiffness, damping):
+    """Build an import-time ``JointDriveCfg`` from stiffness/damping scalars.
+
+    Returns ``None`` (the fixed-joint-safe default, ADR-0020 decision 3) when
+    both gains are ``None``. Otherwise maps the validated pair to::
+
+        JointDriveCfg(
+            gains=PDGainsCfg(stiffness=..., damping=...),
+            drive_type="force",
+            target_type="position",
+        )
+
+    a position drive in force mode -- the survey-confirmed import-time form
+    (#168). Deliberately does NOT use ``ImplicitActuatorCfg``: that needs a
+    constructed ``Articulation`` + a playing ``SimulationContext`` to reach
+    sim, re-introducing the #151 shutdown-hang surface.
+
+    The ``isaaclab`` import is function-local (ADR-0017 section 8); this
+    helper is therefore only callable inside a Kit-running context, while the
+    pure ``_resolve_joint_drive_gains`` validation stays host-runnable.
+
+    Args:
+        stiffness: Position Kp, or ``None`` for no drive.
+        damping: Velocity Kd, or ``None`` for no drive.
+
+    Returns:
+        A ``JointDriveCfg`` for a position drive, or ``None`` for no drive.
+    """
+    gains = _resolve_joint_drive_gains(stiffness, damping)
+    if gains is None:
+        return None
+    # JointDriveCfg / PDGainsCfg are NESTED configclasses on
+    # UrdfConverterCfg in Isaac Lab v2.3.2
+    # (UrdfConverterCfg.JointDriveCfg.PDGainsCfg), not module-top classes.
+    from isaaclab.sim.converters import UrdfConverterCfg
+
+    drive_cfg = UrdfConverterCfg.JointDriveCfg
+    return drive_cfg(
+        gains=drive_cfg.PDGainsCfg(stiffness=gains[0], damping=gains[1]),
+        drive_type="force",
+        target_type="position",
+    )
+
+
+def apply_joint_drive(
+    prim_path, stiffness, damping, *, drive_type="force"
+):
+    """Apply a per-joint drive to an already-imported joint prim (runtime).
+
+    The "set Kp/Kd on an existing joint" path the driver / scene adapter
+    calls after import. Delegates to Isaac Lab's
+    ``isaaclab.sim.schemas.modify_joint_drive_properties`` -- its typed
+    wrapper over ``UsdPhysics.DriveAPI`` (ADR-0020 decision 3 / #168 survey).
+    That function operates **stage-only**: it applies the ``DriveAPI`` to the
+    joint prim (auto-detecting the ``"angular"`` axis for a revolute joint /
+    ``"linear"`` for a prismatic one from the prim's USD type) and writes the
+    gains -- no ``Articulation``, no PhysX view, no ``SimulationContext``, so
+    it does NOT touch the #151 shutdown-hang surface. (Do NOT reach for
+    ``ImplicitActuatorCfg`` here: its gains only reach sim through
+    ``Articulation.write_joint_*_to_sim``, which needs a playing
+    ``SimulationContext``.)
+
+    The ``isaaclab`` import is function-local (ADR-0017 section 8): this
+    module still imports cleanly on a host without Isaac Sim.
+
+    NOTE: this CONFIGURES the drive (applies the DriveAPI + sets gains). A
+    joint physically reaching / holding a commanded target needs stepped
+    physics (a ``SimulationContext``, deferred #151) and is out of scope
+    here -- the structural "DriveAPI present with the right gains" check is
+    what is verified.
+
+    Return contract (why we re-read the prim instead of trusting the
+    delegate's return): ``modify_joint_drive_properties`` is wrapped by
+    Isaac Lab's ``@apply_nested`` decorator, whose wrapper returns ``None``
+    unconditionally -- it never propagates the inner function's success
+    bool (Isaac Lab v2.3.2 ``sim/utils/prims.py``). Trusting that return
+    therefore always reads as falsy even on success. Instead we apply the
+    drive and then VERIFY by reading the joint prim's ``DriveAPI`` back from
+    the current stage, returning that verified boolean. (``apply_nested``
+    also silently skips prims inside an instanced/prototype subtree -- the
+    joint prim must be a defining prim, not an instance proxy, for the
+    DriveAPI to land; the read-back surfaces that case as ``False`` too.)
+
+    Args:
+        prim_path: USD prim path of the joint to drive. The angular /
+            linear DriveAPI axis is auto-detected from the prim's joint
+            type by Isaac Lab.
+        stiffness: Position-control Kp.
+        damping: Velocity Kd.
+        drive_type: ``UsdPhysics`` drive mode, ``"force"`` (default) or
+            ``"acceleration"`` -- how the joint effort is applied (NOT the
+            angular/linear axis, which is auto-detected).
+
+    Returns:
+        ``True`` when the ``DriveAPI`` is present on the joint prim after
+        the apply (verified by re-reading the prim from the current stage),
+        ``False`` otherwise (prim invalid, not a revolute/prismatic joint,
+        or skipped as an instance proxy).
+
+    Raises:
+        ValueError: If a gain is missing/negative (validated host-side
+            first).
+    """
+    gains = _resolve_joint_drive_gains(stiffness, damping)
+    if gains is None:
+        raise ValueError(
+            "apply_joint_drive needs both stiffness and damping"
+        )
+    from isaaclab.sim.schemas import (
+        JointDrivePropertiesCfg,
+        modify_joint_drive_properties,
+    )
+    from isaaclab.sim.utils import get_current_stage
+    from pxr import UsdPhysics
+
+    cfg = JointDrivePropertiesCfg(
+        drive_type=drive_type,
+        stiffness=gains[0],
+        damping=gains[1],
+    )
+    # modify_joint_drive_properties is @apply_nested-wrapped and returns
+    # None even on success (it does NOT forward the inner bool), so we
+    # cannot trust its return. It applies the DriveAPI itself when absent
+    # (it is "modify" but does DriveAPI.Apply when none exists), so a
+    # drive-less import is fine. Verify by reading the DriveAPI back.
+    modify_joint_drive_properties(prim_path, cfg)
+
+    stage = get_current_stage()
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim or not prim.IsValid():
+        return False
+    # The axis is angular for a revolute joint, linear for a prismatic one;
+    # Isaac Lab applies the matching named DriveAPI. Accept either so the
+    # helper works for both joint kinds without re-deriving the type.
+    for axis in ("angular", "linear"):
+        if prim.HasAPI(UsdPhysics.DriveAPI, axis):
+            return True
+    return False
+
+
+def _convert_urdf(
+    urdf_path,
+    usd_path,
+    *,
+    fix_base,
+    merge_fixed_joints,
+    collider_type=_DEFAULT_COLLIDER_TYPE,
+    joint_drive_stiffness=None,
+    joint_drive_damping=None,
+):
     """Convert a URDF to a single instanceable USD via Isaac Lab.
 
     Preprocesses the URDF to resolve ``package://`` URIs, then delegates
@@ -402,12 +658,26 @@ def _convert_urdf(urdf_path, usd_path, *, fix_base, merge_fixed_joints):
     Isaac imports stay function-local (ADR-0017 section 8); isaaclab
     transitively pulls in omni, so its imports are local too.
 
+    Args:
+        collider_type: Collision approximation passed to
+            ``UrdfConverterCfg.collider_type`` (ADR-0020 decision 2, #167).
+            ``"convex_hull"`` (default) fills concavities; a concave part
+            (e.g. a forklift's forks) needs ``"convex_decomposition"`` so
+            the gap is preserved as multiple convex pieces.
+        joint_drive_stiffness: Position-control Kp for the import-time
+            default drive (#168), or ``None`` for no drive.
+        joint_drive_damping: Velocity Kd for the import-time default drive,
+            or ``None`` for no drive. Both gains must be supplied together
+            or both omitted; both ``None`` keeps the fixed-joint-safe
+            ``joint_drive=None`` default (ADR-0020 decision 3).
+
     Returns:
         Path to the produced USD (``converter.usd_path``, the
         authoritative ``usd_dir / usd_file_name`` location).
     """
     from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
+    _validate_collider_type(collider_type)
     resolved_urdf = _preprocess_urdf(urdf_path)
 
     cfg = UrdfConverterCfg(
@@ -416,11 +686,18 @@ def _convert_urdf(urdf_path, usd_path, *, fix_base, merge_fixed_joints):
         usd_file_name=usd_path.name,
         fix_base=fix_base,
         merge_fixed_joints=merge_fixed_joints,
-        # Fixed-joint robots fail without an explicit joint_drive
-        # ("Missing values for ... joint_drive.gains.stiffness"); None
-        # leaves drives unconfigured, which is correct for the offline
-        # convert-and-commit artifact (drive gains are a runtime concern).
-        joint_drive=None,
+        # Collision approximation (ADR-0020 decision 2, #167). The Isaac Lab
+        # default "convex_hull" fills concavities; "convex_decomposition"
+        # preserves them as multiple convex pieces.
+        collider_type=collider_type,
+        # Import-time default drive (#168). None leaves drives unconfigured
+        # -- the fixed-joint-safe default (a fixed-joint robot fails with an
+        # under-specified JointDriveCfg, "Missing values for ...
+        # joint_drive.gains.stiffness"). A JointDriveCfg(position/force) is
+        # built only when stiffness+damping are supplied.
+        joint_drive=_build_joint_drive_cfg(
+            joint_drive_stiffness, joint_drive_damping
+        ),
         # Always regenerate: the offline commit step wants a fresh,
         # deterministic artifact, not a cache hit.
         force_usd_conversion=True,
@@ -607,7 +884,14 @@ def _summarize_prim_records(prim_records, usd_path):
     )
 
 
-def import_urdf(urdf_path, out_usd_path):
+def import_urdf(
+    urdf_path,
+    out_usd_path,
+    *,
+    collider_type=_DEFAULT_COLLIDER_TYPE,
+    joint_drive_stiffness=None,
+    joint_drive_damping=None,
+):
     """Import a URDF into a single instanceable USD; return its ``PrimSummary``.
 
     ADR-0017 section 9 contract (greenfield -- not ported behavior),
@@ -634,6 +918,15 @@ def import_urdf(urdf_path, out_usd_path):
         out_usd_path: Output USD file path (parent dirs are created). The
             converter writes to this file's directory and name; the
             traversal uses ``converter.usd_path``.
+        collider_type: Collision approximation (ADR-0020 decision 2, #167):
+            ``"convex_hull"`` (default, fills concavities) or
+            ``"convex_decomposition"`` (preserves them). Validated before
+            any Isaac import.
+        joint_drive_stiffness: Import-time default-drive Kp (#168), or
+            ``None`` for no drive.
+        joint_drive_damping: Import-time default-drive Kd, or ``None`` for
+            no drive. Both gains are supplied together or both omitted; both
+            ``None`` keeps the fixed-joint-safe default.
 
     Returns:
         ``PrimSummary`` describing the produced stage.
@@ -641,11 +934,17 @@ def import_urdf(urdf_path, out_usd_path):
     Raises:
         FileNotFoundError: If ``urdf_path`` does not exist (raised
             before Isaac Sim is touched).
-        ValueError: If the converter produces no output file.
+        ValueError: If ``collider_type`` is unsupported, the joint-drive
+            gains are inconsistent, or the converter produces no output
+            file (all validated before / around the Isaac import).
     """
     urdf = Path(urdf_path).resolve()
     if not urdf.exists():
         raise FileNotFoundError(f"URDF not found: {urdf}")
+    # Validate the plumbing inputs BEFORE booting Kit so a hosted caller
+    # fails fast with a normal Python error (no Isaac import touched).
+    _validate_collider_type(collider_type)
+    _resolve_joint_drive_gains(joint_drive_stiffness, joint_drive_damping)
     out_usd = Path(out_usd_path).resolve()
     out_usd.parent.mkdir(parents=True, exist_ok=True)
 
@@ -664,7 +963,13 @@ def import_urdf(urdf_path, out_usd_path):
         from pxr import Usd
 
         produced = _convert_urdf(
-            urdf, out_usd, fix_base=True, merge_fixed_joints=True
+            urdf,
+            out_usd,
+            fix_base=True,
+            merge_fixed_joints=True,
+            collider_type=collider_type,
+            joint_drive_stiffness=joint_drive_stiffness,
+            joint_drive_damping=joint_drive_damping,
         )
         if not produced.exists():
             raise ValueError(
@@ -691,6 +996,18 @@ def main():
     print(f"import_model: {paths['urdf']} -> {paths['usd']}")
     print(f"  name: {args.name}")
     print(f"  force: {args.force}")
+    print(f"  collider_type: {args.collider_type}")
+    if args.joint_drive_stiffness is not None or \
+            args.joint_drive_damping is not None:
+        print(
+            f"  joint_drive: stiffness={args.joint_drive_stiffness} "
+            f"damping={args.joint_drive_damping}"
+        )
+
+    # Fail fast on inconsistent joint-drive gains before booting Kit.
+    _resolve_joint_drive_gains(
+        args.joint_drive_stiffness, args.joint_drive_damping
+    )
 
     _check_existing(paths, args.force)
     _ensure_dirs(paths)
@@ -708,6 +1025,9 @@ def main():
             paths["usd"],
             fix_base=not args.no_fix_base,
             merge_fixed_joints=not args.no_merge_fixed,
+            collider_type=args.collider_type,
+            joint_drive_stiffness=args.joint_drive_stiffness,
+            joint_drive_damping=args.joint_drive_damping,
         )
     except Exception as exc:  # noqa: BLE001
         # The converter can raise on mesh-resolution warnings while still

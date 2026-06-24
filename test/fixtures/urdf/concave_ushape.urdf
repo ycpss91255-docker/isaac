@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!--
+  concave_ushape: a synthetic single-link, single-mesh CONCAVE fixture for
+  the #167 collider_type GPU test. NOT the forklift application model -- a
+  minimal, license-clean robot authored for this repo's test suite.
+
+  The one link's collision geometry references mesh/ushape.stl, a watertight
+  U-shape (three bars, open top) -- a genuinely concave solid. collider_type
+  acts on MESH collision geometry (not on URDF primitives), so the mesh is
+  what makes the convex_hull-vs-convex_decomposition contrast observable:
+
+    convex_hull            -> the whole U collapses to ONE filled convex
+                              block (the open-top notch is filled solid).
+    convex_decomposition   -> the U is approximated by MULTIPLE convex
+                              pieces, so the notch is preserved.
+
+  The GPU test (#167) imports this fixture both ways and asserts the
+  decomposition produces more convex collider prims than the hull (the
+  concavity is preserved). Full-resolution triangle-mesh / SDF colliders are
+  out of scope (#167) -- only the two built-in approximations are exercised.
+-->
+<robot name="concave_ushape">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://concave_ushape/mesh/ushape.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://concave_ushape/mesh/ushape.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>
