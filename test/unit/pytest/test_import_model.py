@@ -194,6 +194,139 @@ class TestImportUrdfPrecondition:
             )
 
 
+class TestColliderType:
+    """#167 (ADR-0020 d2): collider_type is exposed and validated.
+
+    Pure plumbing: the value is validated before any Isaac import; only the
+    two built-in approximations are accepted (full-mesh / SDF are out of
+    scope). The cfg-build path (UrdfConverterCfg.collider_type=...) is GPU
+    territory; here we only assert the host-runnable guard.
+    """
+
+    def test_default_is_convex_hull(self):
+        # The default must keep current behavior (no concavity preserved).
+        assert import_model._DEFAULT_COLLIDER_TYPE == "convex_hull"
+
+    def test_built_in_types(self):
+        assert import_model._COLLIDER_TYPES == (
+            "convex_hull", "convex_decomposition"
+        )
+
+    @pytest.mark.parametrize(
+        "value", ["convex_hull", "convex_decomposition"]
+    )
+    def test_validate_accepts_built_ins(self, value):
+        assert import_model._validate_collider_type(value) == value
+
+    @pytest.mark.parametrize(
+        "value", ["triangle_mesh", "sdf", "", "Convex_Hull", None]
+    )
+    def test_validate_rejects_unsupported(self, value):
+        with pytest.raises(ValueError, match="collider_type"):
+            import_model._validate_collider_type(value)
+
+    def test_import_urdf_rejects_bad_collider_before_isaac(self, tmp_path):
+        # An unsupported collider_type fails fast (no Isaac import) on a
+        # host without Isaac Sim -- a ValueError, not a missing-module error.
+        urdf = tmp_path / "r.urdf"
+        urdf.write_text("<robot name='r'/>")
+        with pytest.raises(ValueError, match="collider_type"):
+            import_model.import_urdf(
+                urdf, tmp_path / "out.usd", collider_type="triangle_mesh"
+            )
+
+
+class TestJointDriveGains:
+    """#168 (ADR-0020 d3): import-time joint-drive gain plumbing.
+
+    Pure plumbing: the stiffness/damping pair is normalized / validated
+    host-side; the JointDriveCfg(position/force) build and the runtime
+    modify_joint_drive_properties application are GPU territory.
+    """
+
+    def test_both_none_is_no_drive(self):
+        # Both None -> the fixed-joint-safe default (joint_drive stays None).
+        assert import_model._resolve_joint_drive_gains(None, None) is None
+
+    def test_both_supplied_returns_float_pair(self):
+        assert import_model._resolve_joint_drive_gains(800, 40) == (
+            800.0, 40.0
+        )
+
+    @pytest.mark.parametrize(
+        "stiffness,damping",
+        [(800.0, None), (None, 40.0)],
+    )
+    def test_one_sided_gains_raise(self, stiffness, damping):
+        with pytest.raises(ValueError, match="BOTH stiffness and damping"):
+            import_model._resolve_joint_drive_gains(stiffness, damping)
+
+    @pytest.mark.parametrize(
+        "stiffness,damping",
+        [(-1.0, 10.0), (10.0, -1.0)],
+    )
+    def test_negative_gains_raise(self, stiffness, damping):
+        with pytest.raises(ValueError, match="non-negative"):
+            import_model._resolve_joint_drive_gains(stiffness, damping)
+
+    def test_import_urdf_rejects_one_sided_drive_before_isaac(self, tmp_path):
+        # A one-sided drive fails fast (no Isaac import) on a host without
+        # Isaac Sim -- the gain validation runs before SimulationApp.
+        urdf = tmp_path / "r.urdf"
+        urdf.write_text("<robot name='r'/>")
+        with pytest.raises(ValueError, match="BOTH stiffness and damping"):
+            import_model.import_urdf(
+                urdf, tmp_path / "out.usd", joint_drive_stiffness=800.0
+            )
+
+
+class TestCliPlumbing:
+    """#167/#168: the CLI flows collider_type + joint drive into the cfg.
+
+    Parse the CLI without spawning Kit; assert the namespace carries the
+    values _convert_urdf consumes (the flag -> kwarg flow), and the
+    defaults keep current behavior.
+    """
+
+    def _parse(self, monkeypatch, extra):
+        argv = [
+            "model_import",
+            "--urdf", "/x/r.urdf",
+            "--output", "/x/out",
+            "--name", "r",
+        ] + extra
+        monkeypatch.setattr(sys, "argv", argv)
+        return import_model._parse_args()
+
+    def test_collider_default_is_convex_hull(self, monkeypatch):
+        args = self._parse(monkeypatch, [])
+        assert args.collider_type == "convex_hull"
+
+    def test_collider_flag_sets_decomposition(self, monkeypatch):
+        args = self._parse(
+            monkeypatch, ["--collider-type", "convex_decomposition"]
+        )
+        assert args.collider_type == "convex_decomposition"
+
+    def test_collider_flag_rejects_unsupported(self, monkeypatch):
+        # argparse choices reject an out-of-scope collider at the CLI.
+        with pytest.raises(SystemExit):
+            self._parse(monkeypatch, ["--collider-type", "triangle_mesh"])
+
+    def test_joint_drive_defaults_none(self, monkeypatch):
+        args = self._parse(monkeypatch, [])
+        assert args.joint_drive_stiffness is None
+        assert args.joint_drive_damping is None
+
+    def test_joint_drive_flags_parse_as_floats(self, monkeypatch):
+        args = self._parse(
+            monkeypatch,
+            ["--joint-drive-stiffness", "800", "--joint-drive-damping", "40"],
+        )
+        assert args.joint_drive_stiffness == 800.0
+        assert args.joint_drive_damping == 40.0
+
+
 _XACRO_FIXTURE = (
     '<?xml version="1.0"?>\n'
     '<robot name="bot" xmlns:xacro="http://www.ros.org/wiki/xacro">\n'
