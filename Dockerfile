@@ -164,21 +164,35 @@ ARG CONFIG_SRC="config"
 #
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
-# Pinned to v2.3.0 (NOT the latest 2.3.x) on purpose. Isaac Lab PR #4000
-# (merged 2025-12-02, first shipped in v2.3.1/v2.3.2) made UrdfConverter
-# hard-enable the URDF importer extension "isaacsim.asset.importer.urdf-2.4.31"
-# and call ImportConfig.set_merge_fixed_ignore_inertia(). Isaac Sim 5.1.0
-# bundles importer 2.4.30, and the offline GPU runner cannot reach the Kit
-# extension registry to fetch 2.4.31 -- so the enable fails and the call
-# raises AttributeError ("ImportConfig has no attribute
-# set_merge_fixed_ignore_inertia"), leaving model_import unable to emit a USD.
-# v2.3.0 predates #4000: it enables the bundled importer generically and
-# never calls the missing method, so URDF->USD conversion works against the
-# 2.4.30 importer that ships in isaac-sim:5.1.0. Patching v2.3.2 to skip the
-# call would just fall back to 2.4.30 anyway -- same result, extra vendored
-# hackery. Bump back to >= v2.3.2 once an isaac-sim image bundles importer
-# 2.4.31 (no 5.1.x patch exists yet; 6.0 is a separate major migration).
-ARG ISAACLAB_VERSION="v2.3.0"
+# Pinned to v2.3.2 -- NVIDIA's official Isaac Lab pairing for Isaac Sim
+# 5.1.0 (the recommended/latest 2.3.x). #177, supersedes the earlier
+# v2.3.0 workaround.
+#
+# v2.3.1+ (Isaac Lab PR #4000) made UrdfConverter hard-enable the URDF
+# importer extension "isaacsim.asset.importer.urdf-2.4.31" and call
+# ImportConfig.set_merge_fixed_ignore_inertia() (2.4.31 restores
+# merge_fixed_joints, removed from the 2.4.30 importer bundled in
+# isaac-sim:5.1.0; ADR-0020 decision 4). The first v2.3.2 attempt failed
+# with "AttributeError: set_merge_fixed_ignore_inertia" and emitted no
+# USD. Root cause (#177): model_import booted a BARE
+# SimulationApp({"headless": True}), which loads the DEFAULT Isaac Sim
+# experience -- that pre-loads the bundled 2.4.30 importer, so the manager
+# cannot swap to 2.4.31 ("isaacsim.asset.importer.urdf-2.4.31 is
+# incompatible with other constraints") and the converter runs against
+# 2.4.30, which lacks the merge method.
+#
+# Fix is at BOOT time, not build time: model_import now boots Kit with
+# Isaac Lab's own experience /opt/IsaacLab/apps/isaaclab.python.kit (cloned
+# here), which pins "isaacsim.asset.importer.urdf" = {version = "2.4.31",
+# exact = true}. With that experience the 2.4.30 importer is never loaded,
+# and UrdfConverter's enable resolves 2.4.31 cleanly -- the GPU runner HAS
+# network and fetches it from the Kit extension registry. No build-time
+# extension pre-fetch is needed (and would be impossible: the image build
+# runs on a non-GPU ubuntu-latest, where Kit cannot start). pip is also a
+# dead end -- isaacsim-asset-importer-urdf is not on pypi.nvidia.com and
+# the isaacsim meta pins the same bundled 2.4.30. See
+# framework/isaac_devkit/model_import.py (_simulation_app_kwargs).
+ARG ISAACLAB_VERSION="v2.3.2"
 # Two build-env quirks are worked around here:
 #   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
 #      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown

@@ -352,3 +352,51 @@ class TestUnitSanityCheck:
         p.write_text(self._MILLIMETERS)
         assert import_model._check_urdf_units(p) is True
         assert "unit sanity check" in capsys.readouterr().err
+
+
+class TestSimulationAppKwargs:
+    """The SimulationApp boot config that pins the 2.4.31 URDF importer.
+
+    Pure (env + filesystem only, no Isaac import): boots Kit with Isaac
+    Lab's experience so the 2.4.31 importer loads instead of the default
+    experience's bundled 2.4.30 (#177, ADR-0020 decision 4).
+    """
+
+    def test_always_headless(self, monkeypatch):
+        # Point at a non-existent path so the experience key is omitted;
+        # headless must still be set.
+        monkeypatch.setenv(
+            "ISAACLAB_KIT_EXPERIENCE", "/no/such/isaaclab.python.kit"
+        )
+        kwargs = import_model._simulation_app_kwargs()
+        assert kwargs["headless"] is True
+
+    def test_missing_experience_omits_key(self, monkeypatch):
+        # A hosted/dev box with no Isaac Lab clone must NOT pass a missing
+        # experience file (SimulationApp would fail); fall back to default.
+        monkeypatch.setenv(
+            "ISAACLAB_KIT_EXPERIENCE", "/no/such/isaaclab.python.kit"
+        )
+        assert "experience" not in import_model._simulation_app_kwargs()
+
+    def test_existing_experience_is_pinned(self, monkeypatch, tmp_path):
+        kit = tmp_path / "isaaclab.python.kit"
+        kit.write_text("[package]\n")
+        monkeypatch.setenv("ISAACLAB_KIT_EXPERIENCE", str(kit))
+        kwargs = import_model._simulation_app_kwargs()
+        assert kwargs["experience"] == str(kit)
+        assert kwargs["headless"] is True
+
+    def test_env_overrides_default_path(self, monkeypatch, tmp_path):
+        # The env var takes precedence over the baked default constant.
+        kit = tmp_path / "custom.kit"
+        kit.write_text("[package]\n")
+        monkeypatch.setenv("ISAACLAB_KIT_EXPERIENCE", str(kit))
+        assert import_model._simulation_app_kwargs()["experience"] == str(kit)
+
+    def test_default_path_is_isaaclab_kit(self):
+        # The baked default is Isaac Lab's python experience (which pins
+        # the 2.4.31 importer); the constant must not drift.
+        assert import_model._ISAACLAB_KIT_EXPERIENCE == (
+            "/opt/IsaacLab/apps/isaaclab.python.kit"
+        )
