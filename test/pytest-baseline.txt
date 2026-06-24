@@ -185,11 +185,16 @@ HOSTED_UNIT_BASELINE = 296
 #   (NOT the real forklift):
 #     * test_collider_type_integration.py (2): the concave U-shape fixture
 #       (concave_ushape.urdf -> mesh/ushape.stl) imported via
-#       import_urdf(collider_type=...) BOTH ways -- convex_hull yields ONE
-#       convex collider piece (the notch filled), convex_decomposition
-#       yields MULTIPLE pieces (the concavity preserved); the contrast is
-#       asserted (decomp pieces > hull pieces). Subprocess-per-import +
-#       [COLLIDER SUMMARY] marker (one SimulationApp per import).
+#       import_urdf(collider_type=...) BOTH ways -- convex_hull records the
+#       UsdPhysics.MeshCollisionAPI approximation "convexHull" (notch
+#       filled), convex_decomposition records "convexDecomposition" (the
+#       concavity preserved); the contrast is asserted (different token).
+#       The decomposition pieces are cooked at sim time by PhysX, not
+#       authored as USD prims, so the stage-level contrast is the
+#       approximation token, not a prim count. The runner traverses WITH
+#       instance proxies so the collision mesh inside the instanceable
+#       prototype is visited. Subprocess-per-import + [COLLIDER SUMMARY]
+#       marker (one SimulationApp per import).
 #     * test_joint_drive_integration.py (2): the two-link revolute fixture
 #       (two_link_revolute.urdf) driven (a) at import via
 #       import_urdf(joint_drive_stiffness=, joint_drive_damping=) ->
@@ -197,10 +202,13 @@ HOSTED_UNIT_BASELINE = 296
 #       position), and (b) at runtime via apply_joint_drive ->
 #       modify_joint_drive_properties (stage-only, no SimulationContext).
 #       Both assert the revolute joint's UsdPhysics.DriveAPI("angular")
-#       carries the configured stiffness/damping (STRUCTURAL "drive
-#       CONFIGURED" check). The "joint physically reaches a target" check
-#       needs stepped physics (a SimulationContext, DEFERRED #151) and is
-#       NOT attempted. [DRIVE SUMMARY] marker.
+#       carries the configured gains -- stored in per-radian units: Isaac
+#       Lab applies the deterministic *pi/180 per-degree->per-radian
+#       conversion on an angular joint, so stiffness=800 lands as 13.96 on
+#       the DriveAPI (still fully user-controllable; only the unit differs).
+#       STRUCTURAL "drive CONFIGURED" check. The "joint physically reaches a
+#       target" check needs stepped physics (a SimulationContext, DEFERRED
+#       #151) and is NOT attempted. [DRIVE SUMMARY] marker.
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).

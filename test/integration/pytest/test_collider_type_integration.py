@@ -4,18 +4,25 @@ ADR-0020 decision 2. The concave U-shape fixture
 (test/fixtures/urdf/concave_ushape.urdf, a single-link single-mesh robot
 whose collision references mesh/ushape.stl) is imported BOTH ways via
 ``isaac_devkit.model_import.import_urdf(collider_type=...)`` and the produced
-USDs are contrasted:
+USDs are contrasted on the collision approximation the importer records:
 
-  convex_hull           -> ONE convex collider piece (the open-top notch is
-                           filled into a single hull).
-  convex_decomposition  -> MULTIPLE convex collider pieces (the concavity is
-                           preserved as several convex hulls).
+  convex_hull           -> the collision mesh's UsdPhysics.MeshCollisionAPI
+                           approximation is "convexHull" (the open-top notch
+                           is filled into a single hull).
+  convex_decomposition  -> the approximation is "convexDecomposition" (the
+                           concavity is preserved; the multiple convex pieces
+                           are cooked at sim time by PhysX, not authored as
+                           separate USD prims, so the deterministic
+                           stage-level contrast is the approximation token,
+                           NOT a prim count).
 
 Each import owns its own ``SimulationApp`` (a process-global singleton), so
 the contrast is gathered by spawning the Kit-side ``_collider_import_runner``
 once per collider_type and parsing its ``[COLLIDER SUMMARY]`` marker -- the
 same subprocess-per-import / marker-line pattern as ``test_model_import.py``
-(``pxr`` is not importable in the bare pytest process).
+(``pxr`` is not importable in the bare pytest process). The runner traverses
+the produced (instanceable) USD WITH instance proxies so the collision mesh
+prims inside the prototype are visited (a plain traversal sees none).
 
 Runtime requirement: the Isaac Sim / Isaac Lab devel-test GPU container
 (``/isaac-sim/python.sh -m pytest``).
@@ -35,7 +42,7 @@ IMPORT_TIMEOUT_SEC = 240
 
 _SUMMARY_RE = re.compile(
     r"\[COLLIDER SUMMARY\] type=(\S+) collision_prims=(\d+) "
-    r"convex_pieces=(\d+) root=(\S+)"
+    r"approximation=(\S+) root=(\S+)"
 )
 
 
@@ -67,39 +74,56 @@ def _run_collider(collider_type: str, out_usd: Path) -> dict:
     return {
         "type": m.group(1),
         "collision_prims": int(m.group(2)),
-        "convex_pieces": int(m.group(3)),
+        "approximation": m.group(3),
         "root": m.group(4),
     }
 
 
-def test_convex_hull_yields_single_collider(tmp_path):
-    """convex_hull collapses the concave U into ONE convex collider piece."""
+def test_convex_hull_records_convex_hull_approximation(tmp_path):
+    """convex_hull records the "convexHull" collision approximation.
+
+    The concave U's collision mesh is imported and PhysX collapses it to a
+    single filled hull -- recorded as the MeshCollisionAPI approximation
+    token "convexHull". At least one collision prim must exist (the first
+    GPU run reported zero because a plain traversal skipped the instanceable
+    prototype the collision mesh lives in).
+    """
     summary = _run_collider("convex_hull", tmp_path / "ushape_hull.usd")
     assert summary["type"] == "convex_hull"
-    assert summary["convex_pieces"] == 1, (
-        "convex_hull must produce exactly one convex collider piece (the "
-        f"concavity filled into a single hull); got {summary}"
+    assert summary["collision_prims"] >= 1, (
+        "convex_hull must import at least one collision prim (the resolved "
+        f"collision mesh); got {summary}"
+    )
+    assert summary["approximation"] == "convexHull", (
+        "convex_hull must record the 'convexHull' MeshCollisionAPI "
+        f"approximation; got {summary}"
     )
 
 
-def test_convex_decomposition_yields_multiple_colliders(tmp_path):
-    """convex_decomposition preserves the concavity as MULTIPLE pieces.
+def test_convex_decomposition_records_decomposition_approximation(tmp_path):
+    """convex_decomposition records the "convexDecomposition" approximation.
 
-    The decomposition of the U-shape must produce more than one convex
-    collider piece -- the open-top notch is preserved by the multiple
-    convex hulls, where convex_hull would have filled it solid. Asserted
-    as the direct contrast against the hull import.
+    The decomposition preserves the concavity. PhysX cooks the multiple
+    convex pieces at sim time rather than authoring them as separate USD
+    prims, so the deterministic stage-level contrast against the hull import
+    is the MeshCollisionAPI approximation token: "convexDecomposition" here
+    vs "convexHull" for the hull import.
     """
     hull = _run_collider("convex_hull", tmp_path / "ushape_hull.usd")
     decomp = _run_collider(
         "convex_decomposition", tmp_path / "ushape_decomp.usd"
     )
     assert decomp["type"] == "convex_decomposition"
-    assert decomp["convex_pieces"] > 1, (
-        "convex_decomposition must produce multiple convex collider pieces "
-        f"(the concavity preserved); got {decomp}"
+    assert decomp["collision_prims"] >= 1, (
+        "convex_decomposition must import at least one collision prim; "
+        f"got {decomp}"
     )
-    assert decomp["convex_pieces"] > hull["convex_pieces"], (
-        "convex_decomposition must yield MORE convex pieces than convex_hull "
-        f"(hull={hull['convex_pieces']}, decomp={decomp['convex_pieces']})"
+    assert decomp["approximation"] == "convexDecomposition", (
+        "convex_decomposition must record the 'convexDecomposition' "
+        f"MeshCollisionAPI approximation; got {decomp}"
+    )
+    assert decomp["approximation"] != hull["approximation"], (
+        "convex_decomposition must record a DIFFERENT approximation than "
+        f"convex_hull (hull={hull['approximation']}, "
+        f"decomp={decomp['approximation']})"
     )

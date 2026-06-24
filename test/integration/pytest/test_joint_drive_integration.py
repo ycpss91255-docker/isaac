@@ -30,6 +30,7 @@ process). Runtime requirement: the Isaac Sim / Isaac Lab devel-test GPU
 container.
 """
 
+import math
 import os
 import re
 import subprocess
@@ -42,8 +43,27 @@ RUNNER = Path(__file__).parent / "_joint_drive_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"
 IMPORT_TIMEOUT_SEC = 240
 
+# Gains we pass in, in URDF/per-degree convention (what a user types). Both
+# the import-time path (Isaac Lab UrdfConverter) and the runtime path
+# (modify_joint_drive_properties) treat a configured stiffness/damping on an
+# ANGULAR (revolute) joint as per-degree and write the per-radian value onto
+# the USD DriveAPI, i.e. they multiply by ``math.pi / 180`` (Isaac Lab
+# v2.3.2: urdf_converter ``set_strength(math.pi / 180 * stiffness)`` for a
+# non-prismatic joint; schemas ``modify_joint_drive_properties`` applies the
+# same N-m/rad -> N-m/deg conversion). This is a DETERMINISTIC unit
+# conversion, NOT a dropped input: the gains stay fully user-controllable
+# (double the input -> double the stored value); only the storage unit
+# differs. The DriveAPI therefore stores ``IN * pi/180``, which is what we
+# assert (#168).
 STIFFNESS = 800.0
 DAMPING = 40.0
+_DEG2RAD = math.pi / 180.0
+# Expected per-radian gains the angular DriveAPI actually stores.
+EXPECTED_STIFFNESS = STIFFNESS * _DEG2RAD
+EXPECTED_DAMPING = DAMPING * _DEG2RAD
+# Float tolerance: the marker prints with %g (6 sig figs), so compare with a
+# relative tolerance rather than exact equality.
+_REL_TOL = 1e-4
 
 _SUMMARY_RE = re.compile(
     r"\[DRIVE SUMMARY\] mode=(\S+) joint=(\S+) has_drive=(\S+) "
@@ -99,11 +119,18 @@ def test_import_time_joint_drive_configures_driveapi(tmp_path):
     assert summary["has_drive"], (
         f"import-time joint_drive did not apply a DriveAPI: {summary}"
     )
-    assert summary["stiffness"] == STIFFNESS, (
-        f"DriveAPI stiffness {summary['stiffness']} != {STIFFNESS}"
+    assert math.isclose(
+        summary["stiffness"], EXPECTED_STIFFNESS, rel_tol=_REL_TOL
+    ), (
+        f"DriveAPI stiffness {summary['stiffness']} != "
+        f"{EXPECTED_STIFFNESS} (= {STIFFNESS} * pi/180, the per-radian value "
+        "the angular drive stores for a per-degree input)"
     )
-    assert summary["damping"] == DAMPING, (
-        f"DriveAPI damping {summary['damping']} != {DAMPING}"
+    assert math.isclose(
+        summary["damping"], EXPECTED_DAMPING, rel_tol=_REL_TOL
+    ), (
+        f"DriveAPI damping {summary['damping']} != {EXPECTED_DAMPING} "
+        f"(= {DAMPING} * pi/180)"
     )
 
 
@@ -120,9 +147,17 @@ def test_runtime_apply_joint_drive_sets_driveapi(tmp_path):
     assert summary["has_drive"], (
         f"apply_joint_drive did not apply a DriveAPI: {summary}"
     )
-    assert summary["stiffness"] == STIFFNESS, (
-        f"DriveAPI stiffness {summary['stiffness']} != {STIFFNESS}"
+    assert math.isclose(
+        summary["stiffness"], EXPECTED_STIFFNESS, rel_tol=_REL_TOL
+    ), (
+        f"DriveAPI stiffness {summary['stiffness']} != "
+        f"{EXPECTED_STIFFNESS} (= {STIFFNESS} * pi/180; "
+        "modify_joint_drive_properties applies the same per-degree -> "
+        "per-radian angular conversion as the import path)"
     )
-    assert summary["damping"] == DAMPING, (
-        f"DriveAPI damping {summary['damping']} != {DAMPING}"
+    assert math.isclose(
+        summary["damping"], EXPECTED_DAMPING, rel_tol=_REL_TOL
+    ), (
+        f"DriveAPI damping {summary['damping']} != {EXPECTED_DAMPING} "
+        f"(= {DAMPING} * pi/180)"
     )

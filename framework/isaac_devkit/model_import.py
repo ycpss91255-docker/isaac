@@ -565,6 +565,18 @@ def apply_joint_drive(
     here -- the structural "DriveAPI present with the right gains" check is
     what is verified.
 
+    Return contract (why we re-read the prim instead of trusting the
+    delegate's return): ``modify_joint_drive_properties`` is wrapped by
+    Isaac Lab's ``@apply_nested`` decorator, whose wrapper returns ``None``
+    unconditionally -- it never propagates the inner function's success
+    bool (Isaac Lab v2.3.2 ``sim/utils/prims.py``). Trusting that return
+    therefore always reads as falsy even on success. Instead we apply the
+    drive and then VERIFY by reading the joint prim's ``DriveAPI`` back from
+    the current stage, returning that verified boolean. (``apply_nested``
+    also silently skips prims inside an instanced/prototype subtree -- the
+    joint prim must be a defining prim, not an instance proxy, for the
+    DriveAPI to land; the read-back surfaces that case as ``False`` too.)
+
     Args:
         prim_path: USD prim path of the joint to drive. The angular /
             linear DriveAPI axis is auto-detected from the prim's joint
@@ -576,9 +588,10 @@ def apply_joint_drive(
             angular/linear axis, which is auto-detected).
 
     Returns:
-        The truthy result of ``modify_joint_drive_properties`` (``True`` when
-        the DriveAPI was applied; ``False`` if the prim is not a
-        revolute/prismatic joint).
+        ``True`` when the ``DriveAPI`` is present on the joint prim after
+        the apply (verified by re-reading the prim from the current stage),
+        ``False`` otherwise (prim invalid, not a revolute/prismatic joint,
+        or skipped as an instance proxy).
 
     Raises:
         ValueError: If a gain is missing/negative (validated host-side
@@ -593,13 +606,32 @@ def apply_joint_drive(
         JointDrivePropertiesCfg,
         modify_joint_drive_properties,
     )
+    from isaaclab.sim.utils import get_current_stage
+    from pxr import UsdPhysics
 
     cfg = JointDrivePropertiesCfg(
         drive_type=drive_type,
         stiffness=gains[0],
         damping=gains[1],
     )
-    return modify_joint_drive_properties(prim_path, cfg)
+    # modify_joint_drive_properties is @apply_nested-wrapped and returns
+    # None even on success (it does NOT forward the inner bool), so we
+    # cannot trust its return. It applies the DriveAPI itself when absent
+    # (it is "modify" but does DriveAPI.Apply when none exists), so a
+    # drive-less import is fine. Verify by reading the DriveAPI back.
+    modify_joint_drive_properties(prim_path, cfg)
+
+    stage = get_current_stage()
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim or not prim.IsValid():
+        return False
+    # The axis is angular for a revolute joint, linear for a prismatic one;
+    # Isaac Lab applies the matching named DriveAPI. Accept either so the
+    # helper works for both joint kinds without re-deriving the type.
+    for axis in ("angular", "linear"):
+        if prim.HasAPI(UsdPhysics.DriveAPI, axis):
+            return True
+    return False
 
 
 def _convert_urdf(

@@ -18,16 +18,29 @@ collider_type -- and asserts the contrast:
     convex_decomposition  -> MULTIPLE convex collider pieces (the concavity
                              is preserved as several convex hulls).
 
-A "convex collider piece" is counted as a prim that carries a
-``UsdPhysics.CollisionAPI`` AND a Physx convex-hull /
-convex-decomposition collision schema, or (importer-version tolerant) a
-collision-bearing ``Mesh`` prim. The marker reports both the raw
-collision-prim count and the convex-piece count.
+The Isaac Lab importer emits an INSTANCEABLE USD: the visual and collision
+mesh prims are pushed into a USD prototype (instancing is done on meshes so
+properties do not differ across environments). A plain ``stage.Traverse()``
+does NOT descend into a prototype, so the collision-bearing mesh prims are
+invisible to it -- which is why the first GPU run reported
+``collision_prims=0``. This runner therefore traverses WITH instance proxies
+(``Usd.TraverseInstanceProxies()``) so the collision schemas inside the
+prototype are visited.
+
+The convex_hull vs convex_decomposition contrast does NOT show up as a
+different number of USD prims: the native URDF importer writes ONE collision
+``Mesh`` per ``<collision>`` element either way and records the
+simplification as the ``UsdPhysics.MeshCollisionAPI`` approximation attribute
+(``"convexHull"`` vs ``"convexDecomposition"``) -- the multiple convex pieces
+of a decomposition are cooked at sim time by PhysX, not authored as separate
+USD prims. The deterministic, stage-level structural difference is therefore
+the approximation token, which the marker reports as ``approximation=<token>``
+alongside the collision-prim count.
 
 Marker line::
 
     [COLLIDER SUMMARY] type=<collider_type> collision_prims=<n> \
-        convex_pieces=<n> root=<path>
+        approximation=<token> root=<path>
     [EXIT CLEAN]
     [RAISED] <type>: <msg>
 
@@ -88,6 +101,13 @@ def _main() -> None:
             raise RuntimeError(f"converter produced no USD at {produced}")
 
         stage = Usd.Stage.Open(str(produced))
+        # The importer emits an instanceable USD: the collision mesh prims
+        # live inside a prototype, so a plain Traverse() (which does not
+        # descend into prototypes) sees zero of them. Traverse WITH instance
+        # proxies so the collision schemas in the prototype are visited.
+        proxy_range = Usd.PrimRange.Stage(
+            stage, Usd.TraverseInstanceProxies()
+        )
         records = [
             (str(prim.GetPath()), str(prim.GetTypeName()))
             for prim in stage.Traverse()
@@ -96,30 +116,40 @@ def _main() -> None:
             records, str(produced)
         )
 
-        convex_apis = [
-            getattr(PhysxSchema, "PhysxConvexHullCollisionAPI", None),
-            getattr(
-                PhysxSchema, "PhysxConvexDecompositionCollisionAPI", None
-            ),
-        ]
+        decomp_api = getattr(
+            PhysxSchema, "PhysxConvexDecompositionCollisionAPI", None
+        )
         collision_prims = 0
-        convex_pieces = 0
-        for prim in stage.Traverse():
-            has_collision = prim.HasAPI(UsdPhysics.CollisionAPI)
-            if has_collision:
-                collision_prims += 1
-            is_convex = any(
-                api is not None and prim.HasAPI(api) for api in convex_apis
-            )
-            if is_convex or (
-                has_collision and prim.GetTypeName() == "Mesh"
+        approximation = "none"
+        for prim in proxy_range:
+            if not prim.HasAPI(UsdPhysics.CollisionAPI):
+                continue
+            collision_prims += 1
+            # The convex_hull vs convex_decomposition difference is recorded
+            # as the MeshCollisionAPI approximation token (the decomposition
+            # pieces are cooked at sim time, not authored as USD prims). Read
+            # the collision mesh's approximation as the contrast signal.
+            mesh_api = UsdPhysics.MeshCollisionAPI(prim)
+            token = None
+            if mesh_api:
+                attr = mesh_api.GetApproximationAttr()
+                token = attr.Get() if attr else None
+            # Fallback (importer-version tolerant): if the approximation attr
+            # is unset but the PhysX convex-decomposition schema is applied,
+            # the collider is a decomposition. This makes the hull-vs-decomp
+            # contrast robust even if a future importer leaves the
+            # approximation token at its default.
+            if not token and decomp_api is not None and prim.HasAPI(
+                decomp_api
             ):
-                convex_pieces += 1
+                token = "convexDecomposition"
+            if token:
+                approximation = str(token)
 
         print(
             f"[COLLIDER SUMMARY] type={args.collider_type} "
             f"collision_prims={collision_prims} "
-            f"convex_pieces={convex_pieces} root={summary.root_prim}",
+            f"approximation={approximation} root={summary.root_prim}",
             flush=True,
         )
         print("[EXIT CLEAN]", flush=True)
