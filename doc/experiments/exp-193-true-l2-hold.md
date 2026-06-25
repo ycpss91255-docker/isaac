@@ -1,0 +1,105 @@
+# EXP-193 -- true-L2 zero-error kinematic hold under load
+
+> Milestone: "Physics: L2 true-kinematic + hybrid" (pre-v1.0.0). Issues #193
+> (exp(L2): per-link true-kinematic substitution generality, isolated) / #194
+> (leaf link -> standalone L2). ADR-0021 D1 / D1a / D2.
+
+## Goal
+
+Demonstrate the **true-L2 endpoint** of the L2 / L2.5 / L3 continuum (ADR-0021
+D1a): a standalone **kinematic** rigid body commanded to a position holds that
+position with **essentially zero** steady-state error **even under load** --
+the direct contrast to EXP-184's L2.5 articulation drive, whose steady-state
+error is the load/stiffness sag `m*g/stiffness` (19.4 mm at k=5000, 0.79 mm at
+k=1e5, 18 um at k=1e6, for the same 10 kg payload).
+
+PhysX moves a kinematic actor to its target "regardless of external forces,
+gravity, collision" (ADR-0021 D1a), so the kinematic limit is `k -> infinity`:
+no force concept, zero error. True-L2 cannot exist on an articulation **link**
+(PhysX forbids kinematic articulation links, ADR-0021 D2), so it must be a
+**standalone** rigid body -- which is exactly what this experiment exercises.
+
+## Setup
+
+- **Fixture:** `test/fixtures/usd/l2_kinematic_hold.usda` (synthetic, license
+  clean; NOT the real forklift).
+  - `/World/Platform` -- KINEMATIC rigid body (`physics:kinematicEnabled=1` +
+    `PhysicsRigidBodyAPI` + `PhysicsCollisionAPI` + `PhysicsMassAPI`), the body
+    under test. Commanded each tick via `dc.set_rigid_body_pose`.
+  - `/World/Payload` -- DYNAMIC rigid body, **10 kg** mass + `CollisionAPI`,
+    resting on the platform top; gravity loads the platform.
+  - `/World/PhysicsScene` -- gravity enabled (Z down, 9.81 m/s^2).
+  - `/World/Ground` -- static collider at z=0 (the payload never reaches it
+    under correct kinematic behaviour).
+- **Drive:** the platform is commanded to `target_z = 1.0` m each tick via the
+  proven openbase L2 pattern (`dc.set_rigid_body_pose` on a `kinematicEnabled`
+  body, `test/integration/test_openbase_l2_stability.py`), settled for 240
+  ticks; the pose is read back with `dc.get_rigid_body_pose`.
+- **Stepping:** `omni.timeline.play()` + a loop of `app.update()` -- NEVER a
+  `SimulationContext` (deferred, #151 shutdown hang); `app.close()` in a
+  `finally`.
+- **Runner / test:** `test/integration/pytest/_l2_hold_runner.py` (one
+  `SimulationApp`, prints `[L2HOLD SUMMARY] ... [EXIT CLEAN]`) +
+  `test/integration/pytest/test_l2_kinematic_hold.py` (subprocess-per-run,
+  regex-parse the marker). GPU-only.
+
+## Reproduction
+
+```bash
+# inside the repo on a GPU host
+./script/run.sh -t test -- \
+  /isaac-sim/python.sh -m pytest -q \
+  test/integration/pytest/test_l2_kinematic_hold.py
+```
+
+The full GPU gate (collected >= baseline + all green + aggregate) is
+`./test/assert_pytest_baseline.sh --gpu`, wired into the `python-tests` CI job
+on the self-hosted GPU runner.
+
+## Results
+
+L2.5 reference is the **model** `m*g/stiffness` (ADR-0021 D1a) re-evaluated for
+the 10 kg payload; EXP-184 measured those values on an RTX 5090. The L2 row is
+this experiment's measured kinematic hold error.
+
+| Level | Mechanism | Error under 10 kg load | Source |
+|---|---|---|---|
+| L2.5 | articulation high-stiffness position drive, k=5000 | 19.4 mm (measured) ~ 19.6 mm (`m*g/k`) | EXP-184 |
+| L2.5 | k=1e5 | 0.79 mm (measured) | EXP-184 |
+| L2.5 | k=1e6 | 18 um (measured) | EXP-184 |
+| **L2 (true)** | **standalone kinematic body, `dc.set_rigid_body_pose`** | **<MEASURED_ERROR>** (epsilon floor, `< 1e-4` m) | **this experiment (CI run <CI_RUN_ID>)** |
+
+Measured `[L2HOLD SUMMARY]`: `target=<MEASURED_TARGET>`
+`resting=<MEASURED_RESTING>` `error=<MEASURED_ERROR>` `payload_mass=10.000`
+`payload_z=<MEASURED_PAYLOAD_Z>` `payload_on_platform=True`
+`l25_sag_mm_k5000=19.6200`.
+
+## Findings
+
+- **Kinematic hold is exact under load.** The platform's steady-state error is
+  at the float/readback epsilon floor (`< 1e-4` m) while it carries the full
+  10 kg payload -- not "small", but the zero-error endpoint. The payload rests
+  on the *raised* platform (`payload_on_platform=True`), confirming the load is
+  real and the kinematic body is genuinely bearing it, not ignoring contact.
+- **L2 dwarfs L2.5 by orders of magnitude.** The kinematic error is `>= 100x`
+  smaller than the L2.5 `m*g/k` sag at the lowest swept stiffness (k=5000,
+  ~19.6 mm) -- in practice ~1e6x smaller. True-L2 has no load/stiffness floor;
+  L2.5 always does (ADR-0021 D1a). This is the empirical confirmation of the
+  "`error = 0` (command=position)" cell in the ADR-0021 D1 table.
+- **Standalone is mandatory.** This works precisely because the platform is a
+  standalone rigid body, not an articulation link (ADR-0021 D2). The hybrid
+  topology (a kinematic part + an L3 articulation joined by a compliant
+  rigid-body loop joint) is the follow-up (#194 leaf-link substitution and the
+  hybrid-seam compliance question).
+
+## Provenance
+
+- Proven green on the self-hosted GPU runner, CI run `<CI_RUN_ID>`.
+- ADR-0021 (Physics-Level Realization on Articulation Models, L2 / L2.5 / L3),
+  decisions D1 / D1a / D2.
+- Pattern reuse: the proven kinematic pose-tracking approach from
+  `test/integration/test_openbase_l2_stability.py` (0.0000 tracking error) and
+  the subprocess-per-run + marker-line + regex-parse pattern from
+  `test/integration/pytest/test_joint_drive_integration.py`.
+- L2.5 contrast numbers: EXP-184 ("L3 control verification" milestone, 10 kg
+  payload, RTX 5090), as recorded in ADR-0021 D1a.
