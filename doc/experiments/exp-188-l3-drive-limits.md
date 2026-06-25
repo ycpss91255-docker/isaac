@@ -81,26 +81,32 @@ Or a single mode by hand:
 ## Results
 
 Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-<RUN_ID> (the recording run), <DATE>. The numbers below are filled in from
-the recording CI run output.
+28173329257 (the recording run, `python-tests` job), 2026-06-25 -- both tests
+in `test_l3_limits.py` PASSED (GPU in-container collected 33, passed 31, +2
+host cross-container = 33 aggregate; no failures). pytest captures a passing
+test's stdout, so the raw `[LIMITS SUMMARY]` field values are not echoed in the
+CI log; the bounds below are the asserted (and met) properties. To capture the
+exact resting positions, re-run the runner directly (see Reproduction) -- it
+prints the full `[LIMITS SUMMARY]` line.
 
 ### Effort saturation (5 kg payload, target 0.8 m, stiffness 50 000 N/m)
 
-| effort cap (N) | payload weight (N) | resting (m) | gap to target (m) |
-|---|---|---|---|
-| 30 (saturated) | 49.05 | <RESTING_CAPPED> | <GAP_CAPPED> |
-| 500 (raised)   | 49.05 | <RESTING_UNCAPPED> | <GAP_UNCAPPED> |
+| effort cap (N) | payload weight (N) | asserted (and met) property |
+|---|---|---|
+| 30 (saturated) | 49.05 | `gap_capped > 0.2 m` -- the drive cannot hold the weight; the payload sits far below the target |
+| 500 (raised)   | 49.05 | `abs(gap_uncapped) < 0.05 m` -- the same command now reaches the target (only the `m*g/k` droop remains) |
 
-The capped gap is large (the drive cannot hold the weight); the raised-cap gap
-is sub-cm (only the `m*g/k` droop remains). At IDENTICAL stiffness, the
-difference is entirely the effort cap -- the steady-state error is set by the
-force limit, not by the gain.
+Cross-property: `abs(gap_capped) > abs(gap_uncapped) * 10` (the capped gap
+dwarfs the uncapped one at IDENTICAL stiffness). The difference is entirely the
+effort cap -- the steady-state error is set by the force limit, not by the
+gain. (`m*g/k = 49.05 / 50000 = 0.98 mm` at this stiffness, so the uncapped
+residual is sub-mm; the capped gap is two-plus orders of magnitude larger.)
 
 ### Joint-limit clamp (cap raised to 500 N, target 5.0 m, upper limit 1.0 m)
 
-| commanded target (m) | upper limit (m) | resting (m) | overshoot past limit (m) |
-|---|---|---|---|
-| 5.0 | 1.0 | <RESTING_CLAMP> | <CLAMP_OVERSHOOT> |
+| commanded target (m) | upper limit (m) | asserted (and met) property |
+|---|---|---|
+| 5.0 | 1.0 | `abs(clamp_overshoot) < 0.1 m` (rests at ~the 1.0 m limit) AND `resting < target - 1.0` (did NOT chase 5.0 m) AND `drift < 5e-3 m` (settled) |
 
 The joint rests at ~1.0 m (the mechanical stop), not the commanded 5.0 m;
 overshoot is ~0. The drive can move freely (cap above the weight) but cannot
@@ -126,9 +132,11 @@ pass the limit.
 
 ## Provenance
 
-- Date: <DATE>
+- Date: 2026-06-25
 - Runner: self-hosted GPU (RTX 5090 reference)
-- Test: `test/integration/pytest/test_l3_limits.py`
+- Test: `test/integration/pytest/test_l3_limits.py` (both tests PASSED)
 - Runner script: `test/integration/pytest/_l3_limits_runner.py`
 - Fixture: `test/fixtures/urdf/lift_capped.urdf`
-- CI run: <RUN_ID> (recording run; the tables above are its measured output)
+- CI run: 28173329257 (`python-tests` job; the asserted properties above all
+  held -- GPU aggregate 33 collected, 33 passed counting the host xc leg, no
+  failures)
