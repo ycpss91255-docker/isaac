@@ -78,21 +78,53 @@ def _get_body(iface, prim_path: str):
     return handle
 
 
-def _command_and_settle(iface, handle, target_xyz, ticks):
-    """Set the kinematic target each tick for ``ticks`` updates; return pose."""
+def _command_and_settle(
+    app, iface, handle, target_xyz, ticks, ramp_step=0.003, seat_ticks=30
+):
+    """Lift the kinematic body to ``target_xyz`` so it CARRIES the resting
+    payload, then hold; return the final pose.
+
+    A kinematic body teleported straight to the target jumps out from under a
+    dynamic payload (the payload cannot follow a one-tick jump and is left
+    behind / falls). Instead: (1) command the body at its START height for a
+    few ticks so the payload seats firmly on it, (2) RAMP the commanded height
+    toward the target in small steps (``ramp_step`` per tick, quasi-static) so
+    the kinematic body pushes the payload up via contact every step, then
+    (3) HOLD at the target for ``ticks`` updates so the payload settles. The
+    held position is still EXACT (kinematic ignores the load) -- the ramp only
+    keeps the payload in contact during the lift.
+    """
     from omni.isaac.dynamic_control import _dynamic_control as dc
 
+    start = iface.get_rigid_body_pose(handle)
+    cz = float(start.p[2])
+    tx, ty, tz = float(target_xyz[0]), float(target_xyz[1]), float(target_xyz[2])
+    up = tz > cz
+
     target = dc.Transform()
-    target.p = target_xyz
     target.r = (0.0, 0.0, 0.0, 1.0)
+
+    # (1) Seat the payload on the platform at its start height.
+    target.p = (tx, ty, cz)
+    for _ in range(seat_ticks):
+        iface.set_rigid_body_pose(handle, target)
+        app.update()
+
+    # (2) Ramp slowly so the platform carries the payload via contact.
+    while abs(cz - tz) > 1e-9:
+        cz += ramp_step if up else -ramp_step
+        if (up and cz > tz) or (not up and cz < tz):
+            cz = tz
+        target.p = (tx, ty, cz)
+        iface.set_rigid_body_pose(handle, target)
+        app.update()
+
+    # (3) Hold at the target so the payload settles firmly on top.
+    target.p = (tx, ty, tz)
     for _ in range(ticks):
         iface.set_rigid_body_pose(handle, target)
-        _APP[0].update()
+        app.update()
     return iface.get_rigid_body_pose(handle)
-
-
-# app handle shared with _command_and_settle (set in _main).
-_APP = [None]
 
 
 def _main() -> None:
@@ -107,7 +139,6 @@ def _main() -> None:
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
-    _APP[0] = app
     try:
         import omni.timeline
         from omni.isaac.dynamic_control import _dynamic_control as dc
@@ -132,7 +163,7 @@ def _main() -> None:
         # Command the kinematic platform to the target height each tick and
         # let the dynamic payload settle onto it under gravity.
         platform_pose = _command_and_settle(
-            iface, platform, target_xyz, args.settle_ticks
+            app, iface, platform, target_xyz, args.settle_ticks
         )
         resting_z = float(platform_pose.p[2])
         error = abs(resting_z - target_z)
