@@ -1,11 +1,16 @@
 """GPU experiment: an L2 KINEMATIC mover pushes a SEPARATE dynamic object
 (#201, milestone "Physics: L2 true-kinematic + hybrid"; ADR-0008).
 
-The carry-speed experiment (#201) showed a kinematic mover carries a resting
-dynamic payload only through the contact-respecting write path
-(``dc.set_kinematic_target``, NOT the ``dc.set_rigid_body_pose`` teleport).
-This experiment drives a kinematic mover HORIZONTALLY into a separate dynamic
-box and verifies the two interaction properties:
+The carry-speed experiment (#201) studied how a kinematic mover carries a
+resting dynamic payload via the kinematic write path. This experiment drives a
+kinematic mover HORIZONTALLY into a separate dynamic box and verifies the two
+interaction properties. The mover pose is written every tick in SMALL
+increments via ``dc.set_rigid_body_pose`` (the per-tick kinematic write path
+proven by ``test_openbase_l2_stability.py``; this Isaac Sim build's
+dynamic_control does not expose ``set_kinematic_target``), which gives PhysX a
+per-step velocity it resolves against contact -- so the mover pushes the box
+(a single big teleport would jump past it; the per-tick small-step caveat is
+the same carry-speed limit as #201):
 
   * **momentum transfer** -- the box is displaced ahead of the advancing
     mover, while the mover lands on its COMMANDED path (a kinematic body
@@ -72,7 +77,7 @@ def _parse_kv(line: str) -> dict:
 
 
 def _run_push(mode: str, target_x: float,
-              write_mode: str = "kinematic_target") -> dict:
+              write_mode: str = "auto") -> dict:
     """Run the push runner once; parse the [PUSH SUMMARY] marker."""
     result = subprocess.run(
         [

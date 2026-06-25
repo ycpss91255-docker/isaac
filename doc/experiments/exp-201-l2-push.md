@@ -26,11 +26,17 @@ into a SEPARATE dynamic object.
   DYNAMIC 5 kg box in its path at x=0.0 (resting on the ground) + a static
   ground + a static wall at x=+1.2 + a gravity `PhysicsScene`. Primitive cubes,
   no external mesh.
-- Drive: the mover is driven HORIZONTALLY along +X via `dc.set_kinematic_target`
-  (`setKinematicTarget`, the contact-respecting path; ADR-0008) in SMALL
-  per-tick steps (`--ramp-step` 0.005 m, ~0.3 m/s at 60 Hz) so contact
-  transfers each tick (a large per-tick jump teleports the mover through the
-  box -- the same carry-speed caveat as the #201 carry experiment).
+- Drive: the mover is driven HORIZONTALLY along +X by writing its pose EVERY
+  tick in SMALL increments via `dc.set_rigid_body_pose` (`--ramp-step` 0.005 m,
+  ~0.3 m/s at 60 Hz). This is the per-tick kinematic write path proven by
+  `test_openbase_l2_stability.py`: the per-step displacement gives PhysX a
+  velocity it resolves against contact, so the mover pushes the box. A single
+  big teleport would jump past it -- the per-tick small-step caveat is the same
+  carry-speed limit as the #201 carry experiment. (The explicit
+  `dc.set_kinematic_target` / `setKinematicTarget` contact path of ADR-0008 is
+  NOT shipped by this Isaac Sim build's dynamic_control; the runner's `auto`
+  write-mode prefers it when present and falls back to the per-tick
+  `set_rigid_body_pose` path here.)
 - Horizontal push is deliberately chosen over a vertical carry: it does not
   fight gravity through the contact, so it is far less sensitive to the
   per-tick speed limit.

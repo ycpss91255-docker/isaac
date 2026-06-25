@@ -10,17 +10,20 @@ a gravity ``PhysicsScene``), plays ``omni.timeline`` and steps with
 surface), then drives the kinematic mover HORIZONTALLY along +X into the box
 in fixed per-tick steps (``--ramp-step`` metres).
 
-The kinematic write path matters (ADR-0008):
+The kinematic write path (``--write-mode``, default ``auto``):
 
-  * ``dc.set_kinematic_target`` (``setKinematicTarget``) feeds the target
-    through the contact solver, so the mover PUSHES the box via contact each
-    substep -- momentum transfer. SMALL per-tick steps keep contact every
-    tick; a too-large step teleports the mover past the box (the same
-    carry-speed caveat as the #201 carry experiment). This is the carry path.
-  * ``dc.set_rigid_body_pose`` (``setGlobalPose``) is a teleport that BYPASSES
-    contact -- it would pass straight through the box. Not used for the push
-    (only relevant as the negative control documented in the carry-speed
-    experiment).
+  * ``auto`` -- use ``dc.set_kinematic_target`` (``setKinematicTarget``, the
+    explicit contact-respecting path; ADR-0008) IF this dc build exposes it,
+    else fall back to the per-tick ``dc.set_rigid_body_pose`` path below. This
+    Isaac Sim build's dynamic_control does NOT ship ``set_kinematic_target``,
+    so it falls back.
+  * ``dc.set_rigid_body_pose`` (``setGlobalPose``) written EVERY tick in SMALL
+    increments is the proven per-tick kinematic write path
+    (``test_openbase_l2_stability.py`` drives a kinematic body exactly this
+    way): the per-step displacement gives PhysX a velocity it resolves against
+    contact, so the mover PUSHES the box. A single big teleport would jump
+    past the box -- the per-tick small-step caveat is the same carry-speed
+    limit as the #201 carry experiment.
 
 Horizontal push is deliberately chosen over a vertical carry: it does not
 fight gravity through the contact, so it is far less sensitive to the per-tick
@@ -93,16 +96,29 @@ def _write_pose(iface, handle, target, write_mode):
 
     ``kinematic_target`` -> ``dc.set_kinematic_target`` (``setKinematicTarget``,
     fed through the contact solver so the mover pushes via contact).
-    ``global_pose`` -> ``dc.set_rigid_body_pose`` (``setGlobalPose``, a teleport
-    bypassing contact). If ``set_kinematic_target`` is unavailable on this dc
-    build the call raises so the experiment fails loudly rather than silently
-    degrading to a teleport.
+    ``global_pose`` -> ``dc.set_rigid_body_pose`` (``setGlobalPose``). On this
+    Isaac Sim build's dynamic_control this is the per-tick kinematic write path
+    proven by ``test_openbase_l2_stability.py`` -- writing the pose every tick
+    in SMALL increments gives PhysX a per-step velocity it resolves against
+    contact, so the mover pushes the box horizontally (unlike a single big
+    teleport, which would jump past it; the per-tick small-step caveat is the
+    same carry-speed limit as #201).
+
+    ``auto`` (default) -> use ``set_kinematic_target`` (``setKinematicTarget``,
+    the explicit contact-respecting path; ADR-0008) IF this dc build exposes
+    it, else fall back to the per-tick ``global_pose`` path above (this build's
+    dynamic_control does not ship ``set_kinematic_target``).
     """
-    if write_mode == "kinematic_target":
+    if write_mode == "auto":
+        if hasattr(iface, "set_kinematic_target"):
+            iface.set_kinematic_target(handle, target)
+        else:
+            iface.set_rigid_body_pose(handle, target)
+    elif write_mode == "kinematic_target":
         if not hasattr(iface, "set_kinematic_target"):
             raise RuntimeError(
-                "dc has no set_kinematic_target (cannot run the contact-"
-                "respecting push path; ADR-0008)"
+                "dc has no set_kinematic_target (cannot run the explicit "
+                "contact-respecting push path; ADR-0008)"
             )
         iface.set_kinematic_target(handle, target)
     elif write_mode == "global_pose":
@@ -162,8 +178,8 @@ def _main() -> None:
     parser.add_argument("--ramp-step", type=float, required=True)
     parser.add_argument(
         "--write-mode",
-        choices=("kinematic_target", "global_pose"),
-        default="kinematic_target",
+        choices=("auto", "kinematic_target", "global_pose"),
+        default="auto",
     )
     parser.add_argument("--start-x", type=float, default=-1.0)
     parser.add_argument("--target-x", type=float, required=True)
