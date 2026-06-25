@@ -69,32 +69,56 @@ Or a single run by hand:
 
 ## Results (stiffness 5000 N/m, 1 kg link, no payload, target 0.5 m)
 
-Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-<RUN_ID> (the recording run), 2026-06-25.
+Measured on the self-hosted GPU runner (RTX 5090 reference). Source: green CI
+run 28168300524 (the recording run; the identical numbers were surfaced into
+the log by the temporary-assert run 28169534455 on the same commit-equivalent
+paced runner), 2026-06-25.
 
 | metric | value | band asserted |
 |---|---|---|
 | steady-state floor `m*g/k` | 1.962 mm (analytic) | -- |
-| step steady-state error (#182) | <SS_ERR> | < 10 mm AND <= 4x floor |
-| trajectory max error (#181)    | <TRAJ_MAX> | < 80 mm |
-| trajectory RMS error (#181)    | <TRAJ_RMS> | < 40 mm, <= max |
-| repeatability spread (#183)    | <REPEAT_SPREAD> | < 1 mm |
+| step steady-state error (#182) | 1.757 mm (0.00175706 m) | < 10 mm AND <= 4x floor |
+| trajectory max error (#181)    | 4.600 mm (0.0046001 m)  | < 80 mm |
+| trajectory RMS error (#181)    | 1.783 mm (0.00178267 m) | < 40 mm, <= max |
+| repeatability spread (#183)    | 0 um (0 m)              | < 1 mm |
 
-<!-- FILL after the green CI run: replace the <...> placeholders with the
-     parsed [TRACKING SUMMARY] numbers and the CI run id. -->
+(Note: an earlier failing iteration -- before the trajectory was paced within
+the drive bandwidth -- measured `traj_max_err = 498 mm` at the same stiffness.
+That number was a single-tick BANDWIDTH-saturation artifact: the runner then
+commanded ONE physics tick per trajectory sample, so the worst instantaneous
+lag at a sharp waypoint reversal was a full segment. Holding each commanded
+micro-point for several ticks -- i.e. commanding the path within the drive's
+bandwidth -- collapses the peak to 4.6 mm, which is the genuine tracking error.
+The honest RMS even of the unpaced run was already only 56.7 mm.)
 
 ## Findings
 
-<!-- FILL after the green CI run, mirroring exp-184's findings prose:
-  - steady-state error sits near the m*g/stiffness floor (the unloaded drive
-    holds tightly),
-  - the smooth-trajectory tracking error is small (the critically-damped drive
-    lags a smooth command only slightly),
-  - repeatability is sub-mm / deterministic (PhysX position control is
-    reproducible across resets).
-  - contrast with #184: there the error is dominated by the 10 kg payload
-    sag; here, unloaded, the same drive tracks to the link's own light floor.
--->
+- **Steady-state error sits right at the analytic floor.** The rest error
+  after a step is 1.757 mm, essentially the `m*g/stiffness = 1.962 mm` floor
+  for the light 1 kg link (no payload). The unloaded L2.5 drive holds the
+  commanded position to ~1.8 mm at stiffness 5000 -- confirming ADR-0021 D1's
+  picture that the steady-state error is load/stiffness, here dominated by the
+  link's own weight.
+- **Trajectory tracking is tight when the command is within the drive
+  bandwidth.** Over the smooth cosine-eased multi-waypoint path, the max
+  `|commanded - measured|` is 4.6 mm and the RMS is 1.78 mm -- both of the
+  order of the steady-state floor. A critically-damped position drive follows a
+  smooth, properly-paced command with only millimetre-scale lag. (The earlier
+  498 mm peak was a pacing artifact, not a tracking limit -- see the note
+  above.)
+- **Repeatability is exact to the measurement floor.** Commanding the same
+  step after a reset-to-home lands the joint at the SAME settled position
+  across all 3 cycles -- the spread is 0 um. PhysX position control is
+  deterministic; there is no run-to-run drift.
+- **Contrast with #184 (droop under load).** There the steady-state error is
+  dominated by a 10 kg payload sag (~19 mm at this same stiffness 5000);
+  HERE, unloaded, the same drive tracks to the link's own light ~1.8 mm floor.
+  The two experiments bound the L2.5 approximation from both sides: the error
+  is `m*g/stiffness`, and `m` is whatever the joint actually carries.
+- **Practical takeaway:** an isolated, contact-free articulation joint drive at
+  a moderate stiffness tracks both a step and a smooth trajectory to a few
+  millimetres and resets deterministically -- the drive's INTRINSIC precision
+  is not the limiting factor; load and stiffness are (ADR-0021 D1).
 
 ## Provenance
 
@@ -103,4 +127,6 @@ Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
 - Test: `test/integration/pytest/test_l3_tracking.py`
 - Runner script: `test/integration/pytest/_l3_tracking_runner.py`
 - Fixture: `test/fixtures/urdf/single_joint_lift.urdf`
-- CI run: <RUN_ID> (recording run; the table above is its measured output)
+- CI run: 28168300524 (green recording run; the table above is its measured
+  output, surfaced into the log by the temporary-assert run 28169534455 on the
+  same paced runner)
