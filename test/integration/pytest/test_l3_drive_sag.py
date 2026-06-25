@@ -28,6 +28,7 @@ singleton; ``pxr`` is not importable in the bare pytest process). Runtime
 requirement: the Isaac Sim / Isaac Lab devel-test GPU container.
 """
 
+import math
 import os
 import re
 import subprocess
@@ -43,6 +44,17 @@ RUN_TIMEOUT_SEC = 300
 TARGET = 1.0
 STIFFNESS_L25 = 5000.0   # high stiffness -> L2.5 (near command=position)
 STIFFNESS_L3 = 200.0     # low stiffness  -> L3 (compliant, sags)
+PAYLOAD_MASS = 10.0      # matches lift_payload.urdf
+
+
+def _critical_damping(stiffness: float) -> float:
+    """Critical damping 2*sqrt(k*m): settles fastest with no oscillation, so
+    the drive reaches its steady state (target - m*g/k) within the tick
+    budget. The steady-state position is damping-INDEPENDENT; damping only
+    governs the transient -- but a zero/underdamped drive never settles
+    (undamped oscillation), which corrupts the reading.
+    """
+    return 2.0 * math.sqrt(stiffness * PAYLOAD_MASS)
 
 _SUMMARY_RE = re.compile(
     r"\[SAG SUMMARY\] stiffness_in=(\S+) stiffness_usd=(\S+) mass=(\S+) "
@@ -63,7 +75,7 @@ def _run_sag(stiffness: float, tmp_path: Path) -> dict:
             "--repo-root", str(REPO_ROOT),
             "--out", str(out),
             "--stiffness", str(stiffness),
-            "--damping", "0.0",
+            "--damping", str(_critical_damping(stiffness)),
             "--target", str(TARGET),
         ],
         capture_output=True,

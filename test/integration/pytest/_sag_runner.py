@@ -50,7 +50,7 @@ PAYLOAD_MASS_KG = 10.0
 GRAVITY = 9.81
 # Ticks to let PhysX init after play, and to let the drive settle.
 INIT_TICKS = 30
-SETTLE_TICKS = 400
+SETTLE_TICKS = 600
 
 
 def _wait_opened(ctx, app):
