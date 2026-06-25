@@ -78,6 +78,9 @@ def _run_hold() -> dict:
         )
     m = _SUMMARY_RE.search(result.stdout)
     assert m, "no [L2HOLD SUMMARY] marker in runner output"
+    # TEMP: surface the marker on stderr so it appears in the green CI log
+    # (pytest suppresses captured stdout on pass); reverted after recording.
+    sys.stderr.write(f"\n[L2HOLD MEASURED] {m.group(0)}\n")
     return {
         "target": float(m.group(1)),
         "resting": float(m.group(2)),
