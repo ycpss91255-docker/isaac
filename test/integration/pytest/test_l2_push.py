@@ -4,13 +4,16 @@
 The carry-speed experiment (#201) studied how a kinematic mover carries a
 resting dynamic payload via the kinematic write path. This experiment drives a
 kinematic mover HORIZONTALLY into a separate dynamic box and verifies the two
-interaction properties. The mover pose is written every tick in SMALL
-increments via ``dc.set_rigid_body_pose`` (the per-tick kinematic write path
-proven by ``test_openbase_l2_stability.py``; this Isaac Sim build's
-dynamic_control does not expose ``set_kinematic_target``), which gives PhysX a
-per-step velocity it resolves against contact -- so the mover pushes the box
-(a single big teleport would jump past it; the per-tick small-step caveat is
-the same carry-speed limit as #201):
+interaction properties. The mover is driven every tick via the
+contact-respecting kinematic TARGET write -- ``dc.set_kinematic_target`` where
+the dc build exposes it, else a USD ``xformOp:translate`` write on the
+kinematicEnabled prim WHILE physics plays (this Isaac Sim build's
+dynamic_control does not ship ``set_kinematic_target``, so the USD path is
+used -- the proven #201 carry-speed mechanism, PR #218 green on the GPU
+runner). PhysX feeds that target through the contact solver, so the mover
+pushes the box (a plain ``set_rigid_body_pose`` teleport bypasses contact and
+would NOT push; a single large step outruns the contact solver -- the same
+carry-speed caveat as #201):
 
   * **momentum transfer** -- the box is displaced ahead of the advancing
     mover, while the mover lands on its COMMANDED path (a kinematic body
@@ -76,8 +79,7 @@ def _parse_kv(line: str) -> dict:
     return out
 
 
-def _run_push(mode: str, target_x: float,
-              write_mode: str = "auto") -> dict:
+def _run_push(mode: str, target_x: float) -> dict:
     """Run the push runner once; parse the [PUSH SUMMARY] marker."""
     result = subprocess.run(
         [
@@ -85,7 +87,6 @@ def _run_push(mode: str, target_x: float,
             "--usd", str(FIXTURE),
             "--mode", mode,
             "--ramp-step", str(RAMP_STEP),
-            "--write-mode", write_mode,
             "--target-x", str(target_x),
         ],
         capture_output=True,
@@ -98,6 +99,12 @@ def _run_push(mode: str, target_x: float,
             f"\n--- push runner stdout ({mode}, target_x={target_x}) ---\n"
             f"{result.stdout}\n--- stderr ---\n{result.stderr}\n"
         )
+    # Surface the runner's [PUSH DRIVE] diagnostic on stderr so the chosen
+    # kinematic drive path lands in the CI log even on a passing run (pytest
+    # captures a passing test's stdout).
+    for line in result.stdout.splitlines():
+        if line.startswith("[PUSH DRIVE]"):
+            sys.stderr.write("\n" + line + "\n")
     m = _SUMMARY_RE.search(result.stdout)
     assert m, f"no [PUSH SUMMARY] marker for mode {mode}"
     return _parse_kv(m.group(1))

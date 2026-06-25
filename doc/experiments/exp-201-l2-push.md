@@ -26,17 +26,17 @@ into a SEPARATE dynamic object.
   DYNAMIC 5 kg box in its path at x=0.0 (resting on the ground) + a static
   ground + a static wall at x=+1.2 + a gravity `PhysicsScene`. Primitive cubes,
   no external mesh.
-- Drive: the mover is driven HORIZONTALLY along +X by writing its pose EVERY
-  tick in SMALL increments via `dc.set_rigid_body_pose` (`--ramp-step` 0.005 m,
-  ~0.3 m/s at 60 Hz). This is the per-tick kinematic write path proven by
-  `test_openbase_l2_stability.py`: the per-step displacement gives PhysX a
-  velocity it resolves against contact, so the mover pushes the box. A single
-  big teleport would jump past it -- the per-tick small-step caveat is the same
-  carry-speed limit as the #201 carry experiment. (The explicit
-  `dc.set_kinematic_target` / `setKinematicTarget` contact path of ADR-0008 is
-  NOT shipped by this Isaac Sim build's dynamic_control; the runner's `auto`
-  write-mode prefers it when present and falls back to the per-tick
-  `set_rigid_body_pose` path here.)
+- Drive: the mover is driven HORIZONTALLY along +X via the contact-respecting
+  kinematic TARGET write each tick (`--ramp-step` 0.005 m, ~0.3 m/s at 60 Hz):
+  `dc.set_kinematic_target` (`setKinematicTarget`) where the dc build exposes
+  it, else a USD `xformOp:translate` write on the kinematicEnabled prim WHILE
+  physics plays. Both feed the kinematic target through the contact solver, so
+  the mover pushes the box. This Isaac Sim build's dynamic_control does NOT
+  ship `set_kinematic_target`, so the USD-translate path is used -- the proven
+  #201 carry-speed mechanism (PR #218, green on the GPU runner). A plain
+  `dc.set_rigid_body_pose` teleport (`setGlobalPose`) bypasses contact and does
+  NOT push, so it is not used; a single large step outruns the contact solver
+  (the same carry-speed caveat as the #201 carry experiment).
 - Horizontal push is deliberately chosen over a vertical carry: it does not
   fight gravity through the contact, so it is far less sensitive to the
   per-tick speed limit.
