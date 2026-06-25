@@ -217,18 +217,22 @@ HOSTED_UNIT_BASELINE = 296
 #   GPU suite gains 2 in-container tests (test_l2_carry_speed.py). The
 #   ADR-0008 finding: dc.set_rigid_body_pose (setGlobalPose) is a teleport
 #   that bypasses the contact integrator and NEVER carries a resting dynamic
-#   payload at any ramp step (the negative control), while
-#   dc.set_kinematic_target (setKinematicTarget) feeds the target through the
-#   contact solver and carries the payload UP TO a per-tick speed limit.
-#   test_global_pose_teleport_never_carries (the teleport drops at every
-#   swept step) + test_kinematic_target_carry_speed_threshold_is_bracketed
-#   (the contact path carries the slowest step, drops the fastest, monotone
-#   so the threshold is bracketed). Subprocess-per-run + [CARRY SUMMARY]
-#   marker (one SimulationApp per ramp step), against the synthetic
-#   l2_carry_speed.usda fixture (NOT the real forklift). In-container GPU
-#   suite collects 31; aggregate GPU-integration = 31 in-container + 2 host
-#   xc = 33. The enforced GPU baseline ratchets 31 -> 33 (a ratchet UP --
-#   new GPU coverage added, none removed).
+#   payload at any ramp step (the negative control), while the
+#   contact-respecting kinematic TARGET write (USD xformOp:translate while
+#   physics plays -- this Isaac build's dc has no set_kinematic_target)
+#   feeds the mover through the contact solver and CARRIES the payload at
+#   EVERY step, transitioning from a clean rest at slow steps to a LAUNCH at
+#   the fastest (so the speed limit is seat-vs-launch, not carry-vs-drop).
+#   test_global_pose_teleport_never_carries (the teleport leaves the payload
+#   behind at every swept step) +
+#   test_kinematic_target_carries_and_clean_carry_limit_is_bracketed (the
+#   contact path carries at every step, seats slow, launches fast, monotone
+#   so the clean-carry limit is bracketed). Subprocess-per-run +
+#   [CARRY SUMMARY] marker (one SimulationApp per ramp step), against the
+#   synthetic l2_carry_speed.usda fixture (NOT the real forklift).
+#   In-container GPU suite collects 31; aggregate GPU-integration = 31
+#   in-container + 2 host xc = 33. The enforced GPU baseline ratchets
+#   31 -> 33 (a ratchet UP -- new GPU coverage added, none removed).
 GPU_INTEGRATION_BASELINE = 33
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =

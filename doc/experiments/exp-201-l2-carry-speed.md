@@ -70,54 +70,76 @@ on the self-hosted GPU runner.
 
 ## Results
 
-Measured sweeps (CI run `<CI_RUN_ID>`, 10 kg payload). Both write paths swept
-across the same per-tick steps; the `[CARRY SUMMARY]` tables are surfaced on
-stderr in the (passing) run log.
+Measured sweeps (CI run `28174325301`, 10 kg payload). Both write paths swept
+across the same per-tick steps. The mover reaches z=1.0 in every case; the
+payload Z and the carried flag (payload_z > 1.05) tell the story.
 
-`global_pose` (teleport, negative control):
-
-```
-<GLOBAL_POSE_TABLE>
-```
-
-`kinematic_target` (contact path):
+`global_pose` (teleport, negative control) -- never carries:
 
 ```
-<KINEMATIC_TARGET_TABLE>
+      write_mode    ramp_step_m    mover_z    payload_z   carried
+  global_pose             0.001     1.0000       0.7000     False
+  global_pose             0.003     1.0000       0.7000     False
+  global_pose              0.01     1.0000       0.7000     False
+  global_pose              0.05     1.0000       0.7000     False
+  global_pose               0.2     1.0000       0.7000     False
 ```
 
-- `global_pose` carries at: **no step** (the teleport never carries).
-- `kinematic_target` largest **carried** ramp step: `<MAX_CARRIED>` m/tick.
-- `kinematic_target` smallest **dropped** ramp step: `<MIN_DROPPED>` m/tick.
-- Effective carry speed limit (threshold) lies between them.
+`kinematic_target` (contact path, USD xform on this build) -- always carries,
+clean rest at slow steps, LAUNCH at the fastest:
+
+```
+        write_mode    ramp_step_m    mover_z    payload_z   carried
+  kinematic_target          0.001     1.0000       1.2000      True
+  kinematic_target          0.003     1.0000       1.2000      True
+  kinematic_target           0.01     1.0000       1.2000      True
+  kinematic_target           0.05     1.0000       1.2000      True
+  kinematic_target            0.2     1.0000       5.1872      True
+```
+
+- `global_pose` carries at: **no step** (the teleport never carries; payload
+  left at its start z=0.70 at every step).
+- `kinematic_target` carries at: **every step** (payload_z > 1.05 throughout).
+- `kinematic_target` clean rest (payload seated at ~1.20) up to and including
+  **0.05** m/tick; **0.2** m/tick LAUNCHES the payload to **5.19** m.
+- The clean-carry speed limit lies between **0.05** and **0.2** m/tick.
 
 ## Findings
 
 - **The teleport never carries (ADR-0008).** Under `dc.set_rigid_body_pose`
-  (`setGlobalPose`) the payload is left at its start at EVERY swept step, even
-  the slowest -- the global-pose write bypasses the contact integrator entirely,
-  so the kinematic mover passes straight through the resting dynamic payload.
-  This is the negative control that isolates the carry mechanism to contact.
-- **The contact path carries up to a per-tick speed limit.** Under
-  `dc.set_kinematic_target` (`setKinematicTarget`) the mover carries the payload
-  below `<MAX_CARRIED>` m/tick (it rides up onto the raised mover); at/above
-  `<MIN_DROPPED>` m/tick the target outruns the contact solver and the payload is
-  left behind / tunnels and falls. The carried/dropped split is monotone, so the
-  threshold is bracketed.
+  (`setGlobalPose`) the payload is left at its start (z=0.70) at EVERY swept
+  step, even the slowest -- the global-pose write bypasses the contact
+  integrator entirely, so the kinematic mover passes straight through the
+  resting dynamic payload. This is the negative control that isolates the carry
+  mechanism to contact. (`dc.set_kinematic_target` is absent from this Isaac
+  build's dynamic_control interface, as the openbase L2 smoke test already
+  guards; the contact path therefore uses a USD `xformOp:translate` write while
+  physics plays, which PhysX reads as the kinematic target.)
+- **The contact path always carries -- the speed limit is seat vs LAUNCH, not
+  carry vs drop.** Writing the kinematic target through the contact solver
+  carries the payload at every swept step (it is never left behind). But the
+  carry OUTCOME changes with speed: up to 0.05 m/tick the payload settles
+  cleanly on the mover top (payload_z = 1.20), while at 0.2 m/tick the contact
+  impulse from the fast kinematic motion FLINGS the payload to z=5.19 -- ~4 m
+  above the mover. So the effective per-tick speed limit is a CLEAN-carry limit
+  (between 0.05 and 0.2 m/tick here): below it the payload rides quietly; above
+  it the kinematic motion launches it off the mover.
 - **Root cause is the write-path semantics, not "kinematic bodies cannot
-  carry".** A kinematic body DOES carry a dynamic object -- but only via
-  `setKinematicTarget` (the contact-respecting interpolated path) AND only when
-  its per-tick displacement is small enough for contact to keep up. The
-  `setGlobalPose` teleport never carries. This is exactly why EXP-193 was scoped
-  to HOLD-under-load (zero per-tick displacement) rather than lift/carry.
+  carry".** A kinematic body DOES carry a dynamic object -- but only via the
+  contact-respecting kinematic TARGET write (`set_kinematic_target` or a
+  while-playing USD xform write), never via the `setGlobalPose` teleport. This
+  is exactly why EXP-193 was scoped to HOLD-under-load (zero per-tick
+  displacement) rather than lift/carry.
 - **Implication for the hybrid path.** Any future kinematic carry/push motion
-  (forklift tine lifting a load) must use `set_kinematic_target` (NOT
-  `set_rigid_body_pose`) AND cap its per-tick displacement below the measured
-  threshold. The HOLD case (EXP-193) is unaffected.
+  (forklift tine lifting a load) must use the contact-respecting kinematic
+  target (NOT `set_rigid_body_pose`) AND cap its per-tick displacement below the
+  clean-carry limit, or the load is flung off. The HOLD case (EXP-193) is
+  unaffected.
 
 ## Provenance
 
-- Proven green on the self-hosted GPU runner, CI run `<CI_RUN_ID>`.
+- Data measured on the self-hosted GPU runner, CI run `28174325301`; proven
+  green at the run id noted in the PR after the final iteration.
 - ADR-0008 (`setKinematicTarget` vs `setGlobalPose` -- the latter bypasses the
   contact integrator).
 - ADR-0021 (Physics-Level Realization on Articulation Models, L2 / L2.5 / L3),
