@@ -212,12 +212,25 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   EXP-201 carry speed limit (#201 sub-issue, ADR-0008 / ADR-0021): the
+#   GPU suite gains 3 in-container tests (test_l2_carry_speed.py: slow ramp
+#   carries the resting dynamic payload, fast ramp drops it -- the per-tick
+#   teleport jumps past the payload because dc.set_rigid_body_pose is
+#   setGlobalPose and bypasses the contact integrator, ADR-0008 -- and the
+#   full sweep brackets the carry speed threshold). Subprocess-per-run +
+#   [CARRY SUMMARY] marker (one SimulationApp per ramp step), against the
+#   synthetic l2_carry_speed.usda fixture (NOT the real forklift).
+#   In-container GPU suite collects 32; aggregate GPU-integration = 32
+#   in-container + 2 host xc = 34. The enforced GPU baseline ratchets
+#   31 -> 34 (a ratchet UP -- new GPU coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 34
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work the live
 #   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
-#   count toward it.
+#   count toward it. After EXP-201 the live aggregate is 330 (296
+#   hosted-unit + 34 GPU-integration).
 AGGREGATE_TARGET = 126
