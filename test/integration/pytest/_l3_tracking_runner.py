@@ -59,11 +59,20 @@ from pathlib import Path
 # (test/fixtures/urdf/single_joint_lift.urdf).
 LINK_MASS_KG = 1.0
 GRAVITY = 9.81
-# Ticks to let PhysX init after play, to settle the step, and per trajectory
-# segment.
+# Ticks to let PhysX init after play and to settle a step.
 INIT_TICKS = 30
 SETTLE_TICKS = 400
-SEGMENT_TICKS = 60
+# Smooth multi-point trajectory: each segment between consecutive waypoints is
+# resolved into SEGMENT_SAMPLES commanded micro-points (a cosine ease), and the
+# command is held for TICKS_PER_SAMPLE physics ticks before the error is read.
+# The point of a TRACKING test is to command a path SLOW ENOUGH that a
+# well-tuned drive can follow it: a single tick per sample saturates the drive
+# bandwidth (the measured lag at a sharp reversal is then a full segment, which
+# measures bandwidth, not tracking). Holding each micro-point for several ticks
+# makes the commanded slew rate small relative to the drive's settling, so the
+# residual |commanded - measured| is the genuine tracking error.
+SEGMENT_SAMPLES = 40
+TICKS_PER_SAMPLE = 12
 # Home position the DOF is reset to between repeatability cycles.
 HOME = 0.0
 # Smooth multi-point trajectory waypoints (the commanded path); a cosine ease
@@ -142,10 +151,15 @@ def _run_trajectory(iface, dof, app):
     for i in range(len(TRAJ_WAYPOINTS) - 1):
         a = TRAJ_WAYPOINTS[i]
         b = TRAJ_WAYPOINTS[i + 1]
-        for t in range(1, SEGMENT_TICKS + 1):
-            cmd = _cosine_ease(a, b, t / SEGMENT_TICKS)
+        for s in range(1, SEGMENT_SAMPLES + 1):
+            cmd = _cosine_ease(a, b, s / SEGMENT_SAMPLES)
             iface.set_dof_position_target(dof, float(cmd))
-            app.update()
+            # Hold each commanded micro-point for several ticks so the slew
+            # rate stays within the drive's bandwidth; read the tracking error
+            # at the END of the hold (the residual lag, not the single-tick
+            # transient).
+            for _ in range(TICKS_PER_SAMPLE):
+                app.update()
             measured = float(iface.get_dof_position(dof))
             errs.append(abs(measured - cmd))
     max_err = max(errs) if errs else float("nan")
