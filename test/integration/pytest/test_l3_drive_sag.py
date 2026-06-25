@@ -56,9 +56,15 @@ def _critical_damping(stiffness: float) -> float:
     """
     return 2.0 * math.sqrt(stiffness * PAYLOAD_MASS)
 
+# Stiffness sweep for the precision-limit characterization (Isaac's L2.5
+# ceiling): how small does the steady-state error get as stiffness rises, and
+# does the implicit articulation drive stay stable at very high gain (PhysX
+# 5.4 claims it "can handle very large gains without instability")?
+SWEEP_STIFFNESSES = (5000.0, 25000.0, 100000.0, 1000000.0)
+
 _SUMMARY_RE = re.compile(
     r"\[SAG SUMMARY\] stiffness_in=(\S+) stiffness_usd=(\S+) mass=(\S+) "
-    r"target=(\S+) resting=(\S+) sag=(\S+) sag_predicted=(\S+)"
+    r"target=(\S+) resting=(\S+) sag=(\S+) sag_predicted=(\S+) drift=(\S+)"
 )
 
 
@@ -98,6 +104,7 @@ def _run_sag(stiffness: float, tmp_path: Path) -> dict:
         "resting": float(m.group(5)),
         "sag": float(m.group(6)),
         "sag_predicted": float(m.group(7)),
+        "drift": float(m.group(8)),
     }
 
 
@@ -160,4 +167,74 @@ def test_deviation_matches_load_over_stiffness(tmp_path):
         assert rel < 0.5, (
             f"measured deviation {dev} m is not within 50% of the "
             f"m*g/stiffness prediction {predicted} m (rel={rel:.2f}); {r}"
+        )
+
+
+def _sweep_table(rows) -> str:
+    """Render the stiffness-sweep results as a fixed-width table (surfaced in
+    assertion messages and copied into the recorded results doc)."""
+    head = (
+        f"{'stiffness':>12} {'deviation_m':>14} {'predicted_m':>14} "
+        f"{'drift_m':>12} {'rel':>7}"
+    )
+    lines = [head, "-" * len(head)]
+    for r in rows:
+        dev = abs(r["sag"])
+        pred = r["sag_predicted"]
+        rel = abs(dev - pred) / pred if pred > 0 else float("nan")
+        lines.append(
+            f"{r['stiffness_usd']:>12g} {dev:>14.6g} {pred:>14.6g} "
+            f"{r['drift']:>12.6g} {rel:>7.2f}"
+        )
+    return "\n".join(lines)
+
+
+def test_l25_precision_limit_sweep(tmp_path):
+    """Characterize Isaac's L2.5 precision limit: sweep stiffness upward and
+    record how small the steady-state error gets and whether the implicit
+    drive stays stable at very high gain (ADR-0021 D1; the "Isaac limit"
+    question, not the CoreSAM tolerance).
+
+    Findings asserted (and recorded in doc/experiments/exp-184-l3-drive-
+    precision.md):
+      * every point settles (drift small) and is finite -- the implicit
+        articulation drive does NOT destabilize as gain rises (PhysX 5.4:
+        "can handle very large gains without instability");
+      * the error keeps shrinking ~ m*g/stiffness with rising stiffness (no
+        early precision floor) -- monotone decrease across the sweep;
+      * each point matches the m*g/stiffness prediction within tolerance.
+
+    The full measured table is embedded in every assertion message so the raw
+    data is visible if any property fails. This test doubles as the
+    re-verification harness: re-running it on a GPU box reproduces the table.
+    """
+    rows = [_run_sag(k, tmp_path) for k in SWEEP_STIFFNESSES]
+    table = _sweep_table(rows)
+    devs = [abs(r["sag"]) for r in rows]
+
+    # All finite -- no NaN/inf blow-up at any gain.
+    for r, dev in zip(rows, devs):
+        assert dev == dev and dev != float("inf"), (
+            f"non-finite deviation at stiffness {r['stiffness_usd']}:\n{table}"
+        )
+    # All settled -- the implicit drive reaches steady state even at high gain
+    # (drift between two late reads is small).
+    for r in rows:
+        assert r["drift"] < 5e-3, (
+            f"did not settle at stiffness {r['stiffness_usd']} "
+            f"(drift {r['drift']} m):\n{table}"
+        )
+    # Error keeps shrinking with stiffness -- no early precision floor.
+    for i in range(1, len(devs)):
+        assert devs[i] < devs[i - 1], (
+            f"deviation did not keep decreasing at "
+            f"{SWEEP_STIFFNESSES[i]} (precision floor?):\n{table}"
+        )
+    # Each point follows m*g/stiffness within tolerance.
+    for r in rows:
+        pred = r["sag_predicted"]
+        rel = abs(abs(r["sag"]) - pred) / pred
+        assert rel < 0.5, (
+            f"stiffness {r['stiffness_usd']} deviation off prediction "
+            f"(rel={rel:.2f}):\n{table}"
         )

@@ -196,8 +196,14 @@ def _main() -> None:
         iface.set_dof_position_target(dof, float(args.target))
         for _ in range(SETTLE_TICKS):
             app.update()
-
+        # Two reads 120 ticks apart: drift = |late - early| is the settling /
+        # stability witness (a high-gain drive that destabilizes keeps moving;
+        # a settled one barely drifts).
+        resting_early = float(iface.get_dof_position(dof))
+        for _ in range(120):
+            app.update()
         resting = float(iface.get_dof_position(dof))
+        drift = abs(resting - resting_early)
         sag = float(args.target) - resting
         sag_pred = (
             PAYLOAD_MASS_KG * GRAVITY / stiffness_usd
@@ -208,7 +214,7 @@ def _main() -> None:
             f"[SAG SUMMARY] stiffness_in={args.stiffness:g} "
             f"stiffness_usd={stiffness_usd:g} mass={PAYLOAD_MASS_KG:g} "
             f"target={args.target:g} resting={resting:g} sag={sag:g} "
-            f"sag_predicted={sag_pred:g}",
+            f"sag_predicted={sag_pred:g} drift={drift:g}",
             flush=True,
         )
         print("[EXIT CLEAN]", flush=True)
