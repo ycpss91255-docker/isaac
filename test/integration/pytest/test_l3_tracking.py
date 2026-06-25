@@ -144,6 +144,9 @@ def test_steady_state_error_is_small_and_near_load_floor(tmp_path):
     D1: L2.5 is an approximation whose error is load/stiffness)."""
     r = _run_tracking(tmp_path)
     tbl = _table(r)
+    # TEMP-SURFACE: force a fail to print the measured table into the CI log
+    # for the experiment doc (reverted next commit).
+    assert False, f"TEMP-SURFACE measured table:{tbl}"
     # Small in absolute terms: well under a centimeter for this light link.
     assert r["step_ss_err"] < 0.01, (
         f"steady-state error {r['step_ss_err']} m is not small (< 10 mm):{tbl}"
