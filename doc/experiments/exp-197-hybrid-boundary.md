@@ -73,19 +73,24 @@ measured field):
 ## Results
 
 Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-<RUN_ID> (the recording run), <DATE>. The test surfaces the measured fields on
-stderr (`[HYBRID MEASURED] ...`), which lands in the CI log even on a passing
-run; the values below are read from there.
+28179011552 (the recording run, `python-tests` job), 2026-06-25 -- the single
+test in `test_hybrid_boundary.py` PASSED (GPU in-container collected 32, passed
+30, +2 host cross-container = 32 aggregate; no failures). pytest captures a
+passing test's captured streams (the `[HYBRID MEASURED]` / `[HYBRID DRIVE]`
+diagnostics print to the captured stderr and are not echoed in the CI log
+without `-s`); the bounds below are the asserted (and met) properties. To
+capture the exact compliance / follow ratio, re-run the runner directly (see
+Reproduction) -- it prints the full `[HYBRID SUMMARY]` line.
 
-| quantity | measured |
+| quantity | asserted (and met) |
 |---|---|
-| joint rest separation (m) | 0.5 |
-| settled separation (m) | <SETTLED_SEP> |
-| compliance / give (m) | <COMPLIANCE> |
-| anchor rise (m) | <ANCHOR_RISE> |
-| hung body rise (m) | <HUNG_RISE> |
-| follow ratio (hung / anchor) | <FOLLOW_RATIO> |
-| hung body finite | <HUNG_FINITE> |
+| joint rest separation (m) | 0.5 (fixture) |
+| settled separation (m) | `0.2 < settled_sep < 1.5` -- the hung body settled near the rest separation (the joint neither collapsed nor flew apart) |
+| compliance / give (m) | `abs(compliance) < 1.0` -- the maximal-coordinate joint stretches under the 10 kg load but the give is bounded |
+| anchor rise (m) | `anchor_rise > 0.25` (commanded 0.5 m lift; the kinematic drive moved the anchor) |
+| hung body rise (m) | `hung_rise > 0.15` -- the hung body followed the anchor (force transfer) |
+| follow ratio (hung / anchor) | `0.4 < follow_ratio < 1.6` -- within a loose band of the rigid ideal 1.0 (the measured compliance band) |
+| hung body finite | `hung_finite == True` |
 
 ## Findings
 
@@ -112,9 +117,11 @@ run; the values below are read from there.
 
 ## Provenance
 
-- Date: <DATE>
+- Date: 2026-06-25
 - Runner: self-hosted GPU (RTX 5090 reference)
-- Test: `test/integration/pytest/test_hybrid_boundary.py`
+- Test: `test/integration/pytest/test_hybrid_boundary.py` (PASSED)
 - Runner script: `test/integration/pytest/_hybrid_boundary_runner.py`
 - Fixture: `test/fixtures/usd/l2_hybrid_loop.usda`
-- CI run: <RUN_ID> (recording run; the table above is its measured output)
+- CI run: 28179011552 (`python-tests` job; the asserted properties above all
+  held -- GPU aggregate 32 collected, 32 passed counting the host xc leg, no
+  failures)
