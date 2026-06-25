@@ -67,7 +67,7 @@ def Xform "World"
     {
         double size = 1
         float3 xformOp:scale = (1.0, 1.0, 0.1)
-        double3 xformOp:translate = (0, 0, 0.5)
+        double3 xformOp:translate = (0, 0, 1.0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
         float physics:mass = 50
         bool physics:kinematicEnabled = 1
@@ -75,7 +75,9 @@ def Xform "World"
     }
 
     # DYNAMIC payload (10 kg) resting on the platform top. Gravity pulls it
-    # down onto the platform, loading the kinematic body.
+    # down onto the platform, loading the kinematic body. With the platform
+    # raised to z=1.0 (top at 1.0 + half-height 0.05 = 1.05), the payload
+    # (half-height 0.15) rests centred at z=1.20.
     def Cube "Payload" (
         prepend apiSchemas = [
             "PhysicsRigidBodyAPI",
@@ -87,7 +89,7 @@ def Xform "World"
     {
         double size = 1
         float3 xformOp:scale = (0.3, 0.3, 0.3)
-        double3 xformOp:translate = (0, 0, 0.70)
+        double3 xformOp:translate = (0, 0, 1.20)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
         float physics:mass = 10
         color3f[] primvars:displayColor = [(0.85, 0.55, 0.1)]

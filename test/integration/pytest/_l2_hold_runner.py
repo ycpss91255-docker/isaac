@@ -1,22 +1,26 @@
-"""Kit-side runner: true-L2 zero-error kinematic hold under load (#193/#194).
+"""Kit-side runner: true-L2 zero-error kinematic HOLD under load (#193/#194).
 
 ADR-0021 D1/D2, milestone "Physics: L2 true-kinematic + hybrid". Boots ONE
 headless ``SimulationApp``, opens the standalone-kinematic fixture
-(``test/fixtures/usd/l2_kinematic_hold.usda``: a KINEMATIC platform + a
-DYNAMIC 10 kg payload + a gravity ``PhysicsScene`` + a ground collider),
-plays ``omni.timeline`` and steps with ``app.update()`` (NEVER a
-``SimulationContext`` -- deferred, #151 shutdown hang), commands the
-kinematic platform to a target height each tick via
-``dc.set_rigid_body_pose`` (the proven openbase L2 pattern,
-``test_openbase_l2_stability.py``), lets the dynamic payload settle onto it
-under gravity, then reads the platform pose with ``dc.get_rigid_body_pose``
-and reports the steady-state position error.
+(``test/fixtures/usd/l2_kinematic_hold.usda``: a KINEMATIC platform already
+at the target height z=1.0 + a DYNAMIC 10 kg payload resting on it at z=1.20
++ a gravity ``PhysicsScene`` + a ground collider), plays ``omni.timeline``
+and steps with ``app.update()`` (NEVER a ``SimulationContext`` -- deferred,
+#151 shutdown hang), commands the kinematic platform to HOLD its commanded
+height each tick via ``dc.set_rigid_body_pose`` (the proven openbase L2
+pattern, ``test_openbase_l2_stability.py``), lets the dynamic payload settle
+onto it under gravity, then reads the platform pose with
+``dc.get_rigid_body_pose`` and reports the steady-state position error.
 
 The point: PhysX moves a kinematic actor to its target "regardless of
 external forces, gravity, collision", so the platform's error is essentially
-ZERO even while it carries the payload -- the true-L2 endpoint, in direct
+ZERO even while it BEARS the payload -- the true-L2 endpoint, in direct
 contrast to EXP-184's L2.5 articulation-drive sag (``m*g/stiffness``: 19.4 mm
-at k=5000 for the same 10 kg load).
+at k=5000 for the same 10 kg load). This is a HOLD-under-load experiment: the
+platform starts at the target height with the payload already resting on it
+and holds with zero error. (The lift/carry speed limit -- where
+``set_rigid_body_pose`` teleports too far per tick and leaves the dynamic
+payload behind -- is a separate experiment, the #201 carry-speed follow-up.)
 
 Every ``isaacsim`` / ``omni`` / ``pxr`` import is FUNCTION-LOCAL so the file
 stays host-importable (``python3 -m py_compile`` passes without Isaac).
@@ -78,48 +82,23 @@ def _get_body(iface, prim_path: str):
     return handle
 
 
-def _command_and_settle(
-    app, iface, handle, target_xyz, ticks, ramp_step=0.003, seat_ticks=30
-):
-    """Lift the kinematic body to ``target_xyz`` so it CARRIES the resting
-    payload, then hold; return the final pose.
+def _command_and_settle(app, iface, handle, target_xyz, ticks):
+    """Command the kinematic body to HOLD ``target_xyz`` for ``ticks`` updates;
+    return the final pose.
 
-    A kinematic body teleported straight to the target jumps out from under a
-    dynamic payload (the payload cannot follow a one-tick jump and is left
-    behind / falls). Instead: (1) command the body at its START height for a
-    few ticks so the payload seats firmly on it, (2) RAMP the commanded height
-    toward the target in small steps (``ramp_step`` per tick, quasi-static) so
-    the kinematic body pushes the payload up via contact every step, then
-    (3) HOLD at the target for ``ticks`` updates so the payload settles. The
-    held position is still EXACT (kinematic ignores the load) -- the ramp only
-    keeps the payload in contact during the lift.
+    The platform already starts at the target height with the payload resting
+    on it (see the fixture), so there is no lift -- this is a pure hold under
+    load. Each tick sets the kinematic target to ``target_xyz`` via
+    ``dc.set_rigid_body_pose`` and steps the app, letting the dynamic payload
+    settle firmly on top. The held position is EXACT: a kinematic actor moves
+    to its target regardless of the load it bears.
     """
     from omni.isaac.dynamic_control import _dynamic_control as dc
 
-    start = iface.get_rigid_body_pose(handle)
-    cz = float(start.p[2])
     tx, ty, tz = float(target_xyz[0]), float(target_xyz[1]), float(target_xyz[2])
-    up = tz > cz
 
     target = dc.Transform()
     target.r = (0.0, 0.0, 0.0, 1.0)
-
-    # (1) Seat the payload on the platform at its start height.
-    target.p = (tx, ty, cz)
-    for _ in range(seat_ticks):
-        iface.set_rigid_body_pose(handle, target)
-        app.update()
-
-    # (2) Ramp slowly so the platform carries the payload via contact.
-    while abs(cz - tz) > 1e-9:
-        cz += ramp_step if up else -ramp_step
-        if (up and cz > tz) or (not up and cz < tz):
-            cz = tz
-        target.p = (tx, ty, cz)
-        iface.set_rigid_body_pose(handle, target)
-        app.update()
-
-    # (3) Hold at the target so the payload settles firmly on top.
     target.p = (tx, ty, tz)
     for _ in range(ticks):
         iface.set_rigid_body_pose(handle, target)
