@@ -212,11 +212,37 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   L3 control verification (#180, milestone "Physics: L3 control
+#   verification", ADR-0021 D1): the GPU suite gains 3 in-container tests
+#   (29 -> 32) that characterize an articulation drive's INTRINSIC tracking
+#   precision in ISOLATION -- one prismatic joint, NO contact, NO external
+#   payload (vs the #184 droop-under-load experiment). The synthetic
+#   single_joint_lift.urdf fixture (fixed base + ONE prismatic Z lift + a
+#   light 1 kg moving link, primitive boxes, NOT the real forklift) is
+#   imported with a moderate import-time joint drive + critical damping and
+#   STEPPED (dynamic_control + omni.timeline + app.update(), NOT a
+#   SimulationContext, #151). The runner commands a step and a smooth
+#   cosine-eased multi-point trajectory across reset-to-home cycles and
+#   reports a [TRACKING SUMMARY] marker:
+#     * test_l3_tracking.py (3):
+#       - test_steady_state_error_is_small_and_near_load_floor (#182):
+#         |target - settled| after a step is small (< 10 mm) and of the
+#         order of the m*g/stiffness floor for the light link (no payload).
+#       - test_trajectory_tracking_error_is_small (#181): max + RMS of
+#         |commanded - measured| over the smooth trajectory stay small
+#         (banded), RMS <= max.
+#       - test_repeatability_across_resets_is_deterministic (#183): the
+#         settled-position spread across reset cycles is sub-mm
+#         (deterministic PhysX position control).
+#   In-container GPU suite collects 32; aggregate GPU-integration = 32
+#   in-container + 2 host xc = 34. The enforced GPU baseline ratchets
+#   31 -> 34 (a ratchet UP -- new GPU coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 34
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
+#   aggregate is 330 (296 hosted-unit + 34 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
