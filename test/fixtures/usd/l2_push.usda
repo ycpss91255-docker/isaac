@@ -1,0 +1,116 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# TEST-ONLY FIXTURE -- the kinematic-pushes-a-dynamic-object experiment
+# (#201, milestone "Physics: L2 true-kinematic + hybrid").
+#
+# A KINEMATIC mover is driven HORIZONTALLY (along +X) into a SEPARATE DYNAMIC
+# box sitting in its path. With dc.set_kinematic_target (setKinematicTarget,
+# the contact-respecting path; ADR-0008) and SMALL per-tick steps, the mover
+# pushes the box ahead of it via momentum transfer -- the box moves, the
+# mover's commanded path is unaffected (a kinematic body ignores reaction
+# forces). A too-large per-tick step teleports the mover past the box (the
+# same carry-speed caveat as the #201 carry experiment), so the test sweeps
+# small steps.
+#
+# A static WALL stands beyond the box. Pushed into the wall, the box is
+# TRAPPED (squished) between the advancing kinematic mover and the immovable
+# wall -- it cannot move further; it stays finite/settled, pinned at the wall.
+#
+# HORIZONTAL push is deliberately chosen over a vertical carry: it does not
+# fight gravity through the contact, so it is far less sensitive to the
+# per-tick speed limit.
+#
+# Prims:
+#   /World/PhysicsScene  -- gravity (Z down, 9.81 m/s^2).
+#   /World/Ground        -- static collider the box rests/slides on.
+#   /World/Mover         -- KINEMATIC rigid body; the pusher. Starts at x=-1.0.
+#   /World/Box           -- DYNAMIC rigid body (5 kg) in the mover's path at
+#                           x=0.0, resting on the ground.
+#   /World/Wall          -- static collider at x=+1.2; the squish backstop.
+
+def Xform "World"
+{
+    def DistantLight "SunLight"
+    {
+        float inputs:intensity = 3000
+        float3 xformOp:rotateXYZ = (-45, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        float physics:gravityMagnitude = 9.81
+        vector3f physics:gravityDirection = (0, 0, -1)
+    }
+
+    # Static ground collider at z = 0 (a thin slab). Not a rigid body.
+    def Cube "Ground" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (20, 20, 0.02)
+        double3 xformOp:translate = (0, 0, -0.01)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        color3f[] primvars:displayColor = [(0.45, 0.45, 0.45)]
+    }
+
+    # KINEMATIC mover -- the pusher. Driven along +X via
+    # dc.set_kinematic_target at a configurable per-tick step. Starts at
+    # x=-1.0, centred at z=0.15 (half-height 0.15, resting height on ground).
+    def Cube "Mover" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.3, 0.6, 0.3)
+        double3 xformOp:translate = (-1.0, 0, 0.15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 50
+        bool physics:kinematicEnabled = 1
+        color3f[] primvars:displayColor = [(0.1, 0.4, 0.85)]
+    }
+
+    # DYNAMIC box (5 kg) in the mover's path at x=0.0, resting on the ground
+    # (centred at z=0.15). The mover pushes it ahead via contact.
+    def Cube "Box" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.3, 0.3, 0.3)
+        double3 xformOp:translate = (0, 0, 0.15)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 5
+        color3f[] primvars:displayColor = [(0.85, 0.55, 0.1)]
+    }
+
+    # Static WALL collider at x=+1.2 -- the squish backstop. Not a rigid body,
+    # so it never moves; a box pushed into it is trapped between the mover and
+    # the wall.
+    def Cube "Wall" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.1, 2.0, 1.0)
+        double3 xformOp:translate = (1.2, 0, 0.5)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        color3f[] primvars:displayColor = [(0.5, 0.2, 0.2)]
+    }
+}

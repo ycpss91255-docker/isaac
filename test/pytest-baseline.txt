@@ -212,12 +212,30 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Physics L2 push (#201, ADR-0008): the GPU suite gains 2 in-container
+#   tests (29 -> 31 in-container) in test_l2_push.py -- a true-L2 KINEMATIC
+#   mover driven HORIZONTALLY into a SEPARATE dynamic box, on the synthetic
+#   l2_push.usda fixture (a kinematic mover + a 5 kg dynamic box in its path
+#   + a static ground + a static wall; NOT the real forklift).
+#   test_kinematic_push_displaces_box_and_holds_commanded_path (the mover
+#   pushes the box ahead via contact -- momentum transfer -- while landing on
+#   its COMMANDED path, the box reaction not perturbing the kinematic mover)
+#   and test_kinematic_push_squishes_box_against_wall (pushed into the wall,
+#   the box is pinned between the mover and the wall, stops short of the
+#   wall, stays finite/settled). The contact-respecting dc.set_kinematic_
+#   target path (NOT the dc.set_rigid_body_pose teleport; ADR-0008) at small
+#   per-tick steps so contact transfers each tick. Stepped physics via
+#   dynamic_control + omni.timeline + app.update(), NOT a SimulationContext
+#   (#151). Runner _l2_push_runner.py (underscore-prefixed, not collected).
+#   Aggregate GPU-integration = 31 in-container + 2 host xc = 33. The
+#   enforced GPU baseline ratchets 31 -> 33 (a ratchet UP).
+GPU_INTEGRATION_BASELINE = 33
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
-#   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
+#   126). Recorded for traceability; after the L2 push experiment (#201) the
+#   live aggregate is 329 (296 hosted-unit + 33 GPU-integration), well past
+#   the PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
 AGGREGATE_TARGET = 126
