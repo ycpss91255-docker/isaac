@@ -8,13 +8,24 @@
 ## Goal
 
 Measure the **effective per-tick speed limit** at which a kinematic mover stops
-carrying a resting dynamic payload. EXP-193 confirmed a kinematic body HOLDS a
-load with zero error, but `dc.set_rigid_body_pose` is a teleport
-(`setGlobalPose`) that **bypasses the contact integrator** (ADR-0008: "must use
-setKinematicTarget not setGlobalPose"). So when a kinematic mover LIFTS a
-resting dynamic payload, moving too far in one tick leaves the payload behind /
-tunnels past it. This experiment sweeps the per-tick ramp displacement and finds
-the threshold between "carried" and "dropped".
+carrying a resting dynamic payload, and isolate the carry mechanism to the
+ADR-0008 write-path distinction. EXP-193 confirmed a kinematic body HOLDS a load
+with zero error, but the two kinematic write paths carry very differently:
+
+- `dc.set_rigid_body_pose` (`setGlobalPose`) is a **teleport** that BYPASSES the
+  contact integrator (ADR-0008: "must use setKinematicTarget not
+  setGlobalPose"). It NEVER carries a resting dynamic payload at any ramp step --
+  the mover passes straight through and the payload is left at its start. This is
+  the **negative control**.
+- `dc.set_kinematic_target` (`setKinematicTarget`) feeds the kinematic target
+  through the **contact solver**, so the mover pushes the payload via contact and
+  carries it UP TO a per-tick speed limit: ramp slowly and it rides along; ramp
+  too far in one tick and contact cannot keep up, so the payload is left behind /
+  tunnels.
+
+This experiment sweeps the per-tick ramp displacement under both paths: it
+confirms the teleport never carries, and finds the threshold between "carried"
+and "dropped" for the contact path.
 
 ## Setup
 
@@ -22,26 +33,27 @@ the threshold between "carried" and "dropped".
   clean; NOT the real forklift).
   - `/World/Mover` -- KINEMATIC rigid body (`physics:kinematicEnabled=1` +
     `PhysicsRigidBodyAPI` + `PhysicsCollisionAPI` + `PhysicsMassAPI`), the
-    carrier under test. Starts at z=0.5, ramped up via `dc.set_rigid_body_pose`.
+    carrier under test. Starts at z=0.5, ramped up via the selected write path.
   - `/World/Payload` -- DYNAMIC rigid body, **10 kg** + `CollisionAPI`, resting
     on the mover top at z=0.70; gravity loads the mover.
   - `/World/PhysicsScene` -- gravity enabled (Z down, 9.81 m/s^2).
   - `/World/Ground` -- static collider at z=0 (the dropped payload lands here).
 - **Ramp:** the mover is seated for 60 ticks at its start height so the payload
   settles, then ramped from z=0.5 to z=1.0 in fixed per-tick steps of
-  `ramp_step` metres, then held at z=1.0 for 120 ticks. The carried/dropped
-  outcome is read from the final payload Z.
+  `ramp_step` metres via the `--write-mode` path (`kinematic_target` default, or
+  `global_pose` for the negative control), then held at z=1.0 for 120 ticks. The
+  carried/dropped outcome is read from the final payload Z.
 - **Stepping:** `omni.timeline.play()` + a loop of `app.update()` -- NEVER a
   `SimulationContext` (deferred, #151 shutdown hang); `app.close()` in a
   `finally`.
 - **Runner / test:** `test/integration/pytest/_l2_carry_speed_runner.py` (one
-  `SimulationApp` per ramp step, prints `[CARRY SUMMARY] ... [EXIT CLEAN]`) +
-  `test/integration/pytest/test_l2_carry_speed.py` (subprocess-per-run,
-  regex-parse the marker, sweeps the steps). GPU-only.
-- **Sweep:** ramp steps 0.001 / 0.003 / 0.01 / 0.05 / 0.2 m per tick. A carried
-  payload ends near z=1.20 (mover top 1.05 + payload half-height 0.15); a
-  dropped payload sits at or below z=1.05 (left behind near its start, or on the
-  ground).
+  `SimulationApp` per ramp step + write mode, prints `[CARRY SUMMARY] ... [EXIT
+  CLEAN]`) + `test/integration/pytest/test_l2_carry_speed.py` (2 tests:
+  subprocess-per-run, regex-parse the marker, sweeps both paths). GPU-only.
+- **Sweep:** ramp steps 0.001 / 0.003 / 0.01 / 0.05 / 0.2 m per tick (spanning
+  200x: the slowest ~0.06 m/s, the fastest ~12 m/s at 60 Hz). A carried payload
+  ends near z=1.20 (mover top 1.05 + payload half-height 0.15); a dropped payload
+  sits at or below z=1.05 (left behind near its start, or on the ground).
 
 ## Reproduction
 
@@ -58,32 +70,50 @@ on the self-hosted GPU runner.
 
 ## Results
 
-Measured sweep (CI run `<CI_RUN_ID>`, 10 kg payload):
+Measured sweeps (CI run `<CI_RUN_ID>`, 10 kg payload). Both write paths swept
+across the same per-tick steps; the `[CARRY SUMMARY]` tables are surfaced on
+stderr in the (passing) run log.
+
+`global_pose` (teleport, negative control):
 
 ```
-<SWEEP_TABLE>
+<GLOBAL_POSE_TABLE>
 ```
 
-- Largest **carried** ramp step: `<MAX_CARRIED>` m/tick.
-- Smallest **dropped** ramp step: `<MIN_DROPPED>` m/tick.
+`kinematic_target` (contact path):
+
+```
+<KINEMATIC_TARGET_TABLE>
+```
+
+- `global_pose` carries at: **no step** (the teleport never carries).
+- `kinematic_target` largest **carried** ramp step: `<MAX_CARRIED>` m/tick.
+- `kinematic_target` smallest **dropped** ramp step: `<MIN_DROPPED>` m/tick.
 - Effective carry speed limit (threshold) lies between them.
 
 ## Findings
 
-- **The carry has a per-tick speed limit.** Below `<MAX_CARRIED>` m/tick the
-  kinematic mover carries the resting payload up (it rides along, ending on the
-  raised mover); at/above `<MIN_DROPPED>` m/tick the mover teleports past the
-  payload in a single tick and the payload is left behind / tunnels and falls.
-- **Root cause is the teleport semantics.** `dc.set_rigid_body_pose` writes the
-  global pose (`setGlobalPose`), which bypasses the contact integrator
-  (ADR-0008). A kinematic body therefore only "carries" a dynamic object when
-  its per-tick displacement is small enough that contact is re-resolved every
-  step. This is exactly why EXP-193 was scoped to HOLD-under-load (zero per-tick
-  displacement) rather than lift/carry.
+- **The teleport never carries (ADR-0008).** Under `dc.set_rigid_body_pose`
+  (`setGlobalPose`) the payload is left at its start at EVERY swept step, even
+  the slowest -- the global-pose write bypasses the contact integrator entirely,
+  so the kinematic mover passes straight through the resting dynamic payload.
+  This is the negative control that isolates the carry mechanism to contact.
+- **The contact path carries up to a per-tick speed limit.** Under
+  `dc.set_kinematic_target` (`setKinematicTarget`) the mover carries the payload
+  below `<MAX_CARRIED>` m/tick (it rides up onto the raised mover); at/above
+  `<MIN_DROPPED>` m/tick the target outruns the contact solver and the payload is
+  left behind / tunnels and falls. The carried/dropped split is monotone, so the
+  threshold is bracketed.
+- **Root cause is the write-path semantics, not "kinematic bodies cannot
+  carry".** A kinematic body DOES carry a dynamic object -- but only via
+  `setKinematicTarget` (the contact-respecting interpolated path) AND only when
+  its per-tick displacement is small enough for contact to keep up. The
+  `setGlobalPose` teleport never carries. This is exactly why EXP-193 was scoped
+  to HOLD-under-load (zero per-tick displacement) rather than lift/carry.
 - **Implication for the hybrid path.** Any future kinematic carry/push motion
-  (forklift tine lifting a load) must cap its per-tick displacement below this
-  threshold, or use `setKinematicTarget` semantics (ADR-0008) so the contact
-  integrator interpolates the motion. The HOLD case (EXP-193) is unaffected.
+  (forklift tine lifting a load) must use `set_kinematic_target` (NOT
+  `set_rigid_body_pose`) AND cap its per-tick displacement below the measured
+  threshold. The HOLD case (EXP-193) is unaffected.
 
 ## Provenance
 
