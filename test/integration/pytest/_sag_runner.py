@@ -77,14 +77,28 @@ def _ensure_gravity(stage):
     return "/physicsScene"
 
 
-def _find_articulation_root(stage):
-    """Return the path of the prim carrying ArticulationRootAPI, or None."""
+def _candidate_articulation_paths(stage):
+    """Ordered, de-duped candidate prim paths for dc.get_articulation.
+
+    dc.get_articulation wants the articulation ROOT prim, not the joint that
+    happens to carry ArticulationRootAPI (a fix_base UrdfConverter puts the
+    API on a fixed ``root_joint``, which dc cannot resolve). Try the stage
+    defaultPrim (the robot root) first, then any ArticulationRootAPI prim,
+    then the rigid-body links -- the first that yields a valid handle wins.
+    """
     from pxr import UsdPhysics
 
+    paths = []
+    dp = stage.GetDefaultPrim()
+    if dp and dp.IsValid():
+        paths.append(str(dp.GetPath()))
     for prim in stage.Traverse():
         if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
-            return str(prim.GetPath())
-    return None
+            paths.append(str(prim.GetPath()))
+    for prim in stage.Traverse():
+        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            paths.append(str(prim.GetPath()))
+    return list(dict.fromkeys(paths))
 
 
 def _read_linear_drive_stiffness(stage):
@@ -151,9 +165,7 @@ def _main() -> None:
 
         _ensure_gravity(stage)
         stiffness_usd = _read_linear_drive_stiffness(stage)
-        root_path = _find_articulation_root(stage)
-        if root_path is None:
-            raise RuntimeError("no ArticulationRootAPI prim in produced USD")
+        candidates = _candidate_articulation_paths(stage)
 
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
@@ -163,9 +175,18 @@ def _main() -> None:
         import omni.isaac.dynamic_control._dynamic_control as dc
 
         iface = dc.acquire_dynamic_control_interface()
-        art = iface.get_articulation(root_path)
+        art = dc.INVALID_HANDLE
+        root_path = None
+        for cand in candidates:
+            handle = iface.get_articulation(cand)
+            if handle != dc.INVALID_HANDLE:
+                art, root_path = handle, cand
+                break
         if art == dc.INVALID_HANDLE:
-            raise RuntimeError(f"dc.get_articulation({root_path}) INVALID")
+            raise RuntimeError(
+                f"dc.get_articulation failed for all candidates: {candidates}"
+            )
+        print(f"[ARTICULATION] root={root_path}", flush=True)
         iface.wake_up_articulation(art)
         ndof = iface.get_articulation_dof_count(art)
         if ndof < 1:
