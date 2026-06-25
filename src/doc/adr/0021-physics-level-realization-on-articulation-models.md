@@ -98,6 +98,35 @@ linear model (18 um measured vs 98 um predicted at 1e6). So Isaac's L2.5 precisi
 by the stiffness you choose, not by an intrinsic floor; sub-mm is easy and tens of microns is
 reachable, all stable -- but only true-L2 (D2) gives the hard zero-error guarantee.
 
+### D1b -- scope: L2/L2.5/L3 is a JOINT POSITION-control vocabulary only
+
+L2 / L2.5 / L3 describe **position-controlled mechanisms** -- a joint (or kinematic body)
+commanded to a *position*: a forklift mast, fork, or chassis told "go to this height / pose".
+The vocabulary does NOT cover **force / thrust-driven free bodies**. The canonical
+counter-example is a drone: a propeller does not position anything; it spins (a *velocity*),
+generates aerodynamic *thrust* (a force), and a free-floating 6-DOF body lifts when total
+thrust exceeds weight. Applying L2.5 (a stiff position drive) to a rotor is a category error.
+
+Two facts bound this:
+
+- **No rigid-body engine simulates aerodynamics inline.** PhysX (like MuJoCo / Bullet) does
+  rigid-body dynamics + contacts + joints/drives; lift/thrust/drag are an applied-force model
+  layered on top. This is separation of concerns, not an Isaac defect, and is orthogonal to
+  the forklift (which needs no aero).
+- **Thrust IS supported in Isaac -- via a different actuator, not this vocabulary.** A drone
+  is modelled as a free dynamic body whose rotors are *thruster* actuators that apply forces
+  at body points (rpm -> thrust = c*rpm^2), via either the community **Pegasus Simulator**
+  (an Isaac Sim extension: it computes each propeller's forces/torques and drives the body,
+  with PX4 / ROS2 integration) or **Isaac Lab's own `Multirotor` + `ThrusterCfg`**
+  (`isaaclab_contrib`: thruster actuators + an allocation matrix mapping thruster forces to a
+  6-DOF body wrench; `set_thrust_target`, rpm/RPS -> thrust). Same physics engine, a
+  thruster actuator layer instead of a joint position drive.
+
+So the boundary: position-controlled joints/bodies -> L2 / L2.5 / L3 (this ADR); thrust /
+free-flight (drones, and any propulsive free body) -> a thruster-actuator model (Pegasus /
+Isaac Lab Multirotor), out of scope here. Do not stretch the position-control levels onto a
+propulsion problem.
+
 ### D2 -- true-L2 requires a standalone body outside the articulation
 
 To get a true-L2 part in the same robot, that part must be a **standalone kinematic rigid
@@ -179,6 +208,8 @@ needs-experiment:
   at very high stiffness; degrees/radians hypothesis): https://github.com/isaac-sim/IsaacLab/issues/2886
 - PhysX #308 (maximal-coordinate chained fixed joint is "very weak"): https://github.com/NVIDIAGameWorks/PhysX/issues/308
 - IsaacLab #2395 (arm mounted on mobile base via fixed joint; IK caveats): https://github.com/isaac-sim/IsaacLab/discussions/2395
+- Pegasus Simulator (Isaac Sim multirotor framework: per-propeller forces/torques + PX4 / ROS2; the D1b out-of-scope thrust pattern): https://github.com/PegasusSimulator/PegasusSimulator -- paper https://arxiv.org/abs/2307.05263
+- Isaac Lab `isaaclab_contrib.assets` Multirotor / ThrusterCfg (thruster actuators + allocation matrix -> 6-DOF body wrench; rpm/RPS -> thrust): https://isaac-sim.github.io/IsaacLab/main/source/api/lab_contrib/isaaclab_contrib.assets.html
 
 ## Cross-references
 
