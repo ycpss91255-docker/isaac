@@ -67,12 +67,16 @@ this experiment's measured kinematic hold error.
 | L2.5 | articulation high-stiffness position drive, k=5000 | 19.4 mm (measured) ~ 19.6 mm (`m*g/k`) | EXP-184 |
 | L2.5 | k=1e5 | 0.79 mm (measured) | EXP-184 |
 | L2.5 | k=1e6 | 18 um (measured) | EXP-184 |
-| **L2 (true)** | **standalone kinematic body, `dc.set_rigid_body_pose`** | **<MEASURED_ERROR>** (epsilon floor, `< 1e-4` m) | **this experiment (CI run <CI_RUN_ID>)** |
+| **L2 (true)** | **standalone kinematic body, `dc.set_rigid_body_pose`** | **0.0 m** (exact; epsilon floor, `< 1e-4` m) | **this experiment (CI run 28170120845)** |
 
-Measured `[L2HOLD SUMMARY]`: `target=<MEASURED_TARGET>`
-`resting=<MEASURED_RESTING>` `error=<MEASURED_ERROR>` `payload_mass=10.000`
-`payload_z=<MEASURED_PAYLOAD_Z>` `payload_on_platform=True`
+Measured `[L2HOLD SUMMARY]`: `target=1.000000`
+`resting=1.000000` `error=0.000000e+00` `payload_mass=10.000`
+`payload_z=1.200000` `payload_on_platform=True`
 `l25_sag_mm_k5000=19.6200`.
+
+The kinematic platform held `target_z=1.0` with `error=0.0` (exact, the epsilon
+floor) while a 10 kg dynamic payload rested on it at `payload_z=1.20`
+(`payload_on_platform=True`), confirming the load is genuinely borne.
 
 ## Findings
 
@@ -92,9 +96,30 @@ Measured `[L2HOLD SUMMARY]`: `target=<MEASURED_TARGET>`
   rigid-body loop joint) is the follow-up (#194 leaf-link substitution and the
   hybrid-seam compliance question).
 
+### Notes / lesson -- why this is HOLD, not lift/carry
+
+This experiment is scoped to a **hold under load** (the platform starts at the
+target height with the payload already resting on it), not a lift/carry. The
+reason is `dc.set_rigid_body_pose`: it is a **teleport** (`setGlobalPose`) that
+**bypasses the contact integrator** (ADR-0008: "must use setKinematicTarget not
+setGlobalPose"). A kinematic body moved with `setGlobalPose` is placed at its
+new pose without the contact solver interpolating the motion, so a dynamic
+object resting on it does NOT come along -- if the body moves far per timestep
+it is left behind / tunnels through. An early version of this runner LIFTED the
+platform from z=0.5 to z=1.0 via `set_rigid_body_pose` and the payload stayed at
+z=0.7 (`payload_on_platform=False`), exactly this teleport-vs-contact gap.
+
+So a kinematic body **carrying or pushing** a dynamic object has an effective
+**per-timestep speed limit**: move too far per tick and the dynamic object slips
+off. The HOLD case (this experiment) is unaffected -- zero per-tick displacement
+means contact is re-resolved every tick. The carry speed limit itself (and the
+contact-respecting `set_kinematic_target` path that actually carries) is
+measured in the Task-2 follow-up experiment, EXP-201 (#201 carry-speed
+sub-issue, PR #218).
+
 ## Provenance
 
-- Proven green on the self-hosted GPU runner, CI run `<CI_RUN_ID>`.
+- Proven green on the self-hosted GPU runner, CI run `28170120845`.
 - ADR-0021 (Physics-Level Realization on Articulation Models, L2 / L2.5 / L3),
   decisions D1 / D1a / D2.
 - Pattern reuse: the proven kinematic pose-tracking approach from
