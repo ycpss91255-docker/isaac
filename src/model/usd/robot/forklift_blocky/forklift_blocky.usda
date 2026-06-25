@@ -5,6 +5,13 @@
     upAxis = "Z"
 )
 
+# TEST-ONLY FIXTURE -- NOT a v1.0.0 reference (ADR-0021).
+# Hand-authored standalone kinematic rigid bodies (no articulation). The real
+# v1.0.0 physics direction is the SolidWorks -> URDF -> UrdfConverter articulation
+# pipeline (L2 / L2.5 / L3, ADR-0021); this asset must not be read as the
+# intended path. Full migration out to ycpss91255-research/isaac-forklift is
+# tracked by #136 (milestone M3).
+#
 # Forklift blocky — Model A-hybrid.
 # Forklift cubes: kinematic rigid bodies (driver sets pose via dc.set_kinematic_target).
 # Environment (ground, pallet): dynamic + collision (real physics).
