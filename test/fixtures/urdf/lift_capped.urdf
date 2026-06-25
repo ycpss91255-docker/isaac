@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<!--
+  lift_capped: a synthetic single-prismatic lift fixture for the L3 drive
+  LIMITATIONS experiment -- effort saturation + joint-limit clamp (Physics
+  milestone "L3 control verification", issue #188). NOT the forklift
+  application model -- a minimal, license-clean robot authored for this
+  repo's test suite.
+
+  Structure (mirrors lift_payload.urdf but with a DELIBERATELY LOW effort
+  cap):
+    base_link     a fixed-base box (fix_base=True at import -> anchored)
+    payload_link  a 5 kg box, joined to base_link by a single PRISMATIC
+                  joint along +Z (a vertical lift)
+
+  The point of the experiment: two HARD drive limitations that no amount of
+  stiffness can overcome.
+
+  1. EFFORT SATURATION. The joint's <limit effort="30"> caps the drive
+     force at 30 N. The payload weighs m*g = 5 * 9.81 = 49.05 N, which
+     EXCEEDS the cap. So even commanded UP at very high stiffness, the
+     drive cannot output more than 30 N; it cannot hold 49 N of weight, let
+     alone lift to the target. The steady-state error is set by the effort
+     cap (the drive saturates), NOT by stiffness -- raising k does not help
+     once saturated. With the effort cap removed (or raised above 49 N) the
+     same command would reach the target; that contrast IS the saturation
+     proof.
+
+  2. JOINT-LIMIT CLAMP. The joint travels lower="0.0" upper="1.0". A
+     command BEYOND the upper limit (e.g. 5.0 m) is clamped at 1.0 m: the
+     joint physically cannot pass its mechanical stop regardless of the
+     commanded target. (Tested with the effort cap RAISED so the drive can
+     actually reach the limit -- otherwise saturation, not the limit, would
+     dominate.)
+
+  Mass is 5 kg so m*g ~ 49.05 N, comfortably above the 30 N effort cap (a
+  ~1.6x overload, unambiguous saturation) yet small enough that with a
+  RAISED cap a high-stiffness drive lifts it cleanly to the limit. Both
+  links carry inertials so the importer keeps the prismatic joint. Geometry
+  is primitive boxes -- no external mesh asset.
+-->
+<robot name="lift_capped">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="payload_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.2"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.2"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lift_joint" type="prismatic">
+    <origin xyz="0 0 0.2" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="payload_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="1.0" effort="30.0" velocity="5.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+</robot>

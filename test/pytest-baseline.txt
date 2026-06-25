@@ -212,12 +212,30 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Physics L3 limitations (#188, ADR-0021 D1): the GPU suite gains 2
+#   in-container tests (29 -> 31 in-container) in test_l3_limits.py -- the
+#   drive LIMITATIONS stiffness cannot overcome, on the synthetic
+#   lift_capped.urdf fixture (a 5 kg payload + a prismatic Z lift whose
+#   <limit effort="30"> is below the 49 N payload weight; NOT the real
+#   forklift). test_effort_saturation_caps_steady_state_error (drive UP at
+#   stiffness 50000 with the effort cap at 30 N < weight -> saturates, large
+#   gap; raise the cap to 500 N > weight at the SAME stiffness -> the same
+#   command reaches the target: the error is set by the force cap, not the
+#   gain) and test_joint_limit_clamps_overshoot_command (cap raised, command
+#   5.0 m past the upper=1.0 m travel stop -> clamps at the limit). Stepped
+#   physics via dynamic_control + omni.timeline + app.update() (the #184 sag
+#   path), NOT a SimulationContext (#151). Runner _l3_limits_runner.py
+#   (underscore-prefixed, not collected). Aggregate GPU-integration =
+#   31 in-container + 2 host xc = 33. The enforced GPU baseline ratchets
+#   31 -> 33 (a ratchet UP).
+GPU_INTEGRATION_BASELINE = 33
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
-#   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
+#   126). Recorded for traceability; after the L3 limitations experiment
+#   (#188) the live aggregate is 329 (296 hosted-unit + 33 GPU-integration),
+#   well past the PRD's 126 floor. The aggregate is asserted at M2 where the
+#   GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
 AGGREGATE_TARGET = 126
