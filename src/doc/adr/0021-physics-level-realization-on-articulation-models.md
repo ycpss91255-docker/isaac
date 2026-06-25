@@ -51,6 +51,53 @@ applied to the standalone world). Naming it 2.5 (not 2) is deliberate: under con
 load it has a predictable steady-state droop `~= load_force / stiffness`, so it is an
 approximation of "command = position", not the PhysX hard guarantee.
 
+### D1a -- the levels are one continuum tuned by the drive gain, not three materials
+
+The `stiffness` (and `damping`) that separates L2.5 from L3 is a **controller
+parameter** -- the joint drive's PD gain (how hard the position controller pushes toward
+the target) -- NOT a material/rigidity property of the link. The link is a perfectly rigid
+body whose mass/inertia come from the CAD/URDF export and are never touched by this choice.
+URDF carries no drive-gain field (ADR-0020), so the gain is **set by the user** (in the
+per-robot `physics.yaml`, D3), not exported by the model. The three levels are therefore one
+continuum selected by that gain plus the joint's effort/velocity limits:
+
+```
+  L3  ───────────────  L2.5  ───────────────  L2 (true)
+real actuator        finite stiff drive       perfect / infinite-force
+(gains+effort+vel    (high k approximating     ideal (kinematic, k -> inf)
+ from the spec)       the ideal)
+error = realistic    error = load/stiffness    error = 0 (command=position)
+```
+
+- **L3** = fill the drive gains AND the effort/velocity limits from the **real actuator
+  spec**, so the sim reproduces the real motor (its sag under load, its response time, its
+  force/torque saturation). The effort limit matters as much as the stiffness -- the real
+  "can't lift it / stalls" behavior is the effort limit clamping.
+- **True L2** = the **perfect, infinite-force** idealization: the kinematic body is placed at
+  the commanded pose regardless of any load (PhysX "moves the actor to its target ...
+  regardless of external forces, gravity, collision"). There is no "force" concept and zero
+  error. This is the limit of the drive as `k -> infinity`.
+- **L2.5** = a **finite** high-stiffness drive that **approximates** that ideal. As `k`
+  rises it converges toward true-L2; at any finite `k` the steady-state error is
+  `load/stiffness`, small but nonzero.
+
+Raising `k` buys precision **without** buying instability (the implicit articulation drive
+absorbs very high gain), but it couples to three things the user must keep in view: damping
+must scale with it (critical `2*sqrt(k*m)`, else it oscillates); the joint **effort limit**
+must be high enough or the drive saturates and never reaches the target (the A3 limitation);
+and a higher-`k` part behaves more kinematic-like in contact -- it pushes/holds other bodies
+harder and can squish dynamics (the B3 interaction). It does NOT destabilize the sim or force
+a smaller timestep.
+
+Empirically validated (EXP-184, recorded in `doc/experiments/exp-184-l3-drive-precision.md`,
+the milestone "L3 control verification" sweep on an RTX 5090, 10 kg payload): the L2.5
+steady-state error tracks `m*g/stiffness` as a conservative upper bound and shrinks
+monotonically with stiffness -- 19.4 mm at k=5000, 0.79 mm at k=1e5, 18 um at k=1e6 -- with
+drift 0 (perfectly settled, no instability) at every point, and at high gain it BEATS the
+linear model (18 um measured vs 98 um predicted at 1e6). So Isaac's L2.5 precision is bounded
+by the stiffness you choose, not by an intrinsic floor; sub-mm is easy and tens of microns is
+reachable, all stable -- but only true-L2 (D2) gives the hard zero-error guarantee.
+
 ### D2 -- true-L2 requires a standalone body outside the articulation
 
 To get a true-L2 part in the same robot, that part must be a **standalone kinematic rigid
