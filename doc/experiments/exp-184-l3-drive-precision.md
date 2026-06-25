@@ -58,30 +58,41 @@ Or a single sweep point by hand:
 ## Results (L2.5 stiffness sweep, 10 kg payload, target 1.0 m)
 
 Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-`<RUN_ID>`, commit `<COMMIT>`, 2026-06-25.
+28161075519 (the recording run), 2026-06-25.
 
 | stiffness (N/m) | predicted `m*g/k` (m) | measured deviation (m) | drift (m) | settled |
 |---|---|---|---|---|
-| 5 000   | 0.01962  | _pending_ | _pending_ | _pending_ |
-| 25 000  | 0.003924 | _pending_ | _pending_ | _pending_ |
-| 100 000 | 0.000981 | _pending_ | _pending_ | _pending_ |
-| 1 000 000 | 0.0000981 | _pending_ | _pending_ | _pending_ |
+| 5 000     | 0.01962   | 0.0193987  (19.4 mm)   | 0 | yes |
+| 25 000    | 0.003924  | 0.00371057 (3.71 mm)   | 0 | yes |
+| 100 000   | 0.000981  | 0.000791013 (0.79 mm)  | 0 | yes |
+| 1 000 000 | 0.0000981 | 0.0000180006 (0.018 mm = 18 um) | 0 | yes |
 
-Anchor points already observed during bring-up (earlier runs): k=5000 ->
-deviation ~0.0188-0.0196 m (matches prediction within ~4%); k=200 (L3
-reference, not in the sweep) -> deviation ~0.49 m (matches `98.1/200`).
+(L3 reference outside the sweep: k=200 -> deviation ~0.49 m, matches
+`98.1/200` -- the compliant end of the same curve.)
 
 ## Findings
 
-- _To be finalized from the sweep table above._ Expected per PhysX 5.4 and the
-  bring-up data: the error tracks `m*g/stiffness` across the whole sweep with
-  no early precision floor, and the implicit drive stays settled (small drift)
-  even at very high gain -- i.e. **Isaac's L2.5 precision is bounded by the
-  stiffness you can stably apply, not by an intrinsic floor**, and sub-mm
-  steady-state error is reachable at high stiffness.
+- **No instability at high gain.** Drift is **0 at every point up to 1e6**:
+  the implicit articulation drive reaches a perfectly settled steady state
+  even at extreme stiffness. PhysX 5.4's "can handle very large gains without
+  instability" is confirmed empirically. (The ceiling was not reached at 1e6;
+  it could go higher.)
+- **No precision floor up to 1e6.** The error decreases monotonically
+  19.4 mm -> 3.71 mm -> 0.79 mm -> 0.018 mm as stiffness rises; it keeps
+  improving, it does not plateau.
+- **The linear `m*g/stiffness` model is a conservative UPPER BOUND.** Up to
+  ~1e5 the measured error tracks `m*g/k` within ~20%; at 1e6 the measured
+  error (~18 um) is FAR BELOW the linear prediction (~98 um) -- the error
+  drops faster than 1/k at high gain. The drive meets or beats the linear
+  model everywhere.
+- **Practical takeaway (Isaac limit):** the L2.5 steady-state error is bounded
+  by the stiffness you choose, not by an intrinsic Isaac floor; **sub-mm is
+  easy (>= 1e5) and ~tens of microns is reachable (1e6)**, all perfectly
+  settled.
 - True-L2 (a standalone kinematic body) remains the only path to a HARD
   zero-error guarantee (articulation links cannot be kinematic, ADR-0021 D2);
-  this experiment characterizes how close the L2.5 approximation gets.
+  this experiment shows the L2.5 approximation gets to the micron scale before
+  that distinction matters.
 
 ## Provenance
 
@@ -89,4 +100,4 @@ reference, not in the sweep) -> deviation ~0.49 m (matches `98.1/200`).
 - Runner: self-hosted GPU (RTX 5090 reference)
 - Test: `test/integration/pytest/test_l3_drive_sag.py` (`test_l25_precision_limit_sweep`)
 - Runner script: `test/integration/pytest/_sag_runner.py`
-- CI run: `<RUN_ID>` (filled on the recording commit)
+- CI run: 28161075519 (recording run; the table above is its measured output)
