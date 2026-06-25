@@ -15,11 +15,15 @@ The two write paths differ exactly as ADR-0008 says:
     the contact integrator -- it NEVER carries a resting dynamic payload at any
     step size (the mover passes straight through; the payload is left at its
     start). This is the negative control.
-  * ``dc.set_kinematic_target`` (``setKinematicTarget``) feeds the kinematic
-    target through the contact solver, so the mover PUSHES the payload via
-    contact each substep -- it carries the payload UP TO a per-tick speed
-    limit: ramp slowly and the payload rides along; ramp too far in one tick
-    and contact cannot keep up, so the payload is left behind / tunnels.
+  * the contact-respecting kinematic TARGET write feeds the target through the
+    contact solver, so the mover PUSHES the payload via contact each substep --
+    it carries the payload UP TO a per-tick speed limit: ramp slowly and the
+    payload rides along; ramp too far in one tick and contact cannot keep up,
+    so the payload is left behind / tunnels. This is ``dc.set_kinematic_target``
+    where the dc build exposes it, else a USD ``xformOp:translate`` write on the
+    stage (this Isaac build's dc has no ``set_kinematic_target``, so the USD
+    path is used -- writing a kinematicEnabled body's transform while physics
+    plays is the documented kinematic-target route through the contact solver).
 
 This runner ramps at one ``--ramp-step`` using ``--write-mode``
 (``kinematic_target`` default, or ``global_pose`` for the negative control)
@@ -74,42 +78,70 @@ def _get_body(iface, prim_path: str):
     return handle
 
 
-def _write_pose(iface, handle, target, write_mode):
+def _set_translate(stage, prim_path, x, y, z):
+    """Set the prim's ``xformOp:translate`` to (x, y, z) on the USD stage.
+
+    While physics plays, writing a kinematicEnabled body's transform through
+    the USD stage is the contact-respecting kinematic TARGET write: PhysX reads
+    the new target and interpolates the body to it across the substep, resolving
+    contact (so a resting dynamic payload is pushed via contact). This is the
+    ``setKinematicTarget`` equivalent when the dynamic_control build exposes no
+    ``set_kinematic_target`` method.
+    """
+    from pxr import Gf, UsdGeom
+
+    prim = stage.GetPrimAtPath(prim_path)
+    xform = UsdGeom.Xformable(prim)
+    translate_op = None
+    for op in xform.GetOrderedXformOps():
+        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+            translate_op = op
+            break
+    if translate_op is None:
+        translate_op = xform.AddTranslateOp()
+    translate_op.Set(Gf.Vec3d(float(x), float(y), float(z)))
+
+
+def _write_pose(iface, handle, stage, prim_path, x, y, z, write_mode):
     """Write a kinematic pose via the selected path (ADR-0008).
 
-    ``kinematic_target`` -> ``dc.set_kinematic_target`` (``setKinematicTarget``,
-    fed through the contact solver so the mover carries via contact).
+    ``kinematic_target`` -> the contact-respecting kinematic TARGET write: use
+    ``dc.set_kinematic_target`` if this dc build exposes it, else fall back to a
+    USD ``xformOp:translate`` write on the stage (both feed the target through
+    the contact solver so the mover carries the payload via contact).
     ``global_pose`` -> ``dc.set_rigid_body_pose`` (``setGlobalPose``, a teleport
-    that bypasses contact -- the negative control). If
-    ``set_kinematic_target`` is unavailable on this dc build the call raises so
-    the experiment fails loudly rather than silently degrading to a teleport.
+    that BYPASSES contact -- the negative control).
     """
+    from omni.isaac.dynamic_control import _dynamic_control as dc
+
     if write_mode == "kinematic_target":
-        if not hasattr(iface, "set_kinematic_target"):
-            raise RuntimeError(
-                "dc has no set_kinematic_target (cannot run the contact-"
-                "respecting carry path; ADR-0008)"
-            )
-        iface.set_kinematic_target(handle, target)
+        if hasattr(iface, "set_kinematic_target"):
+            target = dc.Transform()
+            target.r = (0.0, 0.0, 0.0, 1.0)
+            target.p = (x, y, z)
+            iface.set_kinematic_target(handle, target)
+        else:
+            _set_translate(stage, prim_path, x, y, z)
     elif write_mode == "global_pose":
+        target = dc.Transform()
+        target.r = (0.0, 0.0, 0.0, 1.0)
+        target.p = (x, y, z)
         iface.set_rigid_body_pose(handle, target)
     else:
         raise ValueError(f"unknown write_mode {write_mode!r}")
 
 
-def _seat(app, iface, handle, x, y, z, ticks, write_mode):
+def _seat(app, iface, handle, stage, prim_path, x, y, z, ticks, write_mode):
     """Hold the mover at its start height so the payload seats firmly on it."""
-    from omni.isaac.dynamic_control import _dynamic_control as dc
-
-    target = dc.Transform()
-    target.r = (0.0, 0.0, 0.0, 1.0)
-    target.p = (x, y, z)
     for _ in range(ticks):
-        _write_pose(iface, handle, target, write_mode)
+        _write_pose(iface, handle, stage, prim_path, x, y, z, write_mode)
         app.update()
 
 
-def _ramp(app, iface, handle, x, y, start_z, target_z, ramp_step, write_mode):
+def _ramp(
+    app, iface, handle, stage, prim_path, x, y, start_z, target_z, ramp_step,
+    write_mode,
+):
     """Ramp the kinematic mover from ``start_z`` to ``target_z`` in fixed
     per-tick steps of ``ramp_step`` metres; return the final mover pose.
 
@@ -118,28 +150,20 @@ def _ramp(app, iface, handle, x, y, start_z, target_z, ramp_step, write_mode):
     payload is left behind / tunnels). With ``global_pose`` every step is a
     teleport, so the payload is never carried regardless of step size.
     """
-    from omni.isaac.dynamic_control import _dynamic_control as dc
-
-    target = dc.Transform()
-    target.r = (0.0, 0.0, 0.0, 1.0)
     cz = start_z
     while cz < target_z - 1e-9:
         cz = min(cz + ramp_step, target_z)
-        target.p = (x, y, cz)
-        _write_pose(iface, handle, target, write_mode)
+        _write_pose(iface, handle, stage, prim_path, x, y, cz, write_mode)
         app.update()
     return iface.get_rigid_body_pose(handle)
 
 
-def _settle(app, iface, handle, x, y, target_z, ticks, write_mode):
+def _settle(
+    app, iface, handle, stage, prim_path, x, y, target_z, ticks, write_mode
+):
     """Hold at the target so the payload settles (carried) or falls (dropped)."""
-    from omni.isaac.dynamic_control import _dynamic_control as dc
-
-    target = dc.Transform()
-    target.r = (0.0, 0.0, 0.0, 1.0)
-    target.p = (x, y, target_z)
     for _ in range(ticks):
-        _write_pose(iface, handle, target, write_mode)
+        _write_pose(iface, handle, stage, prim_path, x, y, target_z, write_mode)
         app.update()
 
 
@@ -178,7 +202,8 @@ def _main() -> None:
             app.update()
 
         iface = dc.acquire_dynamic_control_interface()
-        mover = _get_body(iface, "/World/Mover")
+        mover_path = "/World/Mover"
+        mover = _get_body(iface, mover_path)
         payload = _get_body(iface, "/World/Payload")
 
         ramp_step = float(args.ramp_step)
@@ -187,12 +212,17 @@ def _main() -> None:
         write_mode = args.write_mode
 
         # Seat the payload, ramp the mover up at ramp_step, let it settle.
-        _seat(app, iface, mover, 0.0, 0.0, start_z, args.seat_ticks, write_mode)
+        _seat(
+            app, iface, mover, stage, mover_path, 0.0, 0.0, start_z,
+            args.seat_ticks, write_mode,
+        )
         mover_pose = _ramp(
-            app, iface, mover, 0.0, 0.0, start_z, target_z, ramp_step, write_mode
+            app, iface, mover, stage, mover_path, 0.0, 0.0, start_z, target_z,
+            ramp_step, write_mode,
         )
         _settle(
-            app, iface, mover, 0.0, 0.0, target_z, args.settle_ticks, write_mode
+            app, iface, mover, stage, mover_path, 0.0, 0.0, target_z,
+            args.settle_ticks, write_mode,
         )
 
         mover_pose = iface.get_rigid_body_pose(mover)
