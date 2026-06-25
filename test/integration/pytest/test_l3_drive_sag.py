@@ -89,33 +89,49 @@ def _run_sag(stiffness: float, tmp_path: Path) -> dict:
     }
 
 
-def test_l25_drive_sags_far_less_than_l3(tmp_path):
+def _deviation(summary: dict) -> float:
+    """Steady-state drive-error MAGNITUDE = |target - resting|.
+
+    The signed ``sag = target - resting`` field can come out negative: the
+    converted prismatic joint's positive axis may point along -Z, so under
+    gravity the payload settles a touch PAST the target rather than short of
+    it. The sign is a USD axis-convention artifact; what distinguishes L2.5
+    from L3 is the MAGNITUDE of the steady-state error (= m*g/stiffness),
+    which is sign-independent. So the experiment asserts on |deviation|.
+    """
+    return abs(summary["sag"])
+
+
+def test_l25_drive_holds_far_tighter_than_l3(tmp_path):
     """A high-stiffness (L2.5) drive holds the payload near the commanded
-    height; a low-stiffness (L3) drive sags much more (ADR-0021 D1).
+    height; a low-stiffness (L3) drive deviates much more (ADR-0021 D1).
 
     The core contrast: same payload, same target, only stiffness differs.
     """
     high = _run_sag(STIFFNESS_L25, tmp_path)
     low = _run_sag(STIFFNESS_L3, tmp_path)
+    dev_high = _deviation(high)
+    dev_low = _deviation(low)
 
-    # L2.5 holds tightly: a few cm of droop at most under a 10 kg load.
-    assert 0.0 <= high["sag"] < 0.05, (
-        f"L2.5 (stiffness {STIFFNESS_L25}) droop {high['sag']} m is not small "
+    # L2.5 holds tightly: a few cm of error at most under a 10 kg load.
+    assert dev_high < 0.05, (
+        f"L2.5 (stiffness {STIFFNESS_L25}) deviation {dev_high} m is not small "
         f"({high})"
     )
-    # L3 sags substantially under the same load.
-    assert low["sag"] > 0.2, (
-        f"L3 (stiffness {STIFFNESS_L3}) droop {low['sag']} m is not large "
+    # L3 deviates substantially under the same load.
+    assert dev_low > 0.2, (
+        f"L3 (stiffness {STIFFNESS_L3}) deviation {dev_low} m is not large "
         f"({low})"
     )
     # The contrast is unambiguous.
-    assert low["sag"] > high["sag"] * 5, (
-        f"L3 droop {low['sag']} is not >> L2.5 droop {high['sag']}"
+    assert dev_low > dev_high * 5, (
+        f"L3 deviation {dev_low} is not >> L2.5 deviation {dev_high}"
     )
 
 
-def test_sag_matches_load_over_stiffness(tmp_path):
-    """The droop matches  sag ~ m*g / stiffness  (linear drive, no pi/180).
+def test_deviation_matches_load_over_stiffness(tmp_path):
+    """The steady-state error matches  |dev| ~ m*g / stiffness  (linear
+    drive, no pi/180).
 
     Confirms L2.5 is an APPROXIMATION whose steady-state error is
     load/stiffness, not a hard guarantee (ADR-0021 D1). Settling + numerical
@@ -126,9 +142,10 @@ def test_sag_matches_load_over_stiffness(tmp_path):
         r = _run_sag(stiffness, tmp_path)
         predicted = r["sag_predicted"]
         assert predicted > 0, f"no usable prediction in {r}"
+        dev = _deviation(r)
         # Within 50% of m*g/stiffness (order-of-magnitude quantitative check).
-        rel = abs(r["sag"] - predicted) / predicted
+        rel = abs(dev - predicted) / predicted
         assert rel < 0.5, (
-            f"measured droop {r['sag']} m is not within 50% of the "
+            f"measured deviation {dev} m is not within 50% of the "
             f"m*g/stiffness prediction {predicted} m (rel={rel:.2f}); {r}"
         )
