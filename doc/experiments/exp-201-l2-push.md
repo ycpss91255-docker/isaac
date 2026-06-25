@@ -72,36 +72,37 @@ Or a single mode by hand:
 ## Results
 
 Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-<RUN_ID> (the recording run), <DATE>. The numbers below are filled in from the
-recording CI run output.
+28178185983 (the recording run, `python-tests` job), 2026-06-25 -- both tests
+in `test_l2_push.py` PASSED (GPU in-container collected 33, passed 31, +2 host
+cross-container = 33 aggregate; no failures). pytest captures a passing test's
+stdout, so the raw `[PUSH SUMMARY]` field values are not echoed in the CI log;
+the bounds below are the asserted (and met) properties. To capture the exact
+displacements, re-run the runner directly (see Reproduction) -- it prints the
+full `[PUSH SUMMARY]` line.
 
-### Momentum transfer (push, ramp-step 0.005 m, mover target x=0.5)
+### Momentum transfer (push, ramp-step 0.005 m, mover commanded x=0.5)
 
-| quantity | value |
+| property | asserted (and met) |
 |---|---|
-| box start x (m) | <BOX_X0> |
-| box end x (m) | <BOX_X_PUSH> |
-| box displacement (m) | <BOX_DISP_PUSH> |
-| mover commanded x (m) | 0.5 |
-| mover end x (m) | <MOVER_X_PUSH> |
-| mover tracking error (m) | <MOVER_ERR_PUSH> |
+| box displacement | `box_disp > 0.2 m` -- the box was pushed forward (momentum transfer through contact) |
+| box finite | `box_finite == True` |
+| mover tracking error | `mover_err < 0.02 m` -- the kinematic mover landed on its commanded path; the box reaction did not perturb it |
 
 The box is pushed forward (positive +X displacement); the kinematic mover
 tracks its commanded path within sub-cm (it ignores the reaction force).
 
-### Squish / limit (squish, mover target x=0.85, wall at x=1.2)
+### Squish / limit (squish, mover commanded x=0.85, wall at x=1.2)
 
-| quantity | value |
+| property | asserted (and met) |
 |---|---|
-| box end x (m) | <BOX_X_SQUISH> |
-| box displacement (m) | <BOX_DISP_SQUISH> |
-| wall x (m) | 1.2 |
-| box finite | <BOX_FINITE> |
-| mover tracking error (m) | <MOVER_ERR_SQUISH> |
+| box displacement | `box_disp > 0.4 m` -- the box was driven toward the wall |
+| box pinned short of the wall | `0.7 < box_x < wall_x (1.2)` -- the box stopped short of the static backstop, it did not tunnel through |
+| box finite | `box_finite == True` -- stable under the pin, no NaN/inf |
+| mover tracking error | `mover_err < 0.02 m` -- the mover still held its commanded path while pinning the box |
 
-The box is pinned just short of the wall (centre ~1.0, the wall left face at
-1.15): it cannot pass the static backstop, stays finite / settled, and the
-kinematic mover still holds its commanded path while pinning it.
+The box is pinned just short of the wall (the wall left face at 1.15): it
+cannot pass the static backstop, stays finite / settled, and the kinematic
+mover still holds its commanded path while pinning it.
 
 ## Findings
 
@@ -127,9 +128,11 @@ kinematic mover still holds its commanded path while pinning it.
 
 ## Provenance
 
-- Date: <DATE>
+- Date: 2026-06-25
 - Runner: self-hosted GPU (RTX 5090 reference)
-- Test: `test/integration/pytest/test_l2_push.py`
+- Test: `test/integration/pytest/test_l2_push.py` (both tests PASSED)
 - Runner script: `test/integration/pytest/_l2_push_runner.py`
 - Fixture: `test/fixtures/usd/l2_push.usda`
-- CI run: <RUN_ID> (recording run; the tables above are its measured output)
+- CI run: 28178185983 (`python-tests` job; the asserted properties above all
+  held -- GPU aggregate 33 collected, 33 passed counting the host xc leg, no
+  failures)
