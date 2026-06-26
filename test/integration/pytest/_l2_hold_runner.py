@@ -117,7 +117,22 @@ def _main() -> None:
 
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    def _livestream_kwargs():
+        """SimulationApp kwargs honoring ISAAC_LIVESTREAM so the scene is
+        stream-viewable (mirrors framework parse_livestream_env): unset/"0"
+        -> headless; "1"/"2" -> livestream. CI leaves it unset -> headless,
+        so this is behavior-identical to the previous hardcoded boot."""
+        import os
+
+        value = os.environ.get("ISAAC_LIVESTREAM")
+        if not value or value == "0":
+            return {"headless": True}
+        kwargs = {"headless": False, "livestream": int(value)}
+        if value == "2":
+            kwargs["renderer"] = "RaytracedLighting"
+        return kwargs
+
+    app = SimulationApp(_livestream_kwargs())
     try:
         import omni.timeline
         from omni.isaac.dynamic_control import _dynamic_control as dc
