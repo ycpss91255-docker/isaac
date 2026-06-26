@@ -139,7 +139,28 @@ def _main() -> None:
     from isaac_devkit import model_import
     from isaacsim import SimulationApp
 
-    app = SimulationApp(model_import._simulation_app_kwargs())
+    def _livestream_kwargs():
+        """SimulationApp kwargs honoring ISAAC_LIVESTREAM so the scene is
+        stream-viewable (mirrors framework parse_livestream_env): unset/"0"
+        -> headless; "1"/"2" -> livestream. CI leaves it unset -> headless,
+        so this is behavior-identical to the previous hardcoded boot."""
+        import os
+
+        value = os.environ.get("ISAAC_LIVESTREAM")
+        if not value or value == "0":
+            return {"headless": True}
+        kwargs = {"headless": False, "livestream": int(value)}
+        if value == "2":
+            kwargs["renderer"] = "RaytracedLighting"
+        return kwargs
+
+    # Merge livestream kwargs INTO the importer-experience-pinned kwargs
+    # (#177) so the 2.4.31 URDF importer experience is preserved AND the
+    # scene honors ISAAC_LIVESTREAM. CI leaves it unset -> headless boot with
+    # the experience pin, behavior-identical to before.
+    app_kwargs = model_import._simulation_app_kwargs()
+    app_kwargs.update(_livestream_kwargs())
+    app = SimulationApp(app_kwargs)
     try:
         import omni.timeline
         import omni.usd
