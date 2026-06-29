@@ -173,6 +173,13 @@ def _ros_env_args() -> list[str]:
 # both directions are harvested (compose run otherwise picks a random
 # one-off name that is awkward to target).
 ISAAC_CONTAINER_NAME = "xc-isaac-roundtrip"
+# Deterministic sibling names so a crashed/cancelled run's orphans can be swept
+# by the `xc-` prefix. `docker run --rm` does NOT fire when the client process
+# is killed (teardown terminate()) but the detached container keeps running --
+# the root cause of a 147-container ros:humble leak that polluted host-network
+# DDS discovery and broke the cross-container round-trip (isaac#224).
+CAMERA_SIBLING_NAME = "xc-camera-sibling"
+CMDVEL_SIBLING_NAME = "xc-cmdvel-sibling"
 
 
 def _compose_run_isaac_cmd() -> list[str]:
@@ -218,6 +225,41 @@ def _ament_node_script(node: str = "", custom_run: str = "") -> str:
     )
 
 
+def _force_remove(name: str) -> None:
+    """Best-effort ``docker rm -f`` a container by exact name (idempotent)."""
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
+def _sweep_xc_siblings() -> None:
+    """Force-remove every leftover ``xc-*`` container (siblings + Isaac runner).
+
+    A crashed or CANCELLED run leaks them: teardown ``terminate()``s the
+    docker-run CLIENT, but the detached container keeps running, so ``--rm``
+    never fires. Sweeping by the deterministic ``xc-`` name prefix before AND
+    after the run bounds the leak so stale DDS participants never accumulate to
+    pollute host-network discovery (isaac#224 -- a 147-container leak broke it).
+    """
+    try:
+        out = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", "name=xc-"],
+            capture_output=True, text=True, timeout=30,
+        )
+        ids = out.stdout.split()
+        if ids:
+            subprocess.run(
+                ["docker", "rm", "-f", *ids],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+            )
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
 def _spawn_camera_subscriber():
     """Sibling ros:humble running the ament camera_subscriber node.
 
@@ -225,9 +267,11 @@ def _spawn_camera_subscriber():
     ``example_app_py camera_subscriber`` node so the receipt is a genuine
     ament-node receipt (not a bare rclpy probe). Returns the Popen.
     """
+    _force_remove(CAMERA_SIBLING_NAME)
     return subprocess.Popen(
         [
             "docker", "run", "--rm", "--net=host",
+            "--name", CAMERA_SIBLING_NAME,
             *_ros_env_args(),
             "-v", f"{ROS2_WS}:/src:ro",
             "-v", f"{FASTDDS_PROFILE}:/cfg/fastdds.xml:ro",
@@ -246,9 +290,11 @@ def _spawn_cmd_vel_publisher():
         "ros2 run example_app_py cmd_vel_publisher --ros-args "
         f"-p linear_x:={SENT_VX} -p angular_z:={SENT_WZ}"
     )
+    _force_remove(CMDVEL_SIBLING_NAME)
     return subprocess.Popen(
         [
             "docker", "run", "--rm", "--net=host",
+            "--name", CMDVEL_SIBLING_NAME,
             *_ros_env_args(),
             "-v", f"{ROS2_WS}:/src:ro",
             "-v", f"{FASTDDS_PROFILE}:/cfg/fastdds.xml:ro",
@@ -459,26 +505,33 @@ def _run_roundtrip_once() -> dict:
 @pytest.fixture(scope="module")
 def roundtrip():
     """Run the cross-container round-trip once (retry <= 1, logged)."""
+    # Clear any xc-* orphan a crashed/cancelled prior run leaked, so its stale
+    # DDS participants do not pollute this run's host-network discovery (#224).
+    _sweep_xc_siblings()
     result = None
-    for attempt in range(MAX_RETRIES + 1):
-        sys.stderr.write(
-            f"\n[cross-container] attempt {attempt + 1}/{MAX_RETRIES + 1}\n"
-        )
-        result = _run_roundtrip_once()
-        got_camera = "[FRAME OK]" in result["camera_sibling"]
-        got_cmd_vel = "[XC CMD_VEL RX]" in result["isaac"]
-        if got_camera and got_cmd_vel:
+    try:
+        for attempt in range(MAX_RETRIES + 1):
             sys.stderr.write(
-                f"[cross-container] attempt {attempt + 1} crossed both "
-                f"directions\n"
+                f"\n[cross-container] attempt {attempt + 1}/{MAX_RETRIES + 1}\n"
             )
-            return result
-        sys.stderr.write(
-            f"[cross-container] attempt {attempt + 1} incomplete "
-            f"(camera={got_camera} cmd_vel={got_cmd_vel}); retrying if "
-            f"budget remains\n"
-        )
-    return result
+            result = _run_roundtrip_once()
+            got_camera = "[FRAME OK]" in result["camera_sibling"]
+            got_cmd_vel = "[XC CMD_VEL RX]" in result["isaac"]
+            if got_camera and got_cmd_vel:
+                sys.stderr.write(
+                    f"[cross-container] attempt {attempt + 1} crossed both "
+                    f"directions\n"
+                )
+                break
+            sys.stderr.write(
+                f"[cross-container] attempt {attempt + 1} incomplete "
+                f"(camera={got_camera} cmd_vel={got_cmd_vel}); retrying if "
+                f"budget remains\n"
+            )
+        yield result
+    finally:
+        # Never leak our named siblings, even on test failure/cancel.
+        _sweep_xc_siblings()
 
 
 @requires_xc
