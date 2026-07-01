@@ -4,6 +4,27 @@
 > (exp(L2): per-link true-kinematic substitution generality, isolated) / #194
 > (leaf link -> standalone L2). ADR-0021 D1 / D1a / D2.
 
+## In plain terms
+
+Picture a magic shelf that you set to a height and it stays exactly there no
+matter how much you pile on it -- it never sags a hair. The key finding: the
+kinematic platform held its commanded 1.0 m height with essentially zero error
+(`< 1e-4` m) while a full 10 kg load rested on it, whereas a spring-like L2.5
+drive would visibly droop about 19.6 mm under that same load. That perfect hold
+is a property of *how* it is held, not a stiffer version of a spring: it is a
+teleport-to-target, not a spring being loaded.
+
+Note on levels (ADR-0021 D2): a true-L2 body is kinematic -- PhysX simply moves
+it to its commanded pose and holds it there regardless of gravity, forces, or
+the load it bears, so it has no motor, no stiffness, and no sag, and its error
+is essentially zero. That is a categorically different mechanism from the
+L2.5/L3 position drive, which is a real motorized joint that always sags a
+little under load (sag = mg/k). The kinematic body pays for its perfect hold
+with its own separate limits: it has no physical dynamics of its own and it
+ignores contact when it teleports, so moving it too fast per tick would leave
+its payload behind -- but a pure hold (zero motion per tick) never trips that,
+which is exactly why the error here is zero.
+
 ## Goal
 
 Demonstrate the **true-L2 endpoint** of the L2 / L2.5 / L3 continuum (ADR-0021
