@@ -212,12 +212,32 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Physics verification (#184/#185, ADR-0021 D1): the FIRST stepped-physics
+#   experiment. test_l3_drive_sag.py (3) drives the synthetic lift_payload
+#   fixture (fixed base + one prismatic Z lift + 10 kg payload) to a target
+#   height and measures the steady-state droop with stepped physics
+#   (dynamic_control + omni.timeline + app.update(), the example/L2 path --
+#   NOT a SimulationContext, #151). Three tests: (1) a high-stiffness (L2.5)
+#   drive holds within a few cm while a low-stiffness (L3) drive sags far
+#   more; (2) the droop matches sag ~ m*g/stiffness (linear drive, no pi/180),
+#   confirming L2.5 is an approximation whose error is load/stiffness, not the
+#   PhysX hard guarantee; (3) a stiffness sweep (5000 -> 1e6) characterizing
+#   Isaac's L2.5 precision LIMIT -- the error keeps shrinking ~ m*g/stiffness
+#   with no early floor and the implicit drive stays settled at very high gain
+#   (PhysX 5.4: "can handle very large gains without instability"). The
+#   measured table is recorded in doc/experiments/exp-184-l3-drive-precision.md
+#   (original data + reproduction). These are the first GPU tests that ACTUATE
+#   a drive (the #168 tests are structural-only). Runner _sag_runner.py
+#   (underscore-prefixed, not collected), [SAG SUMMARY] marker. The enforced
+#   GPU baseline ratchets 31 -> 34 (+3, a ratchet UP).
+GPU_INTEGRATION_BASELINE = 34
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
-#   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
+#   126). Recorded for traceability; after the first physics-verification
+#   experiment the live aggregate is 330 (296 hosted-unit + 34
+#   GPU-integration), well past the PRD's 126 floor. The aggregate is
+#   asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
 AGGREGATE_TARGET = 126
