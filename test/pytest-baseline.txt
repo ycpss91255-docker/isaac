@@ -212,11 +212,34 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Multi-joint coupling (#226, ADR-0021): the GPU suite gains 3
+#   in-container tests (29 -> 32) that measure PhysX articulation-solver
+#   coupling on a synthetic, license-clean serial chain (NOT the real
+#   forklift):
+#     * test_multijoint_coupling.py (3): multi_joint_chain.urdf -- a fixed
+#       base + three prismatic +Z lift joints (lift0..lift2, 5 kg
+#       primitive-box links) -- imported with a per-joint import-time
+#       position drive and STEPPED (dynamic_control + omni.timeline +
+#       app.update(), not a SimulationContext, #151). One runner
+#       invocation prints two marker lines: [CHAIN SUMMARY] (sag
+#       accumulation -- per-joint sag, cumulative tip error vs summed
+#       mg/k prediction; base joint bears 15 kg and sags most) and
+#       [COUPLING SUMMARY] (cross-joint disturbance -- peak transient
+#       deviation + residual of joints 1/2 while joint 0 step-moves).
+#       Deliberately LOOSE bands (record the numbers into
+#       doc/experiments/exp-226-multijoint-coupling.md, not gate). Joints
+#       addressed by name (find_articulation_dof) for a deterministic
+#       base->tip order. Runner _multijoint_runner.py (underscore-prefixed,
+#       not collected); skipped on hosts without /isaac-sim.
+#   In-container GPU suite collects 32; aggregate GPU-integration = 32
+#   in-container + 2 host xc = 34. The enforced GPU baseline ratchets
+#   31 -> 34 (a ratchet UP -- new GPU coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 34
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
+#   aggregate is 330 (296 hosted-unit + 34 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
