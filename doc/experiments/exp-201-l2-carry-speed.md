@@ -5,6 +5,28 @@
 > its carry-speed sub-issue. ADR-0008, ADR-0021 D1 / D2. Follow-up to EXP-193
 > (PR #215, true-L2 zero-error HOLD under load).
 
+## In plain terms
+
+Picture carrying a full coffee cup on a tray: lift the tray gently and the cup
+rides along, but yank it up too fast and the cup gets left behind or flips off.
+The key finding: through the contact-respecting path the kinematic mover carries
+its 10 kg payload at every ramp speed tested, and the payload sits cleanly on
+top (ending at z=1.20) all the way up to 0.05 m per tick -- but at 0.2 m per
+tick the fast motion flings it to z=5.19 m, so the clean-carry speed limit lies
+between 0.05 and 0.2 m per tick. The separate teleport path (`global_pose`)
+never carries at all: the payload is left at z=0.70 at every speed. So this is a
+speed trade-off, not a hard "kinematic bodies cannot carry" wall -- stay under
+the limit and use the right write path and it carries fine.
+
+Note on levels (ADR-0021 D2): a true-L2 body is kinematic -- PhysX holds it
+exactly on target no matter the load, with no motor, no stiffness, and no sag,
+which is why its own hold error is essentially zero. That is a different
+mechanism from the L2.5/L3 position drive, which is a motorized joint that sags
+under load (sag = mg/k). The kinematic body pays for that perfect hold with its
+own limits: when it is teleported it ignores contact entirely, and even on the
+contact-respecting path moving it too far in one tick outruns the contact solver
+and launches whatever it carries -- the carry-speed limit measured here.
+
 ## Goal
 
 Measure the **effective per-tick speed limit** at which a kinematic mover stops
