@@ -6,6 +6,29 @@ This file is the durable RECORD of the measured results. The committed test
 (`test/integration/pytest/test_l2_push.py`) is the REPRODUCTION harness:
 re-running it on a GPU box regenerates the numbers below for re-verification.
 
+## In plain terms
+
+Picture a snowplow pushing a box across a floor: the plow shoves the box ahead
+of it, and because the plow is heavy and engine-driven it just keeps to its
+lane no matter how hard the box pushes back. The key finding: the kinematic
+mover pushed the dynamic box forward through contact (box moved more than 0.2 m
+in the push case, more than 0.4 m in the squish case) while the mover itself
+stayed on its commanded path within sub-centimetre (tracking error under
+0.02 m) -- it never got shoved off course by the box's reaction. When the box
+was driven into a static wall it pinned just short of it (stopping between
+x=0.7 and the wall at x=1.2) and stayed stable, no blow-up.
+
+Note on levels (ADR-0021 D2): a true-L2 body is kinematic -- to the physics
+solver it is effectively infinitely heavy, so PhysX holds it exactly on its
+commanded path regardless of the forces pushing back on it, with no motor, no
+stiffness, and no sag. That is a different mechanism from the L2.5/L3 position
+drive, which is a motorized joint that would give and sag under load
+(sag = mg/k). The kinematic mover pays for that unshakable path with its own
+limits: it ignores contact when teleported, and it can only push cleanly if
+each per-tick step stays under the carry-speed limit -- move it too far in one
+tick and it outruns the contact solver and flings the object instead of pushing
+it.
+
 ## Question
 
 The carry-speed experiment (#201) showed a kinematic mover carries a resting
