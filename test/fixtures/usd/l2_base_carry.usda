@@ -1,0 +1,214 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# TEST-ONLY FIXTURE -- kinematic base carries an articulation (#228,
+# milestone "Physics: L2 true-kinematic + hybrid"; ADR-0021 D2).
+#
+# The MOST COMMON true-L2 use case: a KINEMATIC base that MOVES on the floor
+# (scripted / command=position path) while an ARTICULATION (a small "arm")
+# rides ON TOP of it. Distinct topology from #226 (a serial chain inside ONE
+# articulation) and #221 (a maximal-coordinate FixedJoint seam).
+#
+# TOPOLOGY (A) -- USD-hierarchy parent (NOT a FixedJoint):
+#   A PhysX articulation LINK cannot be kinematic (ADR-0021 D2), so the moving
+#   base cannot be a link of the arm articulation. Here the arm articulation
+#   prim (/World/Base/Arm) is a CHILD of the base group prim (/World/Base) in
+#   the USD stage, so it is meant to ride along by the transform hierarchy --
+#   NO joint, NO seam between the base and the arm.
+#
+#   A literal "arm as a child of the kinematic base RIGID BODY" is impossible:
+#   PhysX forbids a rigid body nested inside another rigid body, and the arm
+#   links are rigid bodies. So the base group /World/Base is a plain Xform that
+#   parents BOTH the kinematic chassis (/World/Base/Chassis) AND the arm
+#   articulation (/World/Base/Arm) as siblings -- no rigid body nests inside
+#   another. The base is moved by WRITING /World/Base's xformOp:translate each
+#   tick while physics plays (the #201/#218 kinematic-carry mechanism).
+#
+#   The OPEN QUESTION the GPU run answers: when the base group translate is
+#   written mid-play, does PhysX propagate that moving parent transform to the
+#   child arm articulation (a rigid ride-along), does contact between the arm
+#   anchor and the chassis top drag the arm (a dynamic ride-along that also
+#   disturbs a held joint), or is the arm left behind (topology A fails and a
+#   FixedJoint -- topology B, the #221 seam -- is forced)? The two measured
+#   markers ([CARRY SUMMARY] ride-along error, [BASE COUPLING SUMMARY] held
+#   joint peak deviation + residual) discriminate these regimes.
+#
+# Prims:
+#   /World/PhysicsScene       -- gravity (Z down, 9.81 m/s^2).
+#   /World/Ground             -- static collider slab at z=0.
+#   /World/Base               -- plain Xform (the "base group"); the runner
+#                                writes its xformOp:translate to move the base.
+#   /World/Base/Chassis       -- KINEMATIC rigid body box on the ground
+#                                (physics:kinematicEnabled=1), the moving base.
+#   /World/Base/Arm           -- articulation ROOT (ArticulationRootAPI),
+#                                child of the base group, sitting on the
+#                                chassis top; a floating-base 1-DOF arm.
+#   /World/Base/Arm/Anchor    -- arm root link; rests on the chassis top.
+#   /World/Base/Arm/Slider    -- arm mass link; joined to Anchor by a single
+#                                PRISMATIC (+X) joint held at 0 by a stiff
+#                                position drive. Base +X acceleration is what a
+#                                held +X slide feels as an inertial disturbance.
+#   /World/Base/Arm/arm_slide -- the prismatic joint (axis X) + linear DriveAPI.
+#
+# Links are authored as UNSCALED Xforms (rigid body + mass on the Xform) with a
+# child Cube carrying the collision + display geometry, so the prismatic joint
+# local frames are plain metres (no prim-scale confusion). Synthetic primitives
+# only -- NOT the real forklift.
+
+def Xform "World"
+{
+    def DistantLight "SunLight"
+    {
+        float inputs:intensity = 3000
+        float3 xformOp:rotateXYZ = (-45, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        float physics:gravityMagnitude = 9.81
+        vector3f physics:gravityDirection = (0, 0, -1)
+    }
+
+    # Static ground collider at z = 0 (a thin slab). Not a rigid body.
+    def Cube "Ground" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (20, 20, 0.02)
+        double3 xformOp:translate = (0, 0, -0.01)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        color3f[] primvars:displayColor = [(0.45, 0.45, 0.45)]
+    }
+
+    # The BASE GROUP -- a plain Xform (no rigid body of its own). The runner
+    # writes this prim's xformOp:translate each tick to move the base; both the
+    # kinematic chassis and the arm articulation are its children (topology A).
+    def Xform "Base"
+    {
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        # KINEMATIC chassis -- the moving base box, resting on the ground.
+        # Rigid body + mass on the (unscaled) Xform; collision geometry on the
+        # child Geom cube. Bottom at z=0, top at z=0.30 (centre 0.15).
+        def Xform "Chassis" (
+            prepend apiSchemas = [
+                "PhysicsRigidBodyAPI",
+                "PhysicsMassAPI",
+                "PhysxRigidBodyAPI"
+            ]
+        )
+        {
+            double3 xformOp:translate = (0, 0, 0.15)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+            float physics:mass = 50
+            bool physics:kinematicEnabled = 1
+
+            def Cube "Geom" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 0.3)
+                uniform token[] xformOpOrder = ["xformOp:scale"]
+                color3f[] primvars:displayColor = [(0.1, 0.4, 0.85)]
+            }
+        }
+
+        # The ARM articulation -- child of the base group, resting on the
+        # chassis top (its origin at z=0.30 = the chassis top surface). A
+        # floating-base 1-DOF prismatic arm; NO joint ties it to the chassis
+        # (topology A, not the #221 FixedJoint seam).
+        def Xform "Arm" (
+            prepend apiSchemas = [
+                "PhysicsArticulationRootAPI",
+                "PhysxArticulationAPI"
+            ]
+        )
+        {
+            double3 xformOp:translate = (0, 0, 0.30)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+            bool physxArticulation:enabledSelfCollisions = 0
+
+            # Arm root link -- rests on the chassis top (bottom at z=0.30).
+            def Xform "Anchor" (
+                prepend apiSchemas = [
+                    "PhysicsRigidBodyAPI",
+                    "PhysicsMassAPI",
+                    "PhysxRigidBodyAPI"
+                ]
+            )
+            {
+                double3 xformOp:translate = (0, 0, 0.05)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+                float physics:mass = 2
+
+                def Cube "Geom" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    double size = 1
+                    float3 xformOp:scale = (0.25, 0.25, 0.1)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                    color3f[] primvars:displayColor = [(0.85, 0.55, 0.1)]
+                }
+            }
+
+            # Arm mass link -- held at slide position 0 by a stiff drive. Base
+            # +X acceleration is felt here as an inertial disturbance.
+            def Xform "Slider" (
+                prepend apiSchemas = [
+                    "PhysicsRigidBodyAPI",
+                    "PhysicsMassAPI",
+                    "PhysxRigidBodyAPI"
+                ]
+            )
+            {
+                double3 xformOp:translate = (0, 0, 0.20)
+                uniform token[] xformOpOrder = ["xformOp:translate"]
+                float physics:mass = 3
+
+                def Cube "Geom" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                )
+                {
+                    double size = 1
+                    float3 xformOp:scale = (0.15, 0.15, 0.15)
+                    uniform token[] xformOpOrder = ["xformOp:scale"]
+                    color3f[] primvars:displayColor = [(0.2, 0.8, 0.3)]
+                }
+            }
+
+            # PRISMATIC joint (axis X) Anchor -> Slider, held at 0 by a linear
+            # position drive (stiffness 5000 N/m, damping 245 ~ 2*sqrt(k*m) for
+            # the 3 kg slider). localPos0 (Anchor frame) points up to the slider
+            # home; localPos1 is the slider origin. Limits +/- 1 m so the slide
+            # can deviate under a base-motion disturbance.
+            def PhysicsPrismaticJoint "arm_slide" (
+                prepend apiSchemas = ["PhysicsDriveAPI:linear"]
+            )
+            {
+                rel physics:body0 = </World/Base/Arm/Anchor>
+                rel physics:body1 = </World/Base/Arm/Slider>
+                uniform token physics:axis = "X"
+                point3f physics:localPos0 = (0, 0, 0.15)
+                quatf physics:localRot0 = (1, 0, 0, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                quatf physics:localRot1 = (1, 0, 0, 0)
+                float physics:lowerLimit = -1
+                float physics:upperLimit = 1
+                float drive:linear:physics:targetPosition = 0
+                float drive:linear:physics:stiffness = 5000
+                float drive:linear:physics:damping = 245
+                float drive:linear:physics:maxForce = 1000000
+                uniform token drive:linear:physics:type = "force"
+            }
+        }
+    }
+}
