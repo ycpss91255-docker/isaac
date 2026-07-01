@@ -7,6 +7,36 @@ This file is the durable RECORD of the measured results. The committed test
 harness: re-running it on a GPU box regenerates the numbers below for
 re-verification.
 
+## In plain terms
+
+Picture hanging a 10 kg toolbox from a hook by a short chain -- except here the
+"chain" is meant to be a solid welded bar. In this experiment the top piece (the
+anchor) is a "true-L2 kinematic" part: it moves exactly where we tell it, like a
+puppet on a string, ignoring physics forces. The bottom piece (the hung body) is
+a normal physics object with real weight. We bolt them together not with a proper
+internal robot joint but with a rigid-body "fixed joint" -- and the point of the
+test is that this kind of bolt is not actually a perfectly rigid weld. It behaves
+like a very stiff spring: strong, but it gives a little.
+
+The key finding: when we hang the 10 kg body and let it settle, the joint that is
+supposed to hold it at exactly 0.5 m stretches a bit under the weight -- a small,
+bounded give (measured under 1.0 m, and the body settles near its 0.5 m resting
+gap rather than collapsing or flying apart). Then we lift the anchor by 0.5 m and
+the hung body rises too: it follows along at close to a 1-to-1 ratio (the follow
+ratio lands in a loose 0.4-1.6 band around the rigid ideal of 1.0). So the seam
+both carries the load and passes motion through -- raise the top, the bottom comes
+with it -- but it is the soft spot, not a solid weld.
+
+The everyday takeaway: if you want one part of a robot to be true-L2 kinematic
+and bolt it onto the rest with this kind of maximal-coordinate fixed joint, the
+bolt is springy, not perfectly rigid. That is fine for carrying something or for
+having a hung part follow along, but the joint is where it flexes under load. The
+contrast: for something simple like an arm riding on a moving base, you would not
+close a seam like this at all -- you would parent the arm to the base directly in
+the USD scene hierarchy so it rides along rigidly, no spring in the connection.
+You reach for this compliant seam only when you genuinely need to join a kinematic
+part to a separate dynamic body and can live with a little give.
+
 ## Question
 
 A standalone KINEMATIC anchor is joined to a standalone DYNAMIC body by a
