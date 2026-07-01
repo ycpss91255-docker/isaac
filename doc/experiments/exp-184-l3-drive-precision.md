@@ -6,6 +6,32 @@ This file is the durable RECORD of the measured results. The committed test
 (`test/integration/pytest/test_l3_drive_sag.py`) is the REPRODUCTION harness:
 re-running it on a GPU box regenerates the numbers below for re-verification.
 
+## In plain terms
+
+Picture a heavy box hanging from a motorized shelf that is told to hold a
+line 1 metre up. The motor is not perfectly rigid -- it behaves like a stiff
+spring, so the box settles a hair BELOW the line, the way a spring stretches a
+little under weight (droop = weight * g / stiffness). Here the box is 10 kg,
+and the only knob is how stiff the "spring" is. Crank up the stiffness and the
+droop shrinks steadily: at stiffness 5 000 it sags about 19 mm, at 25 000 about
+3.7 mm, at 100 000 under 1 mm (0.79 mm), and at 1 000 000 it is essentially
+gone -- 18 microns, thinner than a sheet of paper -- and at every setting it
+sits rock-steady with zero drift once settled. So sub-millimetre is easy and
+tens-of-microns is reachable; the residual droop is set by the stiffness YOU
+pick, not by any hidden floor Isaac imposes. The 10 kg is just this test box's
+weight, not a limit -- a heavier box droops more, a stiffer motor droops less;
+a precision-vs-stiffness trade-off, not a weight ceiling.
+
+Note on levels (ADR-0021 D1a): the "L2.5" high-stiffness drive tested here and
+the softer "L3" compliant drive (e.g. the k=200 reference that sags ~0.49 m)
+are the SAME mechanism -- one articulation joint plus a position controller --
+differing ONLY in how stiff the gain is. Both obey the same droop = mg/k rule;
+a stiffer gain just sits closer to an ideal, infinite-gain controller. Neither
+ever becomes true-L2, which is a different mechanism entirely: a kinematic body
+PhysX simply teleports to the target while ignoring forces, so it never droops
+at all (ADR-0021 D2). This experiment shows the position drive reaches the
+micron scale long before that distinction starts to matter.
+
 ## Question
 
 Not "is it good enough for CoreSAM" -- this records **Isaac's own limit**: how
