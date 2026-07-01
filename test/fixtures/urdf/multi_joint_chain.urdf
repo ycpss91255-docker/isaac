@@ -1,0 +1,157 @@
+<?xml version="1.0"?>
+<!--
+  multi_joint_chain: a synthetic SERIAL articulation chain for the
+  multi-joint coupling experiment (Physics milestone, issue #226; ADR-0021).
+  NOT the forklift application model -- a minimal, license-clean robot
+  authored for this repo's test suite (primitive boxes only, no external
+  mesh asset).
+
+  Structure (a vertical Z-lift stack, base at the bottom):
+
+    base_link  a fixed-base box (fix_base=True at import -> anchored)
+      | lift0  PRISMATIC +Z joint (base-most; bears link1+link2+link3)
+    link1      box, mass 5 kg
+      | lift1  PRISMATIC +Z joint (bears link2+link3)
+    link2      box, mass 5 kg
+      | lift2  PRISMATIC +Z joint (tip-most; bears link3 only)
+    link3      box, mass 5 kg (the chain tip)
+
+  All three prismatic joints get the SAME import-time position drive
+  (_convert_urdf applies joint_drive_stiffness/damping to every joint), so
+  the chain is a uniform-stiffness serial position-drive probe.
+
+  Two PhysX articulation-solver properties are measured against this chain:
+
+    1. SAG ACCUMULATION -- with every joint commanded to hold, gravity pulls
+       each link down. A base-most joint bears all the mass above it, so it
+       sags most; a child inherits its parent's sag. For a linear/prismatic
+       drive the per-joint droop is  sag_j = (mass above j) * g / k  (N/m
+       stiffness, no pi/180 -- that scaling is angular-only). With 5 kg links
+       and g = 9.81:
+         lift0 bears 15 kg -> 147.15 / k    (sags most)
+         lift1 bears 10 kg ->  98.10 / k
+         lift2 bears  5 kg ->  49.05 / k    (sags least)
+       The chain TIP total error is the SUM of the three local sags
+       (they add in series along Z):  tip_error = g/k * (15 + 10 + 5).
+       At k = 5000 N/m that is ~58.9 mm (29.4 + 19.6 + 9.8 mm), well inside
+       the joint limits and clearly ordered base > middle > tip.
+
+    2. CROSS-JOINT DISTURBANCE -- step-move lift0 while lift1 and lift2 hold.
+       The reaction/inertial coupling through the articulation solver may
+       deflect the held joints during the transient; the experiment measures
+       the peak deviation and whether they settle back (residual error).
+
+  Both links of every joint carry inertials so the importer keeps all three
+  prismatic joints (merge_fixed_joints only collapses fixed joints). Inertia
+  of a 0.15 m cube at 5 kg is m/12*(a^2+b^2) = 5/12*0.045 ~ 0.019 kg m^2.
+-->
+<robot name="multi_joint_chain">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="link1">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="link2">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="link3">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.15 0.15 0.15"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lift0" type="prismatic">
+    <origin xyz="0 0 0.2" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5" upper="1.5" effort="2000.0" velocity="5.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="lift1" type="prismatic">
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5" upper="1.5" effort="2000.0" velocity="5.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="lift2" type="prismatic">
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+    <parent link="link2"/>
+    <child link="link3"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5" upper="1.5" effort="2000.0" velocity="5.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+</robot>
