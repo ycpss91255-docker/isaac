@@ -7,6 +7,34 @@ This file is the durable RECORD of the measured results. The committed test
 (`test/integration/pytest/test_l3_tracking.py`) is the REPRODUCTION harness:
 re-running it on a GPU box regenerates the numbers below for re-verification.
 
+## In plain terms
+
+Imagine asking someone to trace a moving dot with their fingertip -- how
+closely does the finger stay on the dot as it glides around, and can it stop
+exactly on the dot and land in the same spot every time? That is what this
+tests, but the "finger" is a single light lift joint (1 kg, no payload)
+driven by a motor-style position controller, and there is no contact or load
+to fight -- just the drive's own accuracy. The results are tight: when told to
+step to 0.5 m it settles about 1.8 mm short (right at the spring-droop floor of
+1.96 mm for its own light weight); while following a smooth up-down path it
+never lags more than 4.6 mm and averages 1.8 mm off; and repeating the same
+move three times it lands in the EXACT same place, zero spread. In short, a
+smoothly-commanded joint tracks to a few millimetres and repeats perfectly --
+the drive's intrinsic precision is not the bottleneck; load and stiffness are.
+(One caveat from the notes: an early run showed a scary 498 mm peak, but that
+was an artifact of yanking the command faster than the drive could follow --
+pace the path within the drive's bandwidth and the real error is 4.6 mm.)
+
+Note on levels (ADR-0021 D1a): the drive here is the same mechanism as the
+softer "L3" compliant drive and the stiffer "L2.5" drive used elsewhere -- one
+articulation joint plus a position controller, differing ONLY in stiffness
+(gain). All of them leave a small steady-state error equal to weight * g /
+stiffness; a stiffer gain just sits closer to an ideal, infinite-gain
+controller. None of them ever becomes true-L2, which is a separate mechanism:
+a kinematic body that PhysX teleports onto the target while ignoring forces, so
+it neither droops nor lags (ADR-0021 D2). Here, unloaded, the ordinary position
+drive already tracks to millimetres without needing that.
+
 ## Question
 
 What is an articulation (L3) joint drive's INTRINSIC tracking precision -- in
