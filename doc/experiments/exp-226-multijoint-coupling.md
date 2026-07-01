@@ -7,6 +7,42 @@ This file is the durable RECORD of the measured results. The committed test
 harness: re-running it on a GPU box regenerates the numbers below for
 re-verification.
 
+## In plain terms
+
+Picture a three-section telescoping lift, each section a 5 kg box stacked on
+the one below, every joint held by a motor-style position controller (the
+"L2.5" high-stiffness position drive). This experiment asks two everyday
+questions about stacking such joints:
+
+1. **Does droop add up?** A position-driven joint sags a little under the
+   weight it holds, like a spring stretching (`sag = weight * g / stiffness`).
+   In a stack the bottom joint holds the most (all three sections, 15 kg) so it
+   sags most; measured 30 mm bottom, 20 mm middle, 10 mm top. The crucial part:
+   the TIP of the lift droops by the SUM of all three (about 60 mm), because
+   each section sits on an already-drooping one. So a multi-joint lift's tip
+   error is the total of every joint's droop, not just the worst one. To make
+   the tip precise you must stiffen every joint, the bottom one most of all.
+2. **Do joints shove each other?** Moving one joint jolts the neighbours by up
+   to 39 mm DURING the move, but they snap back to within 0.02 mm once things
+   settle. So joints disturb each other only momentarily; they do not push each
+   other permanently off target (unless you need a joint to stay precise WHILE
+   another moves -- then that 39 mm transient is what matters).
+
+The 15 kg here is just this toy's total weight, NOT a limit -- heavier loads
+sag more, higher stiffness sags less; it is a precision-vs-stiffness trade-off,
+not a weight ceiling.
+
+Note on levels (ADR-0021 D1a): the "L2.5" drive tested here and the compliant
+"L3" drive are the SAME mechanism -- an articulation joint plus a position
+controller -- differing ONLY in stiffness (gain). Both obey `sag = mg/k`, so
+BOTH accumulate error down a chain exactly as measured here; L2.5 merely has
+smaller per-joint droop because its gain is higher. The error accumulation is a
+property of the shared drive architecture, not something unique to L3. Neither
+ever becomes true-L2: true-L2 is a kinematic body that PhysX teleports to its
+target ignoring forces (no drive, no stiffness, no sag) -- a categorically
+different mechanism kept on a standalone body outside the articulation
+(ADR-0021 D2).
+
 ## Question
 
 The single-DOF experiments (EXP-184 sag, #180 tracking, #193 hold) each drive
