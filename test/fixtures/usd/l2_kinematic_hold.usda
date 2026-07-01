@@ -1,0 +1,97 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# TEST-ONLY FIXTURE -- the true-L2 endpoint of the L2 / L2.5 / L3 continuum
+# (ADR-0021 D1/D2, milestone "Physics: L2 true-kinematic + hybrid", #193/#194).
+#
+# A standalone KINEMATIC platform (NOT an articulation link -- PhysX forbids
+# kinematic articulation links, ADR-0021 D2) is commanded to a target height
+# via dc.set_rigid_body_pose each tick. A DYNAMIC payload rests on it under
+# gravity, so the platform carries a real load. PhysX moves a kinematic actor
+# to its target "regardless of external forces, gravity, collision", so the
+# platform holds its commanded height with ZERO steady-state error -- the
+# direct contrast to the L2.5 articulation drive's load/stiffness sag (mg/k;
+# EXP-184 measured 19.4 mm at k=5000 for the same 10 kg payload).
+#
+# Prims:
+#   /World/PhysicsScene  -- gravity enabled (Z down, 9.81 m/s^2).
+#   /World/Ground        -- static collider (catches the payload if it ever
+#                           fell; under correct kinematic behaviour it never
+#                           reaches the ground).
+#   /World/Platform      -- KINEMATIC rigid body (physics:kinematicEnabled=1)
+#                           + RigidBodyAPI + CollisionAPI; the body under test.
+#   /World/Payload       -- DYNAMIC rigid body + mass + CollisionAPI; the load.
+
+def Xform "World"
+{
+    def DistantLight "SunLight"
+    {
+        float inputs:intensity = 3000
+        float3 xformOp:rotateXYZ = (-45, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        float physics:gravityMagnitude = 9.81
+        vector3f physics:gravityDirection = (0, 0, -1)
+    }
+
+    # Static ground collider at z = 0 (a thin slab). Not a rigid body, so it
+    # never moves; the payload rests on the platform, not the ground.
+    def Cube "Ground" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (20, 20, 0.02)
+        double3 xformOp:translate = (0, 0, -0.01)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        color3f[] primvars:displayColor = [(0.45, 0.45, 0.45)]
+    }
+
+    # KINEMATIC platform -- the true-L2 body under test. Commanded to a target
+    # height via dc.set_rigid_body_pose each tick; holds it exactly under load.
+    def Cube "Platform" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (1.0, 1.0, 0.1)
+        double3 xformOp:translate = (0, 0, 1.0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 50
+        bool physics:kinematicEnabled = 1
+        color3f[] primvars:displayColor = [(0.1, 0.4, 0.85)]
+    }
+
+    # DYNAMIC payload (10 kg) resting on the platform top. Gravity pulls it
+    # down onto the platform, loading the kinematic body. With the platform
+    # raised to z=1.0 (top at 1.0 + half-height 0.05 = 1.05), the payload
+    # (half-height 0.15) rests centred at z=1.20.
+    def Cube "Payload" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.3, 0.3, 0.3)
+        double3 xformOp:translate = (0, 0, 1.20)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 10
+        color3f[] primvars:displayColor = [(0.85, 0.55, 0.1)]
+    }
+}

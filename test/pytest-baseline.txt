@@ -212,11 +212,38 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Physics L2 true-kinematic hold (#193/#194, ADR-0021 D1/D2, milestone
+#   "Physics: L2 true-kinematic + hybrid"): the GPU suite gains 2
+#   in-container tests (29 -> 31) that prove the true-L2 endpoint of the
+#   L2/L2.5/L3 continuum -- a STANDALONE kinematic rigid body holds its
+#   commanded height with ESSENTIALLY ZERO steady-state error EVEN UNDER
+#   LOAD, the direct contrast to EXP-184's L2.5 articulation-drive sag
+#   (m*g/stiffness). test_l2_kinematic_hold.py:
+#     * test_kinematic_body_holds_target_with_zero_error_under_load -- a
+#       dynamic 10 kg payload rests on the kinematic platform under gravity
+#       (PhysicsScene gravity + ground collider), the platform is commanded
+#       to target_z=1.0 m each tick via dc.set_rigid_body_pose (the proven
+#       openbase L2 pattern), and the steady-state error is < 1e-4 m (the
+#       float/readback epsilon floor) while the payload genuinely rests on
+#       the raised platform (load confirmed real). PhysX moves a kinematic
+#       actor to its target regardless of external forces/gravity/collision.
+#     * test_kinematic_hold_error_dwarfed_by_l25_sag -- contrast: the
+#       kinematic error is >= 100x smaller than the L2.5 mg/k sag for the
+#       same 10 kg load at the lowest EXP-184 stiffness (k=5000 -> ~19.6 mm).
+#       True-L2 has no load/stiffness floor; L2.5 does (ADR-0021 D1a).
+#   Stepped physics uses omni.timeline.play() + app.update() (NEVER a
+#   SimulationContext, #151). Subprocess-per-run + [L2HOLD SUMMARY] marker;
+#   runner _l2_hold_runner.py (underscore-prefixed, not collected); fixture
+#   test/fixtures/usd/l2_kinematic_hold.usda. In-container GPU suite collects
+#   31; aggregate GPU-integration = 31 in-container + 2 host xc = 33. The
+#   enforced GPU baseline ratchets 31 -> 33 (a ratchet UP -- new GPU
+#   coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 33
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
+#   126). Recorded for traceability; after the physics L2-hold work the live
+#   aggregate is 329 (296 hosted-unit + 33 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
