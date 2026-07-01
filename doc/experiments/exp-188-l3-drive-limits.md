@@ -6,6 +6,36 @@ This file is the durable RECORD of the measured results. The committed test
 (`test/integration/pytest/test_l3_limits.py`) is the REPRODUCTION harness:
 re-running it on a GPU box regenerates the numbers below for re-verification.
 
+## In plain terms
+
+The earlier sag test (#184) showed that a stiffer motor droops less -- but this
+one records two walls that NO amount of stiffness can push through. First, a
+motor has a maximum force it can push, like a person who simply cannot lift
+something heavier than they are strong. Here a 5 kg box weighs 49 N but the
+joint's force budget is capped at 30 N, so the drive is overloaded and the box
+sits stuck more than 0.2 m below the target -- and cranking the stiffness does
+nothing, because the residual droop at this stiffness is under 1 mm (0.98 mm),
+so the whole gap is the drive running out of force. Raise the force cap to
+500 N (comfortably above the 49 N weight) and, with the stiffness unchanged,
+the same command reaches the target with only that sub-millimetre droop left.
+Second, a joint has mechanical end-stops, like a drawer that stops at its rail
+however hard you pull: commanded all the way to 5.0 m against a 1.0 m upper
+stop, the joint just rests at 1.0 m and never chases the 5.0 m. The takeaway:
+size the motor's force above the worst-case load and keep the target inside the
+travel -- these are modelling preconditions the gain cannot fix, separate from
+the precision-vs-stiffness trade in #184.
+
+Note on levels (ADR-0021 D1a): the "L2.5" stiff drive and the softer "L3"
+compliant drive are the SAME mechanism -- one articulation joint plus a
+position controller, differing ONLY in stiffness (gain), both leaving a droop
+of weight * g / stiffness. Stiffness only shrinks that droop; it does nothing
+about the force cap or the end-stops shown here, because those are limits of
+the joint itself, not of the gain. And neither drive becomes true-L2 -- a
+kinematic body PhysX teleports to the target while ignoring forces (ADR-0021
+D2). Notably a true-L2 body would blow straight through the effort cap (it
+ignores forces), but it would still respect a joint travel limit, which is
+geometry rather than force.
+
 ## Question
 
 The L3 / L2.5 sag experiment (#184) showed the steady-state error is
