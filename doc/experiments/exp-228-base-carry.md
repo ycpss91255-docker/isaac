@@ -7,6 +7,31 @@ This file is the durable RECORD of the measured results. The committed test
 (`test/integration/pytest/test_base_carry.py`) is the REPRODUCTION harness:
 re-running it on a GPU box regenerates the numbers below for re-verification.
 
+## In plain terms
+
+The everyday case: a robot base drives across the floor on a scripted path
+(a true-L2 kinematic move -- you command where it goes and it goes there
+exactly) with an arm sitting on top. The question: does the arm come along for
+the ride if you just set the arm on the base and move the base?
+
+This experiment tried the simplest "just set it on top" approach -- put both
+the moving base and the arm under one parent in the scene graph and slide the
+parent. The result is a clear NO: the base moved exactly as commanded (1.500 m)
+but the arm did NOT come with it -- it slid off and drifted to 2.369 m, a 0.87 m
+miss (`tracked=False`). Think of standing a loose toy on a book and yanking the
+book sideways: the book (the kinematic base) goes where you push it, but the
+toy (the physics-simulated arm) does not ride along cleanly -- it topples and
+skids. The scene-graph parent moves the kinematic base, but the physics engine
+does not carry a simulated arm the same way.
+
+The practical lesson: to carry an arm on a moving base you must ATTACH them --
+bolt the arm to the base with a joint (a slightly springy connection, measured
+in exp-197), or build the base as part of the same articulated robot. You
+cannot get a free rigid ride just by nesting them in the scene. One reassuring
+sub-result: the arm's OWN joint held its position well (2.3 mm wobble during
+the base's accel, settling to 1.5 mm) -- so the arm's motor control is fine;
+the problem is purely how the arm is attached to the base.
+
 ## Question
 
 The MOST COMMON true-L2 use case: a KINEMATIC base that MOVES on the floor (a
@@ -142,42 +167,57 @@ invocation).
 Raw markers:
 
 ```
-[CARRY SUMMARY] base_disp=TBD (filled from GPU run) arm_disp=TBD ride_along_err=TBD ride_along_peak_err=TBD tracked=TBD
-[BASE COUPLING SUMMARY] hold_target=0.0 equilibrium=TBD peak_dev=TBD residual=TBD base_disp=TBD base_accel=2.0 cruise_speed=1.0
+[ARTICULATION] root=/World/Base/Arm
+[CARRY SUMMARY] base_disp=1.500003 arm_disp=2.368574 ride_along_err=8.685706e-01 ride_along_peak_err=8.851512e-01 tracked=False
+[BASE COUPLING SUMMARY] hold_target=0.000000 equilibrium=4.514487e-07 peak_dev=2.316115e-03 residual=1.530231e-03 base_disp=1.500003 base_accel=2.000000 cruise_speed=1.000000
 ```
 
 ### Ride-along (base ~1.5 m +X translate)
 
 | quantity | value |
 |---|---|
-| base displacement (chassis world X) | TBD (filled from GPU run) |
-| arm displacement (Anchor world X) | TBD (filled from GPU run) |
-| ride-along error (final) | TBD (filled from GPU run) |
-| ride-along peak error | TBD (filled from GPU run) |
-| tracked (base moved and arm followed) | TBD (filled from GPU run) |
+| base displacement (chassis world X) | 1.500003 m (commanded ~1.5 m -- kinematic chassis followed the group exactly) |
+| arm displacement (Anchor world X) | 2.368574 m (DIVERGED -- moved farther than the base) |
+| ride-along error (final) | 0.868571 m |
+| ride-along peak error | 0.885151 m |
+| tracked (base moved and arm followed) | **False** |
 
 ### Base-motion disturbance (held slide, accel/decel at 2 m/s^2)
 
 | quantity | value |
 |---|---|
-| held-slide equilibrium (before base motion) | TBD (filled from GPU run) |
-| peak deviation during accel/decel | TBD (filled from GPU run) |
-| residual deviation after the base stops | TBD (filled from GPU run) |
+| held-slide equilibrium (before base motion) | 4.51e-07 m (~0) |
+| peak deviation during accel/decel | 2.32e-03 m (2.3 mm) |
+| residual deviation after the base stops | 1.53e-03 m (1.5 mm) |
 
 ## Findings (relation to ADR-0021)
 
-- **Does topology (A) carry the articulation?** TBD (filled from GPU run). The
-  ride-along error and the disturbance peak together place the run in one of
-  the three regimes in the truth table above. If the arm is left behind
-  (ride-along error ~ base displacement), topology (A) does NOT carry and a
-  FixedJoint (topology B, the #221 seam) is forced for base carry -- a
-  first-class finding, not a failure.
+- **Does topology (A) carry the articulation? NO (CONFIRMED negative result).**
+  `tracked=False`. The kinematic chassis followed the group xform EXACTLY
+  (1.500 m of the commanded 1.5 m), but the floating arm articulation did NOT
+  ride along rigidly -- it DIVERGED to 2.369 m, a 0.869 m final error (0.885 m
+  peak). Mechanism: the arm rests on the chassis by CONTACT only (no joint,
+  floating base, by design of topology A). Writing the parent group's
+  `xformOp:translate` each tick moves the KINEMATIC chassis (a kinematic body
+  honors pose writes) but does NOT rigidly move the PhysX-simulated floating
+  articulation -- the per-tick parent-transform write injects spurious velocity
+  into the articulation root, and it overshoots. So USD-hierarchy parenting
+  does NOT carry a physically-simulated articulation: the kinematic sibling
+  follows, the articulation sibling does not. For a moving base to carry an
+  arm you must ATTACH them -- a FixedJoint from base to arm root (topology B,
+  the #221 compliant seam; exp-197 measured that seam follows at ~1.0 ratio),
+  OR make the base a driven LINK of one articulation (a mobile-base
+  articulation), OR drive the arm root kinematically too. The zero-seam
+  USD-parent shortcut is NOT a valid base-carry topology.
 
-- **Is the base-motion disturbance bounded and transient?** TBD (filled from
-  GPU run). A bounded coupling shows a peak during accel/decel that decays to
-  a small residual once the base is at rest; a persistent offset would leave a
-  large residual (the analogue of the #226 cross-joint result, here driven by
-  the base's own acceleration rather than a neighbouring joint).
+- **Is the base-motion disturbance bounded and transient? YES.** The arm's
+  INTERNAL prismatic joint, commanded to hold at 0, deviated only 2.3 mm at
+  peak during the 2 m/s^2 accel/decel and settled to a 1.5 mm residual -- the
+  drive held its target well even while the whole arm was being dragged. So the
+  failure above is NOT the arm's internal control (that is fine, the #226 /
+  #193 result holds); it is specifically the base-to-arm ATTACHMENT. Note this
+  disturbance number is measured relative to the arm's own base, so it stays
+  meaningful even though the arm did not track the chassis.
 
 - **Relation to the L2/L2.5/L3 continuum (ADR-0021 D1a/D2).** This is the
   true-L2 base-MOVEMENT case: the base is a standalone kinematic body driven
@@ -190,10 +230,13 @@ Raw markers:
 
 ## Provenance
 
-- Date: TBD (filled from GPU run)
-- Runner: self-hosted GPU (Isaac Sim / Isaac Lab devel-test image)
+- Date: 2026-07-03
+- Runner: self-hosted GPU (Isaac Sim devel-test image); numbers captured from a
+  direct runner invocation on the runner box (`--accel 2.0 --cruise-speed 1.0
+  --cruise-ticks 60 --dt 1/60`); the 3-test suite passed on the same build.
 - Test: `test/integration/pytest/test_base_carry.py` (3 tests)
 - Runner script: `test/integration/pytest/_base_carry_runner.py`
 - Fixture: `test/fixtures/usd/l2_base_carry.usda` (synthetic, NOT the real
   forklift)
-- CI run: TBD (filled from GPU run)
+- CI run: GitHub Actions Main CI/CD on branch `exp/base-carry` (GPU
+  `python-tests` job, pass).
