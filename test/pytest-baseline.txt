@@ -212,11 +212,37 @@ HOSTED_UNIT_BASELINE = 296
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#
+#   Base carry (#228, ADR-0021 D2): the GPU suite gains 3 in-container tests
+#   (29 -> 32) that measure whether a KINEMATIC base carries an ARTICULATION
+#   riding on top, on a synthetic, license-clean fixture (NOT the real
+#   forklift):
+#     * test_base_carry.py (3): l2_base_carry.usda -- a kinematic chassis
+#       under a plain /World/Base group Xform + a 1-DOF prismatic "arm"
+#       articulation parented under the same group, resting on the chassis
+#       top (topology A -- USD-hierarchy parent, no FixedJoint / #221 seam).
+#       The base is driven along an accel -> cruise -> decel -> stop translate
+#       profile (write /World/Base xformOp:translate each tick, the #201/#218
+#       carry mechanism) with the arm slide commanded to HOLD. One runner
+#       invocation prints two marker lines: [CARRY SUMMARY] (ride-along
+#       tracking error -- arm displacement vs the chassis's actual
+#       displacement) and [BASE COUPLING SUMMARY] (held-slide peak deviation
+#       during accel/decel + residual after the base stops). Deliberately
+#       LOOSE bands (record the numbers into
+#       doc/experiments/exp-228-base-carry.md, not gate). Whether topology A
+#       carries the articulation is the open question the GPU run answers.
+#       Stepped with dynamic_control + omni.timeline + app.update() (not a
+#       SimulationContext, #151). Runner _base_carry_runner.py
+#       (underscore-prefixed, not collected); skipped on hosts without
+#       /isaac-sim.
+#   In-container GPU suite collects 32; aggregate GPU-integration = 32
+#   in-container + 2 host xc = 34. The enforced GPU baseline ratchets
+#   31 -> 34 (a ratchet UP -- new GPU coverage added, none removed).
+GPU_INTEGRATION_BASELINE = 34
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
+#   aggregate is 330 (296 hosted-unit + 34 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
