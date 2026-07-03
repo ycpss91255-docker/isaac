@@ -98,6 +98,27 @@ linear model (18 um measured vs 98 um predicted at 1e6). So Isaac's L2.5 precisi
 by the stiffness you choose, not by an intrinsic floor; sub-mm is easy and tens of microns is
 reachable, all stable -- but only true-L2 (D2) gives the hard zero-error guarantee.
 
+**L2.5 and L3 are the SAME drive architecture; error accumulation is a property of that
+architecture, not of L3 alone.** Both are "articulation joint + position (PD) controller"
+differing ONLY in the gain `k`, both obey `sag = mg/k`, and both accumulate error the same
+way when composed in series -- L2.5 merely has smaller per-joint terms because its gain is
+higher. Confirmed for a multi-joint chain (EXP-226,
+`doc/experiments/exp-226-multijoint-coupling.md`, milestone "L3 control verification", RTX
+5090): a 3-joint serial lift (5 kg links, k=5000) sags **30.3 / 20.2 / 9.8 mm** base->tip
+(the base-most joint bears all three links, 15 kg, so it sags most), and the chain-TIP total
+error is the SUM of the per-joint sags -- measured **60.3 mm vs the summed `mg/k` prediction
+58.9 mm (+2.4 %)**. So the drive error is ADDITIVE down a chain: a multi-joint lift's tip
+precision is the sum of its per-joint droops, and stiffness must be budgeted across ALL
+joints (weighted by borne load), not just one -- the base-most joint dominates. Cross-joint
+coupling is bounded and transient: step-moving one joint disturbs a held sibling by up to
+**39.2 mm DURING the move** but it settles back to a **0.019 mm residual** (~2000x smaller),
+so the articulation solver leaves no permanent offset -- each joint's steady-state error is
+independent once motion settles (the transient, not the residual, is what matters if a joint
+must stay precise WHILE a neighbour moves). The only qualitative L2.5-vs-L3 difference remains
+how close the finite gain sits to the ideal (infinite-gain) controller; neither ever becomes
+true-L2, which is a categorically different KINEMATIC mechanism (no drive, no `k`, no sag)
+kept on a standalone body outside the articulation (D2).
+
 ### D1b -- scope: L2/L2.5/L3 is a JOINT POSITION-control vocabulary only
 
 L2 / L2.5 / L3 describe **position-controlled mechanisms** -- a joint (or kinematic body)
@@ -145,6 +166,23 @@ true-L2 exactness does **not** propagate rigidly across the seam. The articulati
 joints remain L2.5 / L3 regardless. Whether the seam compliance is acceptable is an
 empirical question (see Verification).
 
+**The carry attachment must be a real joint, not a USD scene-graph parent (EXP-228).** For
+shape (a), the moving base carries the mounted articulation ONLY through an explicit
+connecting joint -- NOT by merely nesting the articulation under the base in the USD
+hierarchy. Confirmed (EXP-228, `doc/experiments/exp-228-base-carry.md`, milestone "L2
+true-kinematic + hybrid", RTX 5090): a kinematic chassis and a floating 1-DOF arm
+articulation were parented as siblings under one group `Xform` and the group was translated
+**1.5 m** while physics played. The kinematic chassis followed exactly (**1.500 m**), but the
+floating arm articulation did NOT ride along -- it DIVERGED to **2.369 m (0.869 m error,
+`tracked=False`)**. Writing a parent transform each tick while the sim runs moves the
+kinematic sibling (a kinematic body honors pose writes) but injects spurious velocity into the
+PhysX-simulated articulation instead of rigidly carrying it. The arm's own internal drive held
+its target throughout (**2.3 mm peak deviation under 2 m/s^2 base acceleration, 1.5 mm
+residual**), so the failure is the ATTACHMENT, not the arm's control. Conclusion: a moving
+base must carry an arm via an explicit connection -- the maximal-coordinate loop joint above
+(compliant per PhysX #308), or a single articulation with the base as a driven mobile-base
+link -- **never a bare USD parent**.
+
 ### D3 -- L2/L3 is declared in a per-robot sidecar `<robot>.physics.yaml`, baked into the USD at conversion
 
 URDF has no physics-level field, so the converter cannot infer it. A per-robot sidecar
@@ -188,6 +226,27 @@ needs-experiment:
   complexity is even needed); per-link L2 substitution generality (esp. internal links that
   split the tree); hybrid-seam compliance and cross-boundary force transfer; kinematic
   push/grasp/squish and teleport-vs-kinematic-target contact bypass.
+- **Measured to date (synthetic license-clean fixtures, RTX 5090; the real-model end-to-end
+  still gated on the CAD, #205):** each result below is a `doc/experiments/exp-*.md` record
+  with a committed reproduction test.
+  - L2.5/L3 single-joint droop = `mg/k`, sub-mm reachable and stable, no precision floor
+    (EXP-184).
+  - Multi-joint droop is ADDITIVE down a chain (tip error 60.3 mm = summed `mg/k` 58.9 mm,
+    +2.4 %); cross-joint coupling is transient only (39.2 mm peak -> 0.019 mm residual)
+    (EXP-226; see D1a).
+  - L3 single-joint trajectory tracking (step 1.8 mm, traj max 4.6 mm, RMS 1.8 mm, 0 spread
+    over 3 runs) (EXP-180).
+  - L3 drive limits: effort saturation stalls short of target (30 N cap vs 49 N load), and a
+    commanded 5.0 m clamps at the 1.0 m joint stop (EXP-188).
+  - True-L2 kinematic HOLD is zero-error under a 10 kg load (`<1e-4` m vs L2.5's ~19.6 mm at
+    k=5000) (EXP-193).
+  - The hybrid seam is compliant but transmits motion (follow ratio ~1.0, bounded give under
+    load) (EXP-197).
+  - Kinematic carry has a per-tick speed limit (clean carry up to 0.05 m/tick; 0.2 m/tick
+    launches the payload) (EXP-201-carry) and a kinematic push transfers momentum with bounded
+    squish, mover tracking error `<0.02` m (EXP-201-push).
+  - A moving base does NOT carry an articulation by USD parenting alone (arm diverged 0.869 m,
+    `tracked=False`); it needs an explicit joint (EXP-228; see D2).
 
 ## Consequences
 
