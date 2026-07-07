@@ -1,0 +1,102 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# TEST-ONLY FIXTURE -- the hybrid kinematic+dynamic loop-joint boundary
+# experiment (#197, milestone "Physics: L2 true-kinematic + hybrid").
+#
+# A standalone KINEMATIC anchor body is joined to a standalone DYNAMIC body
+# by a rigid-body (MAXIMAL-COORDINATE) UsdPhysics FixedJoint -- NOT an
+# articulation joint. The maximal-coordinate joint is known to be COMPLIANT
+# ("weak"; PhysX #308): it is solved as a soft constraint, so under a load the
+# dynamic body gives at the joint rather than holding rigidly.
+#
+# The experiment: hold / move the kinematic anchor and measure
+#   1. compliance -- how far the dynamic body LAGS / gives at the joint vs a
+#      rigid ideal (the dynamic body should hang slightly BELOW where a rigid
+#      joint would hold it, under its own weight);
+#   2. force transfer -- whether the dynamic body FOLLOWS the anchor when the
+#      anchor is moved (the joint transmits the motion, even if compliantly).
+#
+# Prims:
+#   /World/PhysicsScene  -- gravity (Z down, 9.81 m/s^2).
+#   /World/Anchor        -- KINEMATIC rigid body (physics:kinematicEnabled=1);
+#                           the held/moved end. Centred at z=2.0.
+#   /World/Hung          -- DYNAMIC rigid body (10 kg load); joined to the
+#                           anchor by the FixedJoint, centred at z=1.5 (0.5 m
+#                           below the anchor -- the joint's rest offset).
+#   /World/FixedJoint    -- UsdPhysics.FixedJoint, body0=Anchor body1=Hung,
+#                           maximal-coordinate (rigid-body) joint.
+
+def Xform "World"
+{
+    def DistantLight "SunLight"
+    {
+        float inputs:intensity = 3000
+        float3 xformOp:rotateXYZ = (-45, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        float physics:gravityMagnitude = 9.81
+        vector3f physics:gravityDirection = (0, 0, -1)
+    }
+
+    # KINEMATIC anchor -- the held / moved end. Driven via
+    # dc.set_kinematic_target. Centred at z=2.0.
+    def Cube "Anchor" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.3, 0.3, 0.3)
+        double3 xformOp:translate = (0, 0, 2.0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 50
+        bool physics:kinematicEnabled = 1
+        color3f[] primvars:displayColor = [(0.1, 0.4, 0.85)]
+    }
+
+    # DYNAMIC hung body (10 kg load). Joined to the anchor by the FixedJoint,
+    # centred 0.5 m below the anchor at z=1.5. Under its own weight it gives at
+    # the compliant maximal-coordinate joint.
+    def Cube "Hung" (
+        prepend apiSchemas = [
+            "PhysicsRigidBodyAPI",
+            "PhysicsCollisionAPI",
+            "PhysicsMassAPI",
+            "PhysxRigidBodyAPI"
+        ]
+    )
+    {
+        double size = 1
+        float3 xformOp:scale = (0.3, 0.3, 0.3)
+        double3 xformOp:translate = (0, 0, 1.5)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        float physics:mass = 10
+        color3f[] primvars:displayColor = [(0.85, 0.55, 0.1)]
+    }
+
+    # Maximal-coordinate (rigid-body) FixedJoint joining the anchor to the
+    # hung body. body0 local frame is 0.5 m below the anchor centre; body1
+    # local frame is at the hung-body centre -- so the joint's rest state has
+    # the hung body 0.5 m below the anchor. localRot0/1 are identity.
+    def PhysicsFixedJoint "FixedJoint"
+    {
+        rel physics:body0 = </World/Anchor>
+        rel physics:body1 = </World/Hung>
+        point3f physics:localPos0 = (0, 0, -1.6667)
+        point3f physics:localPos1 = (0, 0, 0)
+        quatf physics:localRot0 = (1, 0, 0, 0)
+        quatf physics:localRot1 = (1, 0, 0, 0)
+    }
+}
