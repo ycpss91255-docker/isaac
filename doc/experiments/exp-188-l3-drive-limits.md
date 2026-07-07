@@ -110,37 +110,41 @@ Or a single mode by hand:
 
 ## Results
 
-Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-28173329257 (the recording run, `python-tests` job), 2026-06-25 -- both tests
-in `test_l3_limits.py` PASSED (GPU in-container collected 33, passed 31, +2
-host cross-container = 33 aggregate; no failures). pytest captures a passing
-test's stdout, so the raw `[LIMITS SUMMARY]` field values are not echoed in the
-CI log; the bounds below are the asserted (and met) properties. To capture the
-exact resting positions, re-run the runner directly (see Reproduction) -- it
-prints the full `[LIMITS SUMMARY]` line.
+Measured on the self-hosted GPU runner (RTX 5090 reference), 2026-06-25 (CI run
+28173329257, `test_l3_limits.py` PASSED). The exact `[LIMITS SUMMARY]` field
+values below were captured from a direct runner invocation on the runner box
+(2026-07-07) with identical arguments.
+
+Raw markers:
+
+```
+[LIMITS SUMMARY] mode=saturate mass=5 weight_n=49.05 effort_cap=30 effort_raised=500 target=0.8 resting_capped=1.04773e-11 resting_uncapped=0.799209 gap_capped=0.8 gap_uncapped=0.000791001 drift=0
+[LIMITS SUMMARY] mode=clamp mass=5 weight_n=49.05 effort_cap=500 target=5 upper_limit=1 lower_limit=0 resting=1 clamp_overshoot=0 drift=0
+```
 
 ### Effort saturation (5 kg payload, target 0.8 m, stiffness 50 000 N/m)
 
-| effort cap (N) | payload weight (N) | asserted (and met) property |
-|---|---|---|
-| 30 (saturated) | 49.05 | `gap_capped > 0.2 m` -- the drive cannot hold the weight; the payload sits far below the target |
-| 500 (raised)   | 49.05 | `abs(gap_uncapped) < 0.05 m` -- the same command now reaches the target (only the `m*g/k` droop remains) |
+| effort cap (N) | payload weight (N) | resting (m) | gap to target (m) |
+|---|---|---|---|
+| 30 (saturated) | 49.05 | 1.05e-11 (~0, stuck at the bottom) | **0.800** (full gap -- never lifts) |
+| 500 (raised)   | 49.05 | 0.799209 | **0.000791 (0.79 mm)** -- reaches target, only `m*g/k` droop |
 
-Cross-property: `abs(gap_capped) > abs(gap_uncapped) * 10` (the capped gap
-dwarfs the uncapped one at IDENTICAL stiffness). The difference is entirely the
-effort cap -- the steady-state error is set by the force limit, not by the
-gain. (`m*g/k = 49.05 / 50000 = 0.98 mm` at this stiffness, so the uncapped
-residual is sub-mm; the capped gap is two-plus orders of magnitude larger.)
+The 30 N cap cannot lift the 49 N weight at all: the payload sits at ~0 with the
+FULL 0.8 m gap. Raising the cap to 500 N lets the SAME command reach the target
+with only 0.79 mm residual -- so the capped gap dwarfs the uncapped by ~1000x at
+IDENTICAL stiffness. The error is set by the force limit, not the gain
+(`m*g/k = 49.05 / 50000 = 0.98 mm`, and the measured uncapped 0.79 mm sits below
+that linear bound). Drift 0 (settled).
 
 ### Joint-limit clamp (cap raised to 500 N, target 5.0 m, upper limit 1.0 m)
 
-| commanded target (m) | upper limit (m) | asserted (and met) property |
-|---|---|---|
-| 5.0 | 1.0 | `abs(clamp_overshoot) < 0.1 m` (rests at ~the 1.0 m limit) AND `resting < target - 1.0` (did NOT chase 5.0 m) AND `drift < 5e-3 m` (settled) |
+| commanded target (m) | upper limit (m) | resting (m) | overshoot (m) |
+|---|---|---|---|
+| 5.0 | 1.0 | **1.000** | **0** |
 
-The joint rests at ~1.0 m (the mechanical stop), not the commanded 5.0 m;
-overshoot is ~0. The drive can move freely (cap above the weight) but cannot
-pass the limit.
+Commanded 5.0 m, the joint rests EXACTLY at the 1.0 m mechanical stop with zero
+overshoot -- it did not chase 5.0 m. Drift 0. The drive moves freely (cap above
+the weight) but cannot pass the limit.
 
 ## Findings
 
