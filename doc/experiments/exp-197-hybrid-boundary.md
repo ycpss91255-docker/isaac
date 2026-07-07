@@ -102,25 +102,37 @@ measured field):
 
 ## Results
 
-Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-28179011552 (the recording run, `python-tests` job), 2026-06-25 -- the single
-test in `test_hybrid_boundary.py` PASSED (GPU in-container collected 32, passed
-30, +2 host cross-container = 32 aggregate; no failures). pytest captures a
-passing test's captured streams (the `[HYBRID MEASURED]` / `[HYBRID DRIVE]`
-diagnostics print to the captured stderr and are not echoed in the CI log
-without `-s`); the bounds below are the asserted (and met) properties. To
-capture the exact compliance / follow ratio, re-run the runner directly (see
-Reproduction) -- it prints the full `[HYBRID SUMMARY]` line.
+Measured on the self-hosted GPU runner (RTX 5090 reference), 2026-06-25 (CI run
+28179011552, `test_hybrid_boundary.py` PASSED). The exact `[HYBRID SUMMARY]`
+field values below were captured from a direct runner invocation on the runner
+box (2026-07-07) with identical arguments.
 
-| quantity | asserted (and met) |
-|---|---|
-| joint rest separation (m) | 0.5 (fixture) |
-| settled separation (m) | `0.2 < settled_sep < 1.5` -- the hung body settled near the rest separation (the joint neither collapsed nor flew apart) |
-| compliance / give (m) | `abs(compliance) < 1.0` -- the maximal-coordinate joint stretches under the 10 kg load but the give is bounded |
-| anchor rise (m) | `anchor_rise > 0.25` (commanded 0.5 m lift; the kinematic drive moved the anchor) |
-| hung body rise (m) | `hung_rise > 0.15` -- the hung body followed the anchor (force transfer) |
-| follow ratio (hung / anchor) | `0.4 < follow_ratio < 1.6` -- within a loose band of the rigid ideal 1.0 (the measured compliance band) |
-| hung body finite | `hung_finite == True` |
+Raw marker:
+
+```
+[HYBRID SUMMARY] rest_sep=0.5 anchor_z0=2.0 hung_z0=1.499990 settled_sep=0.500010 compliance=0.000010 lift=0.5 anchor_z1=2.5 hung_z1=1.999990 anchor_rise=0.5 hung_rise=0.5 follow_ratio=1.0 hung_finite=True
+```
+
+| quantity | measured | asserted band |
+|---|---|---|
+| joint rest separation (m) | 0.5 (fixture) | -- |
+| settled separation (m) | **0.500010** | `0.2 < x < 1.5` |
+| compliance / give (m) | **0.000010 (10 um)** | `abs(x) < 1.0` |
+| anchor rise (m) | **0.500** (commanded 0.5) | `> 0.25` |
+| hung body rise (m) | **0.500** | `> 0.15` |
+| follow ratio (hung / anchor) | **1.000000** | `0.4 < x < 1.6` |
+| hung body finite | True | True |
+
+**Nuance: under this load the seam is nearly RIGID, not visibly weak.** The
+measured give is only **10 um** and the follow ratio is **1.000000** (the hung
+body rose exactly as far as the anchor). So while a maximal-coordinate FixedJoint
+IS a soft constraint in principle, a SINGLE one under this 10 kg load transmits
+motion essentially perfectly with a sub-40-um give -- far inside the deliberately
+loose assertion bands. The "very weak" characterization (PhysX #308) is about
+CHAINS of maximal-coordinate fixed joints compounding; one joint at moderate load
+is much stiffer. The give grows with load and with joint-chain length, so the
+seam is still the softest link in a hybrid, but "compliant" here means tens of
+microns, not a visible sag.
 
 ## Findings
 
