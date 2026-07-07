@@ -94,38 +94,43 @@ Or a single mode by hand:
 
 ## Results
 
-Measured on the self-hosted GPU runner (RTX 5090 reference). Source: CI run
-28178185983 (the recording run, `python-tests` job), 2026-06-25 -- both tests
-in `test_l2_push.py` PASSED (GPU in-container collected 33, passed 31, +2 host
-cross-container = 33 aggregate; no failures). pytest captures a passing test's
-stdout, so the raw `[PUSH SUMMARY]` field values are not echoed in the CI log;
-the bounds below are the asserted (and met) properties. To capture the exact
-displacements, re-run the runner directly (see Reproduction) -- it prints the
-full `[PUSH SUMMARY]` line.
+Measured on the self-hosted GPU runner (RTX 5090 reference), 2026-06-25 (CI run
+28178185983, `test_l2_push.py` PASSED). The exact `[PUSH SUMMARY]` field values
+below were captured from a direct runner invocation on the runner box
+(2026-07-07) with identical arguments.
+
+Raw markers:
+
+```
+[PUSH SUMMARY] mode=push drive=usd_translate ramp_step=0.005 target_x=0.5 mover_x=0.5 box_x0=-0.000001 box_x=0.806913 box_disp=0.806914 mover_err=0.0 box_finite=True wall_x=1.2
+[PUSH SUMMARY] mode=squish drive=usd_translate ramp_step=0.005 target_x=0.85 mover_x=0.85 box_x0=-0.000001 box_x=1.000376 box_disp=1.000377 mover_err=0.0 box_finite=True wall_x=1.2
+```
 
 ### Momentum transfer (push, ramp-step 0.005 m, mover commanded x=0.5)
 
-| property | asserted (and met) |
+| quantity | measured |
 |---|---|
-| box displacement | `box_disp > 0.2 m` -- the box was pushed forward (momentum transfer through contact) |
-| box finite | `box_finite == True` |
-| mover tracking error | `mover_err < 0.02 m` -- the kinematic mover landed on its commanded path; the box reaction did not perturb it |
+| mover final x | 0.500 (exactly on the commanded path) |
+| box displacement | **0.807 m** -- pushed forward PAST the mover (momentum carries it) |
+| mover tracking error | **0.000 m** -- the box reaction did not perturb the mover |
 
-The box is pushed forward (positive +X displacement); the kinematic mover
-tracks its commanded path within sub-cm (it ignores the reaction force).
+The mover is commanded to x=0.5 and lands exactly there; the box is pushed to
+0.807 m -- FARTHER than the mover, because the transferred momentum carries the
+dynamic box ahead after contact. The kinematic mover ignores the reaction force
+entirely (tracking error 0.000 m).
 
 ### Squish / limit (squish, mover commanded x=0.85, wall at x=1.2)
 
-| property | asserted (and met) |
+| quantity | measured |
 |---|---|
-| box displacement | `box_disp > 0.4 m` -- the box was driven toward the wall |
-| box pinned short of the wall | `0.7 < box_x < wall_x (1.2)` -- the box stopped short of the static backstop, it did not tunnel through |
-| box finite | `box_finite == True` -- stable under the pin, no NaN/inf |
-| mover tracking error | `mover_err < 0.02 m` -- the mover still held its commanded path while pinning the box |
+| mover final x | 0.850 (exactly on the commanded path) |
+| box displacement | **1.000 m** (box at x=1.000) -- pinned short of the wall at 1.2 |
+| mover tracking error | **0.000 m** -- held its path while pinning the box |
 
-The box is pinned just short of the wall (the wall left face at 1.15): it
-cannot pass the static backstop, stays finite / settled, and the kinematic
-mover still holds its commanded path while pinning it.
+The box is driven to x=1.000, pinned short of the static backstop (wall at 1.2,
+left face ~1.15): it does not tunnel through, stays finite/settled, and the
+kinematic mover still holds its commanded path exactly (0.000 m error) while
+pinning it.
 
 ## Findings
 
