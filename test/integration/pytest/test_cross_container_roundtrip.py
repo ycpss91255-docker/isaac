@@ -29,7 +29,16 @@ script's ``passed > 0`` rule.
 Marker-line acceptance (the Isaac side's Kit ``_exit(0)`` swallows the
 return code, same convention as the other GPU runners). Headless (no
 livestream, bypasses IsaacSim#228). Generous timeout (Isaac boot 60-120 s
-warm; budget x 1.5). Retry <= 1, logged.
+warm; budget x 1.5).
+
+Resilience to transient cross-container DDS discovery misses (isaac#224):
+the CAMERA direction (the slow, discovery-bound one) is retried in two
+nested layers, both logged. Inner: within a single round-trip the camera
+sibling is relaunched against the still-live Isaac publisher up to
+``CAMERA_MAX_ATTEMPTS`` times (cheap -- no Isaac reboot), each attempt
+preceded by a brief discovery warm-up. Outer: the whole round-trip is
+re-run up to ``MAX_RETRIES`` extra times. PASS stays honest -- a real
+no-frame-ever fails every attempt and so fails the test.
 """
 
 import os
@@ -75,7 +84,28 @@ SENT_WZ = 0.19
 BOOT_BUDGET_SEC = 420
 SUBPROC_TIMEOUT_SEC = int(BOOT_BUDGET_SEC * 1.5)
 READY_WAIT_SEC = 300
-SIBLING_TIMEOUT_SEC = 120
+# Per-attempt frame window for the sibling camera_subscriber to colcon-build
+# + discover the Isaac participant across the container boundary + receive the
+# first sim frame. A modest margin over the original 120 s -- under GPU-host
+# load the discovery + first frame occasionally raced past the narrower
+# window (isaac#224); the primary robustness comes from the bounded relaunch
+# retry below, this is only headroom.
+SIBLING_TIMEOUT_SEC = 150
+# Cross-container DDS discovery warm-up. A brief settle after (re)launching
+# the camera sibling so the fastdds host-network discovery handshake has a
+# slice of its own before the frame window is counted, rather than the whole
+# budget being spent on discovery and then racing the first frame. The first
+# (concurrently-spawned) attempt is warmed for free by overlapping the
+# colcon-build + discovery with the Isaac-side cmd_vel wait; this explicit
+# settle warms each RELAUNCHED attempt.
+DISCOVERY_WARMUP_SEC = 5
+# Bounded in-test retry of the CAMERA direction only. If the first sibling
+# misses its frame window (a transient discovery race, isaac#224), the
+# sibling is torn down and a FRESH one is relaunched against the still-live
+# Isaac publisher (the runner lingers, so this is far cheaper than the
+# fixture-level whole-roundtrip reboot below). A genuine no-frame-ever still
+# fails: every attempt must miss for the test to fail.
+CAMERA_MAX_ATTEMPTS = 2
 MAX_RETRIES = 1
 
 COMPOSE_PROJECT = os.environ.get("XC_COMPOSE_PROJECT", "yunchien-isaac")
@@ -143,6 +173,13 @@ def _ros_env_args() -> list[str]:
 # both directions are harvested (compose run otherwise picks a random
 # one-off name that is awkward to target).
 ISAAC_CONTAINER_NAME = "xc-isaac-roundtrip"
+# Deterministic sibling names so a crashed/cancelled run's orphans can be swept
+# by the `xc-` prefix. `docker run --rm` does NOT fire when the client process
+# is killed (teardown terminate()) but the detached container keeps running --
+# the root cause of a 147-container ros:humble leak that polluted host-network
+# DDS discovery and broke the cross-container round-trip (isaac#224).
+CAMERA_SIBLING_NAME = "xc-camera-sibling"
+CMDVEL_SIBLING_NAME = "xc-cmdvel-sibling"
 
 
 def _compose_run_isaac_cmd() -> list[str]:
@@ -188,6 +225,41 @@ def _ament_node_script(node: str = "", custom_run: str = "") -> str:
     )
 
 
+def _force_remove(name: str) -> None:
+    """Best-effort ``docker rm -f`` a container by exact name (idempotent)."""
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
+def _sweep_xc_siblings() -> None:
+    """Force-remove every leftover ``xc-*`` container (siblings + Isaac runner).
+
+    A crashed or CANCELLED run leaks them: teardown ``terminate()``s the
+    docker-run CLIENT, but the detached container keeps running, so ``--rm``
+    never fires. Sweeping by the deterministic ``xc-`` name prefix before AND
+    after the run bounds the leak so stale DDS participants never accumulate to
+    pollute host-network discovery (isaac#224 -- a 147-container leak broke it).
+    """
+    try:
+        out = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", "name=xc-"],
+            capture_output=True, text=True, timeout=30,
+        )
+        ids = out.stdout.split()
+        if ids:
+            subprocess.run(
+                ["docker", "rm", "-f", *ids],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+            )
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
 def _spawn_camera_subscriber():
     """Sibling ros:humble running the ament camera_subscriber node.
 
@@ -195,9 +267,11 @@ def _spawn_camera_subscriber():
     ``example_app_py camera_subscriber`` node so the receipt is a genuine
     ament-node receipt (not a bare rclpy probe). Returns the Popen.
     """
+    _force_remove(CAMERA_SIBLING_NAME)
     return subprocess.Popen(
         [
             "docker", "run", "--rm", "--net=host",
+            "--name", CAMERA_SIBLING_NAME,
             *_ros_env_args(),
             "-v", f"{ROS2_WS}:/src:ro",
             "-v", f"{FASTDDS_PROFILE}:/cfg/fastdds.xml:ro",
@@ -216,9 +290,11 @@ def _spawn_cmd_vel_publisher():
         "ros2 run example_app_py cmd_vel_publisher --ros-args "
         f"-p linear_x:={SENT_VX} -p angular_z:={SENT_WZ}"
     )
+    _force_remove(CMDVEL_SIBLING_NAME)
     return subprocess.Popen(
         [
             "docker", "run", "--rm", "--net=host",
+            "--name", CMDVEL_SIBLING_NAME,
             *_ros_env_args(),
             "-v", f"{ROS2_WS}:/src:ro",
             "-v", f"{FASTDDS_PROFILE}:/cfg/fastdds.xml:ro",
@@ -228,6 +304,26 @@ def _spawn_cmd_vel_publisher():
         stderr=subprocess.STDOUT,
         text=True,
     )
+
+
+def _stop_camera_proc(proc) -> None:
+    """Stop a camera sibling whose stdout is owned by a drain thread.
+
+    Uses ``terminate()`` + ``wait()`` rather than ``communicate()``: the
+    drain thread already iterates ``proc.stdout``, so a second reader would
+    double-read it. Stopping the container closes its stdout, which ends the
+    drain thread's ``for ... in proc.stdout`` loop.
+    """
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    except (subprocess.SubprocessError, OSError):
+        pass
 
 
 def _terminate(proc) -> str:
@@ -323,21 +419,45 @@ def _run_roundtrip_once() -> dict:
             if time.time() > deadline:
                 break
     finally:
-        # Give the camera sibling a brief grace window to deliver a frame
-        # if cmd_vel already resolved but the camera frame is in flight.
-        if ready and not cam_done.is_set():
-            cam_done.wait(timeout=SIBLING_TIMEOUT_SEC)
-        # The drain thread owns cam_proc.stdout; stop the container
-        # (closing its stdout ends the thread) without a second reader.
-        if cam_proc is not None:
-            try:
-                cam_proc.terminate()
-                cam_proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                cam_proc.kill()
-                cam_proc.wait()
-            except (subprocess.SubprocessError, OSError):
-                pass
+        # Camera-direction resolution + bounded relaunch retry. cmd_vel
+        # resolves fast; the camera sibling still has to colcon-build,
+        # discover the Isaac participant across the host-network DDS
+        # boundary, and receive a frame. Under GPU-host load that
+        # occasionally races past one frame window (isaac#224), so on a miss
+        # the stale sibling is torn down and a FRESH one relaunched against
+        # the still-lingering Isaac publisher -- up to CAMERA_MAX_ATTEMPTS
+        # total. A genuine no-frame-ever still fails (every attempt misses).
+        if ready:
+            attempt = 1
+            # First attempt: the sibling spawned concurrently at [XC READY]
+            # (warmed for free by overlapping its build/discovery with the
+            # cmd_vel wait). Give it the frame window.
+            if not cam_done.is_set():
+                cam_done.wait(timeout=SIBLING_TIMEOUT_SEC)
+            while not cam_done.is_set() and attempt < CAMERA_MAX_ATTEMPTS:
+                attempt += 1
+                sys.stderr.write(
+                    "[cross-container] camera direction missed frame window "
+                    f"on attempt {attempt - 1}/{CAMERA_MAX_ATTEMPTS}; "
+                    "relaunching a fresh camera sibling against the live "
+                    f"Isaac publisher (attempt {attempt}/"
+                    f"{CAMERA_MAX_ATTEMPTS})\n"
+                )
+                # Tear the stale sibling down so the relaunch discovers from
+                # a clean participant, then start a fresh drain on the same
+                # cam_lines / cam_done (the first one to deliver wins).
+                _stop_camera_proc(cam_proc)
+                cam_proc = _spawn_camera_subscriber()
+                threading.Thread(
+                    target=_drain_camera, args=(cam_proc,), daemon=True
+                ).start()
+                # DDS discovery warm-up before counting this attempt's frame
+                # window, so the fastdds handshake settles first.
+                time.sleep(DISCOVERY_WARMUP_SEC)
+                cam_done.wait(timeout=SIBLING_TIMEOUT_SEC)
+        # Stop the (final) camera sibling. The drain thread owns its stdout;
+        # closing the container's stdout ends that thread.
+        _stop_camera_proc(cam_proc)
         cam_out = "".join(cam_lines)
         _terminate(pub_proc)
         # Echo the ament camera-subscriber output so the sim->ament
@@ -385,31 +505,46 @@ def _run_roundtrip_once() -> dict:
 @pytest.fixture(scope="module")
 def roundtrip():
     """Run the cross-container round-trip once (retry <= 1, logged)."""
+    # Clear any xc-* orphan a crashed/cancelled prior run leaked, so its stale
+    # DDS participants do not pollute this run's host-network discovery (#224).
+    _sweep_xc_siblings()
     result = None
-    for attempt in range(MAX_RETRIES + 1):
-        sys.stderr.write(
-            f"\n[cross-container] attempt {attempt + 1}/{MAX_RETRIES + 1}\n"
-        )
-        result = _run_roundtrip_once()
-        got_camera = "[FRAME OK]" in result["camera_sibling"]
-        got_cmd_vel = "[XC CMD_VEL RX]" in result["isaac"]
-        if got_camera and got_cmd_vel:
+    try:
+        for attempt in range(MAX_RETRIES + 1):
             sys.stderr.write(
-                f"[cross-container] attempt {attempt + 1} crossed both "
-                f"directions\n"
+                f"\n[cross-container] attempt {attempt + 1}/{MAX_RETRIES + 1}\n"
             )
-            return result
-        sys.stderr.write(
-            f"[cross-container] attempt {attempt + 1} incomplete "
-            f"(camera={got_camera} cmd_vel={got_cmd_vel}); retrying if "
-            f"budget remains\n"
-        )
-    return result
+            result = _run_roundtrip_once()
+            got_camera = "[FRAME OK]" in result["camera_sibling"]
+            got_cmd_vel = "[XC CMD_VEL RX]" in result["isaac"]
+            if got_camera and got_cmd_vel:
+                sys.stderr.write(
+                    f"[cross-container] attempt {attempt + 1} crossed both "
+                    f"directions\n"
+                )
+                break
+            sys.stderr.write(
+                f"[cross-container] attempt {attempt + 1} incomplete "
+                f"(camera={got_camera} cmd_vel={got_cmd_vel}); retrying if "
+                f"budget remains\n"
+            )
+        yield result
+    finally:
+        # Never leak our named siblings, even on test failure/cancel.
+        _sweep_xc_siblings()
 
 
 @requires_xc
 def test_sim_to_ament_camera_received(roundtrip):
-    """sim -> ament: the ament node receives a real sim camera frame."""
+    """sim -> ament: the ament node receives a real sim camera frame.
+
+    Robust to a transient cross-container DDS discovery race (isaac#224):
+    the round-trip relaunches the camera sibling against the live Isaac
+    publisher (with a discovery warm-up) up to ``CAMERA_MAX_ATTEMPTS``
+    times, under the fixture's ``MAX_RETRIES`` whole-run retry. The PASS
+    criterion is unchanged -- a genuine no-frame-ever exhausts every
+    attempt and still asserts-False here.
+    """
     assert roundtrip is not None, "round-trip produced no result"
     assert roundtrip["ready"], (
         "Isaac runner never reached [XC READY]; scene did not come up.\n"

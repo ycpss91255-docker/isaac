@@ -54,9 +54,13 @@ _DEFAULT_CMD_VEL_BUDGET_TICKS = 3000
 # After /cmd_vel is received, keep ticking (camera keeps publishing) so
 # the sibling camera_subscriber -- which still has to colcon-build,
 # discover the participant, and receive a frame -- gets its frame before
-# this container is stopped. Bounded so an unattended run still
-# self-terminates if the orchestrator never signals.
-_DEFAULT_LINGER_TICKS = 6000
+# this container is stopped. The host orchestrator stops this container as
+# soon as the camera frame is harvested, so this budget only bounds an
+# unattended run; it must comfortably exceed the host's full camera-window
+# budget, including the bounded relaunch retry (isaac#224:
+# CAMERA_MAX_ATTEMPTS x SIBLING_TIMEOUT_SEC), so the publisher is still
+# live when a relaunched sibling discovers it.
+_DEFAULT_LINGER_TICKS = 20000
 
 _CMD_VEL_TOPIC = "/cmd_vel"
 
