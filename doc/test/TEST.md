@@ -1,10 +1,10 @@
 # TEST.md
 
-**57 tests** total.
+**71 tests** total.
 
-## test/smoke/bats/host_yaml_spec.bats (8)
+## test/smoke/bats/host_yaml_spec.bats (16)
 
-Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both the post-run hook and `runheadless-host-config.sh` (#104).
+Shared host.yaml parser (`script/host_yaml.sh`), used by both the post-run hook and `runheadless-host-config.sh`: the `public_ip` resolver (#104) and the `livestream.ports` resolver (#231).
 
 | Test | Description |
 |------|-------------|
@@ -16,6 +16,14 @@ Shared host.yaml `public_ip` parser (`script/host_yaml.sh`), used by both the po
 | `host_yaml: key absent -> empty, no warning` | A file without `public_ip` resolves to empty with no warning. |
 | `host_yaml: key present but empty -> empty value + warning (#104)` | Distinguishes "not configured" from "configured but unparseable" -- warns on stderr. |
 | `host_yaml: invalid value (metacharacters) -> rc 1 + error (#104)` | A value with illegal characters fails fast with an error instead of passing garbage to Kit / the viewer. |
+| `host_yaml: resolve_port reads a numeric livestream port` | `resolve_port` returns the `livestream.ports.signal` integer. |
+| `host_yaml: resolve_port resolves each of signal/media/serve/api` | All four port keys resolve independently. |
+| `host_yaml: resolve_port strips a trailing inline comment` | An inline `# override` comment is stripped from the port value. |
+| `host_yaml: resolve_port absent key -> empty, rc 0, no warning` | A missing port key resolves to empty (omit => default), no warning. |
+| `host_yaml: resolve_port present-but-empty -> empty, rc 0 (omit => default)` | A present-but-blank key (e.g. `media:`) is treated as omitted, no warning. |
+| `host_yaml: resolve_port absent file -> empty, rc 0` | A missing file resolves every port to empty. |
+| `host_yaml: resolve_port non-numeric -> rc 1 + error` | A non-numeric port fails fast with an error. |
+| `host_yaml: resolve_port out-of-range -> rc 1 + error` | A port outside 1..65535 fails fast with an error. |
 
 ## test/smoke/bats/runheadless_host_config_spec.bats (8)
 
@@ -32,16 +40,22 @@ Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-
 | `runheadless: invalid public_ip -> rc 1 (shared parser rejects)` | Garbage in host.yaml fails fast via the shared `resolve_public_ip`. |
 | `runheadless: forwards extra args after the built kit-args` | Trailing `"$@"` (e.g. a scene USD) is appended after the constructed args. |
 
-## test/smoke/bats/post_run_hook_spec.bats (10)
+## test/smoke/bats/post_run_hook_spec.bats (16)
 
-Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the default Isaac container and starts the default `owv` web-viewer. Single-sim only -- same-repo multi-instance was removed (ADR-0019). Exercised via `POST_RUN_DRYRUN=1`.
+Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the default Isaac container and starts the default `owv` web-viewer. The WebRTC livestream ports are sourced from `host.yaml` (#231), not hardcoded. Single-sim only -- same-repo multi-instance was removed (ADR-0019). Exercised via `POST_RUN_DRYRUN=1`.
 
 | Test | Description |
 |------|-------------|
 | `post-run: non-stream target is a no-op` | A non-`stream` target produces no actions. |
 | `post-run: stream without -d is a no-op` | The stream stage without `-d/--detach` produces no actions. |
 | `post-run: stream + -d starts the viewer with stream-only UI mode` | Viewer `docker run` carries `VIEWER_UI_MODE=stream-only`; negative guards that `usd-viewer` and the dropped `VIEWER_AUTO_LAUNCH` flag never appear (#123). |
-| `post-run: viewer ports are the literal default -e flags` | The viewer is launched with literal `-e SIGNALING_PORT=49100` + `-e SERVE_PORT=5173`; no per-instance `--env-file` overlay (ADR-0019). |
+| `post-run: omitted ports fall back to viewer defaults 49100/5173 (#231)` | With no host.yaml, the viewer gets `SIGNALING_PORT=49100` + `SERVE_PORT=5173`, no `MEDIA_PORT` (negotiated), and no per-instance `--env-file` (ADR-0019) -- today's exact behavior. |
+| `post-run: viewer signal/serve ports sourced from host.yaml (#231)` | `livestream.ports.signal`/`serve` flow to the viewer as `SIGNALING_PORT`/`SERVE_PORT`; the old literal 49100/5173 no longer appear. |
+| `post-run: media port omitted -> no MEDIA_PORT on the viewer (#231)` | Omitting `media` passes no `MEDIA_PORT` -- the viewer negotiates via SDP. |
+| `post-run: media port set -> MEDIA_PORT wired to the viewer (#231, PRD:94)` | A set `media` port is passed as `-e MEDIA_PORT`, closing the un-wired media link. |
+| `post-run: isaac ports are copied into the Isaac container as an env file (#231)` | Set `ISAAC_*_PORT` are `docker cp`'d to `/etc/isaac/livestream-ports.env` for the later runheadless exec to source. |
+| `post-run: no livestream ports -> no env file copied to the Isaac container (#231)` | With no ports set, no env file is copied -- exact current behavior (Kit defaults). |
+| `post-run: invalid livestream port aborts with rc 1 (#231)` | A non-numeric / out-of-range port fails the hook via the shared resolver. |
 | `post-run: viewer container is the default owv and removed first` | `docker rm -f owv` precedes `docker run --name owv` (idempotent); no `owv-<instance>` suffix (ADR-0019). |
 | `post-run: host.yaml present is copied into the default Isaac container` | A present host.yaml is `docker cp`'d to the default Isaac container `${USER_NAME}-${IMAGE_NAME}-stream` at `/etc/host.yaml` (no `-<instance>` suffix). |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
