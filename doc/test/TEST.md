@@ -1,6 +1,6 @@
 # TEST.md
 
-**71 tests** total.
+**92 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (16)
 
@@ -70,6 +70,34 @@ Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compos
 | Test | Description |
 |------|-------------|
 | `post-stop: stops the default viewer owv` | `stop.sh` removes the default `owv` viewer; no `owv-<instance>` suffix (ADR-0019). |
+
+## test/smoke/bats/stream_smoke_lib_spec.bats (21)
+
+Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib.sh`, #233). Before #233 the smoke stopped at "Streaming server started.", so a Kit that boots, opens the signaling socket and then dies on the first real client attach passed green; the probe now attaches a client, asserts the observed stream-start sequence, and holds a dwell window. That logic is GPU-free and lives in a sourceable library so it is unit tested on every image build -- the GPU driver (`script/ci/stream_smoke.sh`) itself stays nightly-only (`stream-smoke.yaml`). The liveness probe is the overridable `smoke_alive` hook: the driver binds it to `docker ps`, these specs bind it to stubs (including one that flips to dead mid-dwell).
+
+| Test | Description |
+|------|-------------|
+| `marker_line: present marker prints its 1-based line number` | A fixed-string marker resolves to its kit log line number. |
+| `marker_line: absent marker -> rc 1, no stdout` | A missing marker fails without emitting a bogus line number. |
+| `marker_line: missing log file -> rc 1 (no crash)` | An absent kit log is a failure, not a crash. |
+| `sequence_line: in-order markers -> rc 0 + line of the LAST marker` | The ordered attach sequence resolves to its final line, which anchors the drop scan. |
+| `sequence_line: out-of-order markers -> rc 1 naming the unmet marker` | Each marker must appear AFTER the previous one; the unmet one is named on stderr. |
+| `sequence_line: truncated attach (no All Streams connected.) -> rc 1` | A half-connect (signaling headers only) is the exact case a boot-only Tier A used to pass -- it now fails. |
+| `sequence_line: no markers given -> rc 1 (misuse is not a pass)` | Misuse fails closed rather than reading as a green run. |
+| `drop_line: NVST_CCE_DISCONNECTED after the anchor -> rc 0 + line` | A client disconnect after connect counts as a stream drop. |
+| `drop_line: 'Stream Server: streamN ... stopped' after anchor -> rc 0` | An individual stream stopping after connect counts as a drop. |
+| `drop_line: a drop BEFORE the anchor is ignored (stale prior session)` | An earlier session's teardown must not fail this run's dwell. |
+| `drop_line: healthy connected log -> rc 1 (nothing dropped)` | A healthy log reports no drop. |
+| `alive: default hook is fail-closed (never a silent pass)` | A caller that forgets to bind a real liveness probe fails the smoke instead of assuming the container is up. |
+| `wait_for: sequence already complete -> rc 0 without waiting` | An already-satisfied sequence returns immediately. |
+| `wait_for: sequence never appears -> rc 1 (timeout)` | Timeout is reported distinctly from death. |
+| `wait_for: Kit dies while waiting -> rc 2 (death, not timeout)` | A dead Kit during the connect wait is attributed as a death, not a slow start. |
+| `dwell: alive + no drop for the whole window -> rc 0` | The healthy path holds the connection for the whole window. |
+| `dwell: Kit SIGKILLed mid-dwell -> rc 2 (the #233 bug)` | The core regression: a Kit that dies part-way through the dwell fails the smoke. |
+| `dwell: streams stop mid-dwell -> rc 3` | Streams stopping during the dwell fails the smoke with its own code. |
+| `dwell: a pre-anchor drop does not fail the window` | The anchor keeps stale pre-connect drop lines from failing a healthy dwell. |
+| `log_tail: prints the last N lines between markers` | Failure reporting emits a framed, bounded kit log tail. |
+| `log_tail: missing log -> rc 0 and says so (teardown stays safe)` | The failure reporter never itself fails, so teardown still runs. |
 
 ## test/smoke/bats/docker_env.bats (4)
 

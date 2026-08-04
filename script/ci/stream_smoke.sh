@@ -72,8 +72,14 @@ ready_marker='Streaming server started.'
 
 # Ordered kit-log markers of a healthy attach, as observed on the GPU host:
 # signaling headers received -> peer connected -> all streams up.
-default_stream_markers=$'NetStreamServer::onSignalingHeaders\nNVST_CCE_CONNECTED\nAll Streams connected.'
-mapfile -t stream_markers <<< "${SMOKE_STREAM_MARKERS:-${default_stream_markers}}"
+stream_markers=(
+  'NetStreamServer::onSignalingHeaders'
+  'NVST_CCE_CONNECTED'
+  'All Streams connected.'
+)
+if [[ -n "${SMOKE_STREAM_MARKERS:-}" ]]; then
+  mapfile -t stream_markers <<< "${SMOKE_STREAM_MARKERS}"
+fi
 
 # Identity + workspace from .env.generated (base A2 model), .env overlays.
 # WS_PATH (not repo_root) anchors the bind-mounted kit/logs: the compose mount
@@ -92,7 +98,7 @@ client_pid=""
 
 cleanup() {
   echo "[smoke] teardown: removing ${container} + owv"
-  if [ -n "${client_pid}" ]; then
+  if [[ -n "${client_pid}" ]]; then
     kill "${client_pid}" 2>/dev/null || true
   fi
   docker rm -f "${container}" owv >/dev/null 2>&1 || true
@@ -130,7 +136,8 @@ docker exec -d "${container}" \
 
 echo "[smoke] wait up to ${timeout_s}s for: ${ready_marker}"
 rc=0
-smoke_wait_for "${smoke_log}" "${timeout_s}" "${poll_s}" "${ready_marker}" || rc=$?
+smoke_wait_for "${smoke_log}" "${timeout_s}" "${poll_s}" \
+  "${ready_marker}" || rc=$?
 case "${rc}" in
   0) echo "[smoke] OK: Isaac WebRTC streaming server started" ;;
   2) fail "container ${container} is no longer running" ;;
@@ -160,7 +167,7 @@ smoke_wait_for "${smoke_log}" "${connect_timeout_s}" "${poll_s}" \
 case "${rc}" in
   0) echo "[smoke] OK: client attached, all streams connected" ;;
   2) fail "Kit died while the client was attaching (the #233 regression)" ;;
-  *) fail "streams did not start within ${connect_timeout_s}s of the client attaching" ;;
+  *) fail "streams did not start within ${connect_timeout_s}s of the attach" ;;
 esac
 
 # Anchor the drop scan at the connect line so a stale disconnect from an

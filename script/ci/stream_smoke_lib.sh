@@ -32,7 +32,10 @@
 # ERE matched against kit log lines after the connect anchor. Either the
 # client-event disconnect or an individual stream stopping counts as the
 # stream going away mid-dwell.
-SMOKE_DROP_REGEX="${SMOKE_DROP_REGEX:-NVST_CCE_DISCONNECTED|Stream Server: stream[0-9]+.*stopped}"
+if [[ -z "${SMOKE_DROP_REGEX:-}" ]]; then
+  SMOKE_DROP_REGEX='NVST_CCE_DISCONNECTED'
+  SMOKE_DROP_REGEX+='|Stream Server: stream[0-9]+.*stopped'
+fi
 
 # Liveness hook. Fail-closed on purpose: a caller that forgets to bind a
 # real probe must make the smoke FAIL, never silently assume the container
@@ -173,7 +176,7 @@ smoke_dwell() {
       return 2
     fi
     if _drop="$(smoke_drop_line "${_log}" "${_anchor}")"; then
-      printf '[smoke] dwell: streams dropped at kit log line %s (%ss into the %ss window)\n' \
+      printf '[smoke] dwell: streams dropped at line %s, %ss into %ss\n' \
         "${_drop}" "$(( SECONDS - _start ))" "${_dwell}" >&2
       return 3
     fi
