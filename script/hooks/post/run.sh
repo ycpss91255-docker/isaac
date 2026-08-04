@@ -51,7 +51,7 @@ USER_NAME=""; IMAGE_NAME="isaac"
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
 isaac_container="${USER_NAME}-${IMAGE_NAME}-stream"
-wv_container="owv"
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv"
 wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"
 
