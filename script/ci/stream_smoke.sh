@@ -59,8 +59,11 @@ echo "[smoke] bring up stream stage (idle container + viewer)"
 ( cd "${repo_root}" && ./script/run.sh -t stream -d )
 
 echo "[smoke] launch Isaac (detached) in ${container}"
+# Source the per-host livestream port env the post-run hook copied in when
+# host.yaml pins any port (#231); absent => no-op, runheadless-host-config.sh
+# (unchanged) falls back to its ISAAC_*_PORT-from-env defaults.
 docker exec -d "${container}" \
-  sh -c '/usr/local/bin/runheadless-host-config.sh > /isaac-sim/kit/logs/stream-smoke.log 2>&1'
+  sh -c 'set -a; [ -f /etc/isaac/livestream-ports.env ] && . /etc/isaac/livestream-ports.env; set +a; /usr/local/bin/runheadless-host-config.sh > /isaac-sim/kit/logs/stream-smoke.log 2>&1'
 
 echo "[smoke] wait up to ${timeout_s}s for: ${ready_marker}"
 deadline=$(( SECONDS + timeout_s ))

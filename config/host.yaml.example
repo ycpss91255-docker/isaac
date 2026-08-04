@@ -10,3 +10,17 @@ network:
   # access. Change to this machine's LAN IP (e.g. "192.168.50.1") for remote
   # browser access from another machine on the same network.
   public_ip: "127.0.0.1"
+
+# Optional WebRTC livestream ports. The whole block -- and any individual
+# key -- may be omitted; each omitted key reproduces the built-in default,
+# so the common single-sim case needs nothing here. Set a key only to move
+# a port off its default (a second sim on the same host for a demo, or a
+# clash with 5173 / 49100). Values are integers in 1..65535.
+# livestream:
+#   ports:
+#     signal: 49100   # WebRTC signaling. Omit => Kit default 49100 (the
+#                     # value the viewer is told and connects to).
+#     media:          # WebRTC media (fixedHostPort). Omit => not pinned;
+#                     # the viewer negotiates it via SDP (recommended).
+#     serve:  5173    # Web-viewer HTTP (Vite). Omit => viewer default 5173.
+#     api:            # Kit HTTP / API port. Omit => Kit default.

@@ -63,13 +63,68 @@ teardown() {
   ! echo "${output}" | grep -qE 'VIEWER_AUTO_LAUNCH'
 }
 
-@test "post-run: viewer ports are the literal default -e flags" {
+@test "post-run: omitted ports fall back to viewer defaults 49100/5173 (#231)" {
+  # No host.yaml at all -> the viewer still gets today's exact defaults:
+  # signal 49100 (Kit's default, which the viewer is told) and serve 5173
+  # (the viewer's own Vite default). media is NOT pinned (negotiated).
   run --separate-stderr "${HOOK}" -t stream -d
   [ "$status" -eq 0 ]
   echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT=49100'
   echo "${output}" | grep -qE 'docker run .*-e SERVE_PORT=5173'
+  ! echo "${output}" | grep -qE 'docker run .*-e MEDIA_PORT='
   # Single-sim: no per-instance --env-file overlay (ADR-0019).
   ! echo "${output}" | grep -qE 'docker run .*--env-file'
+}
+
+@test "post-run: viewer signal/serve ports sourced from host.yaml (#231)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    signal: 49200\n    serve: 5273\n' \
+    > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT=49200'
+  echo "${output}" | grep -qE 'docker run .*-e SERVE_PORT=5273'
+  # Not the literal old defaults any more.
+  ! echo "${output}" | grep -qE 'docker run .*-e SIGNALING_PORT=49100'
+  ! echo "${output}" | grep -qE 'docker run .*-e SERVE_PORT=5173'
+}
+
+@test "post-run: media port omitted -> no MEDIA_PORT on the viewer (#231)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    signal: 49200\n' \
+    > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  ! echo "${output}" | grep -qE 'MEDIA_PORT'
+}
+
+@test "post-run: media port set -> MEDIA_PORT wired to the viewer (#231, PRD:94)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    media: 47998\n' \
+    > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep -qE 'docker run .*-e MEDIA_PORT=47998'
+}
+
+@test "post-run: isaac ports are copied into the Isaac container as an env file (#231)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    signal: 49200\n    media: 47998\n    api: 8111\n' \
+    > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  # A second docker cp lands the resolved ISAAC_*_PORT env into the container.
+  echo "${output}" | grep -qE 'docker cp .*alice-isaac-stream:/etc/isaac/livestream-ports.env'
+}
+
+@test "post-run: no livestream ports -> no env file copied to the Isaac container (#231)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\n' > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  ! echo "${output}" | grep -qE 'livestream-ports.env'
+}
+
+@test "post-run: invalid livestream port aborts with rc 1 (#231)" {
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    signal: nope\n' \
+    > "${REPO}/config/host.yaml"
+  run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 1 ]
 }
 
 @test "post-run: viewer container is the default owv and removed first" {
