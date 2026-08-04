@@ -11,7 +11,8 @@
 # Single-sim only: same-repo multi-instance was removed (ADR-0019; the
 # design is preserved in multi_run#15, the base `--instance` primitive in
 # base #465). The Isaac container is the default
-# ${USER_NAME}-${IMAGE_NAME}-stream and the viewer is `owv`.
+# ${USER_NAME}-${IMAGE_NAME}-stream and the viewer is the per-stack
+# ${USER_NAME}-${IMAGE_NAME}-owv (symmetric with -stream, #237).
 #
 # Gate: only acts on the stream stage WITH -d/--detach. Anything else
 # (headless, foreground, a driver CMD) is a no-op.

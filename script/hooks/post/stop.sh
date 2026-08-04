@@ -6,7 +6,9 @@
 # viewer, so the symmetric cleanup lives here.
 #
 # Single-sim only: same-repo multi-instance was removed (ADR-0019). The
-# viewer container is the default `owv` (the same name post/run uses).
+# viewer container is the per-stack ${USER_NAME}-${IMAGE_NAME}-owv (the same
+# name post/run uses), so two isolated stacks on one host do not tear down
+# each other's viewer (#237).
 #
 # Receives stop.sh's "$@". Skipped when stop.sh runs with --dry-run.
 set -euo pipefail

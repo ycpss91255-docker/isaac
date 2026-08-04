@@ -7,7 +7,9 @@
 # never sees the viewer, so the symmetric cleanup lives here.
 #
 # Single-sim only: same-repo multi-instance was removed (ADR-0019). The
-# viewer container is the default `owv` (the same name post/run uses).
+# viewer container is the per-stack ${USER_NAME}-${IMAGE_NAME}-owv (the same
+# name post/run uses), so two isolated stacks on one host do not tear down
+# each other's viewer (#237).
 #
 # Exercised via POST_RUN_DRYRUN=1 (shared dry-run flag with post/run).
 # Baked into /smoke_test/ as post_stop_hook.sh by the devel-test stage.
