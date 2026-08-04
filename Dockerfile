@@ -391,6 +391,11 @@ RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 # (nested, so the flat /lint/*.sh glob above misses them). Lint them here.
 COPY script/hooks /lint/hooks
 RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
+# [#233] Host-side CI drivers (script/ci/) are likewise missed by the flat
+# /lint/*.sh glob. The whole dir is copied so `-x` can follow
+# stream_smoke.sh -> stream_smoke_lib.sh.
+COPY script/ci /lint/ci
+RUN shellcheck -S warning -x /lint/ci/*.sh
 RUN cd /lint && hadolint Dockerfile
 
 # [isaac] Python testing toolkit (pytest + common deps). Installed into
@@ -417,6 +422,11 @@ COPY .base/test/smoke/ /smoke_test/
 COPY test/smoke/bats/ /smoke_test/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
+# [#233] Tier A stream-smoke decision logic (client-connect sequence +
+# dwell/liveness assertions), baked next to stream_smoke_lib_spec.bats.
+# The GPU driver script itself (script/ci/stream_smoke.sh) is host-side
+# and nightly-only, so only its library is unit tested here.
+COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
 # inside their post dir, so they are baked under distinct flat names that
