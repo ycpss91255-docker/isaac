@@ -5,7 +5,9 @@ adopted in ADR-0016 (per-instance compose overlays from
 `config/instances/<name>.{yaml,env}`, the per-instance cache-dir pre-run hook,
 and the per-instance web-viewer naming in the run/stop hooks) is removed. The
 single-sim stream flow is the only supported flow: `just run -t stream -d`
-brings up the default Isaac container plus one `owv` web-viewer.
+brings up the default Isaac container plus one per-stack
+`${USER_NAME}-${IMAGE_NAME}-owv` web-viewer (the name was later derived from
+the stack identity so two isolated stacks stop colliding -- #237).
 
 This SUPERSEDES the multi-instance premise of ADR-0016. ADR-0016's other
 decision -- adopting base's native wrapper-hook mechanism (base #440) for the
@@ -65,13 +67,14 @@ Remove same-repo multi-instance from isaac. Concretely:
   `.env.generated`-then-`.env` identity sourcing, the host.yaml validate +
   `docker cp` into the Isaac container, and the web-viewer launch -- but
   default-only. The Isaac container is `${USER_NAME}-${IMAGE_NAME}-stream` (no
-  suffix), the viewer container is `owv` (no `-${instance}` suffix), the viewer
+  suffix), the viewer container is `${USER_NAME}-${IMAGE_NAME}-owv` (no
+  `-${instance}` suffix; derived from the stack identity per #237), the viewer
   ports are the literal `-e SIGNALING_PORT=49100 -e SERVE_PORT=5173` (the former
   fallback), with `-e VIEWER_UI_MODE=stream-only` and image
   `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime` unchanged.
 - **`script/hooks/post/stop.sh` de-instanced.** The `--instance` parsing is
-  removed; the viewer container to remove is `owv` (the same default name
-  post/run now uses).
+  removed; the viewer container to remove is `${USER_NAME}-${IMAGE_NAME}-owv`
+  (the same per-stack name post/run now uses; #237).
 - **Specs updated.** `pre_run_hook_spec.bats` is deleted (the hook is now a
   no-op stub, and sibling no-op stubs carry no spec).
   `post_run_hook_spec.bats` / `post_stop_hook_spec.bats` are rewritten to the

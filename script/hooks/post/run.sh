@@ -13,7 +13,9 @@
 # Single-sim only: same-repo multi-instance was removed (ADR-0019; the
 # design is preserved in multi_run#15 and base keeps the `--instance`
 # primitive, base #465). The Isaac container is the default
-# ${USER_NAME}-${IMAGE_NAME}-stream and the viewer is `owv`.
+# ${USER_NAME}-${IMAGE_NAME}-stream and the viewer is the per-stack
+# ${USER_NAME}-${IMAGE_NAME}-owv (symmetric with -stream, so two isolated
+# stacks on one host no longer share a viewer name -- #237).
 #
 # It does NOT launch Isaac Sim: that stays an explicit `exec` step
 # (driver or runheadless), matching the documented stream flow and
@@ -51,7 +53,7 @@ USER_NAME=""; IMAGE_NAME="isaac"
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
 isaac_container="${USER_NAME}-${IMAGE_NAME}-stream"
-wv_container="owv"
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv"
 wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"
 
