@@ -46,6 +46,7 @@
 #   SMOKE_CLIENT_CMD       shell command (run on the host, detached) that
 #                          attaches the client; replaces the default probe
 #   SMOKE_LIB              path to stream_smoke_lib.sh (default: alongside)
+#   HOST_YAML_LIB          path to host_yaml.sh (default: ../host_yaml.sh)
 #
 # The default client probe is browser-free by design (a browser + rendered
 # frame is Tier B): it performs the WebSocket upgrade handshake against the
@@ -93,8 +94,16 @@ WS_PATH=""
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 container="${USER_NAME}-${IMAGE_NAME}-stream"
 smoke_log="${WS_PATH:-${repo_root}}/isaac-sim/kit/logs/stream-smoke.log"
-signal_port="${ISAAC_SIGNAL_PORT:-49100}"
 client_pid=""
+
+# Signal port the client attaches to. Resolve it the same way the post-run
+# hook does (#231): config/host.yaml `livestream.ports.signal` wins, then an
+# ISAAC_SIGNAL_PORT already in env, then Kit's own default. Probing the
+# wrong port would look exactly like "the client never reached Kit".
+# shellcheck source=../host_yaml.sh
+. "${HOST_YAML_LIB:-${repo_root}/script/host_yaml.sh}"
+signal_port="$(resolve_port "${repo_root}/config/host.yaml" signal)" || exit 1
+signal_port="${signal_port:-${ISAAC_SIGNAL_PORT:-49100}}"
 
 cleanup() {
   echo "[smoke] teardown: removing ${container} + owv"
