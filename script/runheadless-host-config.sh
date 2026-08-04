@@ -12,7 +12,18 @@
 #                  ISAAC_MEDIA_PORT  -> --/app/livestream/fixedHostPort
 #                  ISAAC_API_PORT    -> --/exts/omni.services.transport.server.http/port
 #                  Each is omitted when unset, so Kit falls back to its
-#                  own default (default-instance case).
+#                  own default (default-instance case). Unset keys are
+#                  filled in from /etc/isaac/livestream-ports.env, the file
+#                  the post-run hook writes from config/host.yaml (#231):
+#                  the stream container is already idle when that hook
+#                  fires and Kit is launched later by a separate `exec`,
+#                  so the ports arrive as a file rather than container env.
+#                  Reading it here rather than in each caller (#234) keeps
+#                  CI, the documented `make exec -- -t stream
+#                  /usr/local/bin/runheadless-host-config.sh` path, and any
+#                  future launcher identical, with one owner of the port
+#                  resolution. Caller env wins, so an explicit `-e` still
+#                  overrides host.yaml; an absent file is a no-op.
 #   public address network.public_ip from /etc/host.yaml (mounted by the
 #                  post-run hook). Absent/empty -> no publicEndpointAddress
 #                  arg; Isaac advertises its container IP, which is fine
@@ -23,6 +34,8 @@
 # Test seams (production defaults unchanged):
 #   HOST_YAML_LIB         shared parser path (default /usr/local/lib/host_yaml.sh)
 #   HOST_YAML_FILE        per-host config path (default /etc/host.yaml)
+#   ISAAC_PORTS_ENV_FILE  livestream port env file (default
+#                         /etc/isaac/livestream-ports.env)
 #   RUNHEADLESS_DRYRUN=1  print the resolved command line instead of exec
 set -euo pipefail
 
@@ -33,6 +46,24 @@ set -euo pipefail
 . "${HOST_YAML_LIB:-/usr/local/lib/host_yaml.sh}"
 
 PUBLIC_IP="$(resolve_public_ip "${HOST_YAML_FILE:-/etc/host.yaml}")" || exit 1
+
+# Per-host livestream ports handed off by the post-run hook (#231/#234).
+# Parsed, not sourced: only the three ISAAC_*_PORT keys are honored, and
+# only when the caller left them unset, so nothing else in the file can
+# reach this environment and an explicit `-e` always wins. The trailing
+# `|| [ -n "${key}" ]` keeps a final line without a newline.
+ports_env_file="${ISAAC_PORTS_ENV_FILE:-/etc/isaac/livestream-ports.env}"
+if [ -f "${ports_env_file}" ]; then
+  while IFS='=' read -r key value || [ -n "${key}" ]; do
+    case "${key}" in
+      ISAAC_SIGNAL_PORT | ISAAC_MEDIA_PORT | ISAAC_API_PORT) ;;
+      *) continue ;;
+    esac
+    if [ -z "${!key:-}" ]; then
+      export "${key}=${value}"
+    fi
+  done < "${ports_env_file}"
+fi
 
 kit_args=(
   -v
