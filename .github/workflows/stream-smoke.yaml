@@ -1,9 +1,13 @@
 name: Stream Smoke (GPU)
 
 # Tier A producer-side smoke (isaac#172): boot the stream stage on a
-# self-hosted GPU runner and assert Isaac's WebRTC livestream signaling
-# port comes up. Hosted runners have no GPU, so this is the only place the
-# "Isaac actually boots + livestream is reachable" path is exercised in CI.
+# self-hosted GPU runner and assert Isaac's WebRTC livestream actually
+# serves a client -- a browser-free client attaches, the stream-start
+# sequence is asserted from the kit log, and the connection is held for a
+# dwell window that fails if Kit dies or the streams stop (isaac#233;
+# before that this only checked the signaling port, so a Kit that died on
+# first client attach passed green). Hosted runners have no GPU, so this
+# is the only place that path is exercised in CI.
 # Heavy (minutes) + occasionally flaky -> nightly + manual, NOT per-PR.
 # Tier B (browser frames) builds on this: isaac#173 + omniverse_web_viewer#48.
 
@@ -21,7 +25,9 @@ concurrency:
 jobs:
   stream-smoke:
     runs-on: [self-hosted, gpu]
-    timeout-minutes: 25
+    # Boot budget (SMOKE_TIMEOUT 600s) + client-connect budget
+    # (SMOKE_CONNECT_TIMEOUT 120s) + dwell (SMOKE_DWELL 30s) + build/teardown.
+    timeout-minutes: 30
     steps:
       # Pre-checkout self-heal: a prior GPU run can leave root-owned residue
       # in the bind-mounted workspace that breaks the non-root runner's
@@ -61,9 +67,10 @@ jobs:
             isaac-sim/pip isaac-sim/nvidia/glcache \
             isaac-sim/nvidia/computecache isaac-sim/documents
 
-      # Boots the stream stage + launches Isaac + waits for the signaling
-      # port; tears down (docker rm -f) on every exit via its own trap.
-      - name: Stream smoke (Isaac boots + livestream up)
+      # Boots the stream stage + launches Isaac + waits for the streaming
+      # server + attaches a client + holds the connection for the dwell;
+      # tears down (docker rm -f) on every exit via its own trap.
+      - name: Stream smoke (Isaac boots + a client streams + survives dwell)
         run: bash script/ci/stream_smoke.sh
 
       - name: Upload kit log on failure
