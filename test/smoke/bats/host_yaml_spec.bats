@@ -77,3 +77,68 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "${stderr}" == *ERROR* ]]
 }
+
+# --- livestream.ports resolver (#231) -------------------------------------
+# resolve_port <file> <signal|media|serve|api> echoes a validated numeric
+# port, or nothing when the key is absent / present-but-empty (the "omit"
+# case, which the caller maps to today's default behavior). A present but
+# non-numeric / out-of-range value fails fast, mirroring resolve_public_ip.
+
+@test "host_yaml: resolve_port reads a numeric livestream port" {
+  printf 'livestream:\n  ports:\n    signal: 49200\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" signal
+  [ "$status" -eq 0 ]
+  [ "${output}" = "49200" ]
+}
+
+@test "host_yaml: resolve_port resolves each of signal/media/serve/api" {
+  printf 'livestream:\n  ports:\n    signal: 49200\n    media: 47998\n    serve: 5273\n    api: 8111\n' \
+    > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" media
+  [ "${output}" = "47998" ]
+  run --separate-stderr resolve_port "${YAML}" serve
+  [ "${output}" = "5273" ]
+  run --separate-stderr resolve_port "${YAML}" api
+  [ "${output}" = "8111" ]
+}
+
+@test "host_yaml: resolve_port strips a trailing inline comment" {
+  printf 'livestream:\n  ports:\n    signal: 49200  # override\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" signal
+  [ "${output}" = "49200" ]
+}
+
+@test "host_yaml: resolve_port absent key -> empty, rc 0, no warning" {
+  printf 'network:\n  public_ip: "127.0.0.1"\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" signal
+  [ "$status" -eq 0 ]
+  [ -z "${output}" ]
+  [ -z "${stderr}" ]
+}
+
+@test "host_yaml: resolve_port present-but-empty -> empty, rc 0 (omit => default)" {
+  printf 'livestream:\n  ports:\n    media:\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" media
+  [ "$status" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "host_yaml: resolve_port absent file -> empty, rc 0" {
+  run --separate-stderr resolve_port "/no/such/host.yaml" signal
+  [ "$status" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "host_yaml: resolve_port non-numeric -> rc 1 + error" {
+  printf 'livestream:\n  ports:\n    signal: abc\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" signal
+  [ "$status" -eq 1 ]
+  [[ "${stderr}" == *ERROR* ]]
+}
+
+@test "host_yaml: resolve_port out-of-range -> rc 1 + error" {
+  printf 'livestream:\n  ports:\n    signal: 99999\n' > "${YAML}"
+  run --separate-stderr resolve_port "${YAML}" signal
+  [ "$status" -eq 1 ]
+  [[ "${stderr}" == *ERROR* ]]
+}

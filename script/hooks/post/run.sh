@@ -63,26 +63,62 @@ _docker() {
   fi
 }
 
+# Shared host.yaml parser (public_ip + livestream port resolvers). Sourced
+# unconditionally: the resolvers no-op (empty, rc 0) on an absent file, so
+# the omit path reproduces today's defaults (#231).
+# shellcheck source=/dev/null
+. "${HOST_YAML_LIB:-${repo_root}/script/host_yaml.sh}"
+
 # 1. host.yaml -> Isaac container (validate on the host first; abort on garbage).
 hy_mount=()
 if [ -f "${host_yaml}" ]; then
-  # shellcheck source=/dev/null
-  . "${HOST_YAML_LIB:-${repo_root}/script/host_yaml.sh}"
   resolve_public_ip "${host_yaml}" >/dev/null || exit 1
   _docker cp "${host_yaml}" "${isaac_container}:/etc/host.yaml"
   hy_mount=(-v "${host_yaml}:/etc/host.yaml:ro")
 fi
 
-# 2. web-viewer (idempotent: drop a stale container first).
+# 2. Resolve the livestream ports from host.yaml (#231). Empty == omitted;
+# a present-but-invalid value aborts. Omitting any key reproduces today's
+# exact behavior: signal -> Kit default 49100 (which the viewer is told),
+# media -> not pinned (viewer negotiates via SDP), serve -> viewer default
+# 5173, api -> Kit default HTTP port.
+port_signal="$(resolve_port "${host_yaml}" signal)" || exit 1
+port_media="$(resolve_port "${host_yaml}" media)"   || exit 1
+port_serve="$(resolve_port "${host_yaml}" serve)"   || exit 1
+port_api="$(resolve_port "${host_yaml}" api)"       || exit 1
+
+# 3. Isaac container ports. The stream container is already running and
+# runheadless-host-config.sh is launched later by a separate `exec` step
+# (it reads ISAAC_*_PORT from env, unchanged). So the set ports are handed
+# off as an env file the launch step sources; only keys that are set are
+# written, and when none are set no file is copied at all (exact current
+# behavior -- Kit falls back to its own defaults).
+isaac_env=()
+if [ -n "${port_signal}" ]; then isaac_env+=("ISAAC_SIGNAL_PORT=${port_signal}"); fi
+if [ -n "${port_media}" ];  then isaac_env+=("ISAAC_MEDIA_PORT=${port_media}"); fi
+if [ -n "${port_api}" ];    then isaac_env+=("ISAAC_API_PORT=${port_api}"); fi
+if [ "${#isaac_env[@]}" -gt 0 ] && [ -f "${host_yaml}" ]; then
+  isaac_env_file="$(mktemp)"
+  printf '%s\n' "${isaac_env[@]}" > "${isaac_env_file}"
+  _docker cp "${isaac_env_file}" "${isaac_container}:/etc/isaac/livestream-ports.env"
+  rm -f "${isaac_env_file}"
+fi
+
+# 4. web-viewer (idempotent: drop a stale container first). Ports come from
+# host.yaml with the documented omit-fallbacks; MEDIA_PORT is passed only
+# when pinned (closes the un-wired media link, PRD-viewer-architecture:94).
 if [ "${POST_RUN_DRYRUN:-0}" = "1" ]; then
   printf 'docker rm -f %s\n' "${wv_container}"
 else
   docker rm -f "${wv_container}" >/dev/null 2>&1 || true
 fi
 
+viewer_env=(-e "SIGNALING_PORT=${port_signal:-49100}" -e "SERVE_PORT=${port_serve:-5173}")
+if [ -n "${port_media}" ]; then viewer_env+=(-e "MEDIA_PORT=${port_media}"); fi
+
 _docker run --rm -d --name "${wv_container}" --network=host \
   ${hy_mount[@]+"${hy_mount[@]}"} \
-  -e "SIGNALING_PORT=49100" -e "SERVE_PORT=5173" \
+  "${viewer_env[@]}" \
   -e "VIEWER_UI_MODE=stream-only" \
   "${wv_image}"
 
