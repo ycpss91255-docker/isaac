@@ -127,11 +127,11 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
-@test "post-run: viewer container is the default owv and removed first" {
+@test "post-run: viewer container name derives from IMAGE_NAME (per-stack)" {
   run --separate-stderr "${HOOK}" -t stream -d
   [ "$status" -eq 0 ]
-  echo "${output}" | grep -qE 'docker rm -f owv'
-  echo "${output}" | grep -qE 'docker run .*--name owv'
+  echo "${output}" | grep -qE 'docker rm -f alice-isaac-owv'
+  echo "${output}" | grep -qE 'docker run .*--name alice-isaac-owv'
   # No -<instance> suffix (ADR-0019).
   ! echo "${output}" | grep -qE 'owv-'
 }
