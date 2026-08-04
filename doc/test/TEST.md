@@ -1,6 +1,6 @@
 # TEST.md
 
-**92 tests** total.
+**96 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (16)
 
@@ -25,9 +25,9 @@ Shared host.yaml parser (`script/host_yaml.sh`), used by both the post-run hook 
 | `host_yaml: resolve_port non-numeric -> rc 1 + error` | A non-numeric port fails fast with an error. |
 | `host_yaml: resolve_port out-of-range -> rc 1 + error` | A port outside 1..65535 fails fast with an error. |
 
-## test/smoke/bats/runheadless_host_config_spec.bats (8)
+## test/smoke/bats/runheadless_host_config_spec.bats (12)
 
-Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-config.sh`); ports from container env, `public_ip` from `/etc/host.yaml`. Exercised via `RUNHEADLESS_DRYRUN=1` (base #465/#440).
+Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-config.sh`); ports from container env or the post-run hook's port env file (#231/#234), `public_ip` from `/etc/host.yaml`. Exercised via `RUNHEADLESS_DRYRUN=1` (base #465/#440).
 
 | Test | Description |
 |------|-------------|
@@ -35,6 +35,10 @@ Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-
 | `runheadless: always emits -v + quitOnSessionEnded=false` | The two unconditional Kit args are always present. |
 | `runheadless: port env -> livestream port kit-args` | `ISAAC_SIGNAL_PORT` / `ISAAC_MEDIA_PORT` / `ISAAC_API_PORT` map to `--/app/livestream/port` / `fixedHostPort` / the http port. |
 | `runheadless: no port env -> no port kit-args (default instance)` | With no port env, the port args are omitted (Kit defaults). |
+| `runheadless: ports env file -> livestream port kit-args (#234)` | The ports the post-run hook copied in as `/etc/isaac/livestream-ports.env` reach the signal / media / api Kit args on any launch path, including the manual `exec`. |
+| `runheadless: absent ports env file -> no port kit-args (#234)` | No env file leaves the port args omitted (Kit defaults), the pre-#231 behavior preserved exactly. |
+| `runheadless: caller env wins over the ports env file (#234)` | An `ISAAC_*_PORT` already set by the caller overrides the file; keys the caller did not set still come from it. |
+| `runheadless: ports env file honors only the ISAAC_*_PORT keys (#234)` | The file is parsed, not sourced -- unrelated keys (e.g. `PATH`) and comment lines cannot reach the launcher environment. |
 | `runheadless: host.yaml public_ip -> publicEndpointAddress` | A valid `public_ip` is appended as `--/app/livestream/publicEndpointAddress`. |
 | `runheadless: no host.yaml -> no publicEndpointAddress` | Absent host.yaml omits the public-endpoint arg (localhost-only). |
 | `runheadless: invalid public_ip -> rc 1 (shared parser rejects)` | Garbage in host.yaml fails fast via the shared `resolve_public_ip`. |
