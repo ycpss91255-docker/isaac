@@ -88,7 +88,15 @@
 #   floats: 6). All pure (no Isaac import: the JointDriveCfg build and the
 #   apply_joint_drive runtime helper are function-local isaaclab imports,
 #   GPU-covered). Live count is now 296 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 296
+#
+#   owv#55 isaac-side fix (dedicated cross-container compose project): adds
+#   3 hosted unit tests (test/unit/pytest/test_xc_compose_project_isolation.py:
+#   the cross-container round-trip's default COMPOSE_PROJECT is the dedicated
+#   'xc-isaac-roundtrip', is isolated from any ${DOCKER_HUB_USER}-${IMAGE_NAME}
+#   stream-stack project, and the XC_COMPOSE_PROJECT env override still wins).
+#   Pure -- loads the integration module by file path with env cleaned, no
+#   docker / no GPU. Live count is now 299 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 299
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -215,8 +223,9 @@ HOSTED_UNIT_BASELINE = 296
 GPU_INTEGRATION_BASELINE = 31
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
-#   126). Recorded for traceability; after the ingestion work the live
-#   aggregate is 327 (296 hosted-unit + 31 GPU-integration), well past the
+#   126). Recorded for traceability; after the ingestion work + the owv#55
+#   cross-container compose-project isolation the live aggregate is 330 (299
+#   hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
