@@ -108,7 +108,21 @@ DISCOVERY_WARMUP_SEC = 5
 CAMERA_MAX_ATTEMPTS = 2
 MAX_RETRIES = 1
 
-COMPOSE_PROJECT = os.environ.get("XC_COMPOSE_PROJECT", "yunchien-isaac")
+# Dedicated compose project for this round-trip, DISTINCT from any real manual
+# stream stack. The test runs the Isaac runner via `docker compose -p
+# COMPOSE_PROJECT run --rm ...` and its teardown tears down that whole project
+# (`docker compose -p <project> down`, run.sh's EXIT `_app_cleanup`, stop.sh's
+# `_compose_project down --remove-orphans`). If this coincided with the default
+# stream stack's project -- `${DOCKER_HUB_USER}-${IMAGE_NAME}` (e.g.
+# `yunchien-isaac`, from compose.yaml `name:`) -- a CI cross-container run (or
+# its cleanup) would remove EVERY container in that project, killing a
+# long-lived, manually-run `stream` container it never intended to touch
+# (ycpss91255-docker/omniverse_web_viewer#55). Deriving the default from
+# `.env.generated` (`${DOCKER_HUB_USER}-${IMAGE_NAME}`) would STILL resolve to
+# `yunchien-isaac` and re-introduce the collision -- only a distinct name
+# restores the isolation invariant. `XC_COMPOSE_PROJECT` stays an override seam
+# so CI can inject a per-run-unique project for concurrency isolation.
+COMPOSE_PROJECT = os.environ.get("XC_COMPOSE_PROJECT", "xc-isaac-roundtrip")
 
 
 def _docker_available() -> bool:
