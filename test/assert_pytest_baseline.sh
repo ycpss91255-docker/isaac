@@ -107,7 +107,24 @@ if [[ "${MODE}" == "gpu" ]]; then
   # `environment:` for that process tree, and the example runner subprocess
   # inherits it -- so the run is isolated onto a private domain. CI passes
   # a per-run value via GPU_ROS_DOMAIN_ID; default 0 keeps local behavior.
-  "${REPO_ROOT}/script/run.sh" -t test -- \
+  #
+  # Isolated compose project (owv#55 second axis; first axis was isaac#239).
+  # This is a foreground run.sh with no --no-rm, so run.sh installs its EXIT
+  # trap _app_cleanup, which runs a PROJECT-WIDE
+  # `COMPOSE_PROFILES='*' compose down --remove-orphans`. With no --instance
+  # _compute_project_name resolves the DEFAULT project (yunchien-isaac) -- the
+  # same project a manually-run stream stack lives in on a shared GPU host --
+  # so the teardown would reap that co-hosted manual `stream` container on
+  # every GPU pytest run. Passing --instance scopes run.sh to its own project
+  # (yunchien-isaac-<instance>, compose.yaml `name:`), so _app_cleanup's
+  # project-wide `--remove-orphans` still reaps THIS run's orphans but can
+  # never reach the default project. Preferred over --no-rm, which would skip
+  # the EXIT trap entirely and lose that orphan cleanup. Defaults to a fixed
+  # `baseline` (distinct from the default no-instance project); overridable
+  # via BASELINE_COMPOSE_INSTANCE so CI can pass a per-run-unique value (e.g.
+  # the GitHub run id) for concurrency isolation.
+  "${REPO_ROOT}/script/run.sh" -t test \
+    --instance "${BASELINE_COMPOSE_INSTANCE:-baseline}" -- \
     env PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/tmp/gpu-pycache \
     ROS_DOMAIN_ID="${GPU_ROS_DOMAIN_ID:-0}" \
     /isaac-sim/python.sh -m pytest \
