@@ -22,6 +22,9 @@ setup() {
   REPO="$(mktemp -d)"
   export FILE_PATH="${REPO}"
   export POST_RUN_DRYRUN=1
+  # The default (no --instance) case must be byte-identical to today's name.
+  # Clear any ambient INSTANCE_SUFFIX; the instance case sets it explicitly.
+  unset INSTANCE_SUFFIX
   # Identity vars live in .env.generated (base A2 model); the hook must
   # source them to derive the per-stack viewer container name (same
   # identity post/run uses).
@@ -37,6 +40,17 @@ teardown() {
   run --separate-stderr "${HOOK}"
   [ "$status" -eq 0 ]
   echo "${output}" | grep -qE 'docker (stop|rm -f) .*alice-isaac-owv'
-  # No -<instance> suffix (ADR-0019).
+  # Default case carries no -<instance> suffix.
   ! echo "${output}" | grep -qE 'owv-'
+}
+
+@test "post-stop: INSTANCE_SUFFIX scopes the viewer name (--instance, isaac#238)" {
+  # stop.sh --instance demo exports INSTANCE_SUFFIX=-demo before this hook
+  # fires (base _down_one -> _compute_project_name). The teardown must then
+  # target the instance-scoped viewer, symmetric with what post/run created,
+  # so one stack's stop cannot leave another stack's viewer name behind.
+  export INSTANCE_SUFFIX=-demo
+  run --separate-stderr "${HOOK}"
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep -qE 'docker (stop|rm -f) .*alice-isaac-owv-demo'
 }
