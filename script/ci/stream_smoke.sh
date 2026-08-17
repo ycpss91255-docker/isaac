@@ -92,7 +92,19 @@ WS_PATH=""
 [ -f "${repo_root}/.env.generated" ] && . "${repo_root}/.env.generated"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
-container="${USER_NAME}-${IMAGE_NAME}-stream"
+
+# Compose-project isolation (owv#55). The nightly smoke brings its stack up
+# under a DEDICATED instance and tears it down by the instance-scoped names,
+# so it can never reap a co-hosted manually-run DEFAULT stream stack
+# (`./script/run.sh -t stream -d`) on a shared GPU host, nor no-op on the
+# stale pre-isaac#238 literal `owv` viewer name. `--instance ${instance}`
+# makes run.sh export INSTANCE_SUFFIX=-${instance}; compose.yaml suffixes the
+# stream container and post/run.sh suffixes the viewer to match, so the
+# names below are exactly what this run creates. Default `smoke`; override
+# SMOKE_COMPOSE_INSTANCE (e.g. the CI run id) for a per-run-unique project.
+instance="${SMOKE_COMPOSE_INSTANCE:-smoke}"
+container="${USER_NAME}-${IMAGE_NAME}-stream-${instance}"
+viewer="${USER_NAME}-${IMAGE_NAME}-owv-${instance}"
 smoke_log="${WS_PATH:-${repo_root}}/isaac-sim/kit/logs/stream-smoke.log"
 client_pid=""
 
@@ -106,11 +118,11 @@ signal_port="$(resolve_port "${repo_root}/config/host.yaml" signal)" || exit 1
 signal_port="${signal_port:-${ISAAC_SIGNAL_PORT:-49100}}"
 
 cleanup() {
-  echo "[smoke] teardown: removing ${container} + owv"
+  echo "[smoke] teardown: removing ${container} + ${viewer}"
   if [[ -n "${client_pid}" ]]; then
     kill "${client_pid}" 2>/dev/null || true
   fi
-  docker rm -f "${container}" owv >/dev/null 2>&1 || true
+  docker rm -f "${container}" "${viewer}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -127,14 +139,14 @@ fail() {
 
 # Start clean: drop any stale container/viewer from a prior run so we never
 # mistake a leftover for this run's Isaac, and so the kit log is fresh.
-echo "[smoke] pre-clean stale ${container} + owv"
-docker rm -f "${container}" owv >/dev/null 2>&1 || true
+echo "[smoke] pre-clean stale ${container} + ${viewer}"
+docker rm -f "${container}" "${viewer}" >/dev/null 2>&1 || true
 rm -f "${smoke_log}" 2>/dev/null || true
 
 echo "[smoke] bring up stream stage (idle container + viewer)"
 # Direct wrapper call (matches the repo's own CI convention; no `just`
 # dependency on the runner). The justfile `run` recipe is a 1:1 forward to this.
-( cd "${repo_root}" && ./script/run.sh -t stream -d )
+( cd "${repo_root}" && ./script/run.sh -t stream -d --instance "${instance}" )
 
 echo "[smoke] launch Isaac (detached) in ${container}"
 # Source the per-host livestream port env the post-run hook copied in when

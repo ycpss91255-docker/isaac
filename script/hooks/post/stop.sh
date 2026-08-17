@@ -5,10 +5,12 @@
 # `stop.sh` tears down the compose (Isaac) containers but never sees the
 # viewer, so the symmetric cleanup lives here.
 #
-# Single-sim only: same-repo multi-instance was removed (ADR-0019). The
-# viewer container is the per-stack ${USER_NAME}-${IMAGE_NAME}-owv (the same
-# name post/run uses), so two isolated stacks on one host do not tear down
-# each other's viewer (#237).
+# The viewer container is ${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}
+# -- the same name post/run creates -- so two isolated stacks on one host do
+# not tear down each other's viewer (#237), and an instanced stop reaps only
+# its own instance's viewer (isaac#238). stop.sh exports INSTANCE_SUFFIX via
+# _compute_project_name (in _down_one) before firing this hook; the suffix is
+# empty for the default stop, reproducing today's exact name.
 #
 # Receives stop.sh's "$@". Skipped when stop.sh runs with --dry-run.
 set -euo pipefail
@@ -26,7 +28,7 @@ USER_NAME=""; IMAGE_NAME="isaac"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
-wv_container="${USER_NAME}-${IMAGE_NAME}-owv"
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX:-}"
 
 if [ "${POST_RUN_DRYRUN:-0}" = "1" ]; then
   printf 'docker rm -f %s\n' "${wv_container}"

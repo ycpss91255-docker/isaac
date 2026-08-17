@@ -424,9 +424,13 @@ COPY test/smoke/bats/ /smoke_test/
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 # [#233] Tier A stream-smoke decision logic (client-connect sequence +
 # dwell/liveness assertions), baked next to stream_smoke_lib_spec.bats.
-# The GPU driver script itself (script/ci/stream_smoke.sh) is host-side
-# and nightly-only, so only its library is unit tested here.
 COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
+# [owv#55] The Tier A GPU driver itself, baked next to
+# stream_smoke_isolation_spec.bats so the spec can exercise its compose-
+# project isolation (--instance bring-up + instance-scoped teardown)
+# against stub run.sh / docker -- behavioral, no docker, no GPU. The GPU
+# path stays host-side and nightly-only (stream-smoke.yaml).
+COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
 # inside their post dir, so they are baked under distinct flat names that
