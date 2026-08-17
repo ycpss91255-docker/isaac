@@ -1,6 +1,6 @@
 # TEST.md
 
-**96 tests** total.
+**97 tests** total.
 
 ## test/smoke/bats/host_yaml_spec.bats (16)
 
@@ -157,6 +157,14 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `pytest installed in devel-test stage` | `/isaac-sim/python.sh -m pytest --version` exits 0 — pytest importable via Isaac Sim's bundled Python |
 | `pyyaml installed in devel-test stage` | `import yaml; print(yaml.__version__)` succeeds — YAML available for Python config / fixture loading |
 | `pytest-cov installed in devel-test stage` | `pytest --help` mentions `--cov` — coverage plugin registered, enables `pytest --cov=<pkg>` invocations |
+
+## test/smoke/bats/assert_pytest_baseline_isolation_spec.bats (1)
+
+Behavioral guard for `test/assert_pytest_baseline.sh --gpu` (owv#55 second axis; first axis was isaac#239). The `--gpu` tier runs the integration suite via a foreground `script/run.sh -t test` whose EXIT trap `_app_cleanup` does a project-wide `compose down --remove-orphans`; without `--instance` that resolves the default `yunchien-isaac` project a manual stream stack lives in. `assert_pytest_baseline.sh` is baked into `/smoke_test/` next to this spec so the devel-test bats suite can reach it. Hermetic — no docker, no GPU.
+
+| Test | Description |
+|------|-------------|
+| `assert_pytest_baseline --gpu isolates the GPU pytest run in its own compose project (--instance)` | Runs the script against a stub `run.sh` that records its argv, and asserts the `-t test` invocation carries `--instance` — placing the GPU pytest tier in a non-default, isolated compose project so `_app_cleanup`'s project-wide teardown can never reap a co-hosted manual `stream` container |
 
 ## test/unit/pytest/ — hosted unit (pytest, not in the bats count above)
 
