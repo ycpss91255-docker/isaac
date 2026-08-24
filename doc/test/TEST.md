@@ -46,7 +46,7 @@ Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-
 
 ## test/smoke/bats/post_run_hook_spec.bats (17)
 
-Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the per-stack `${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}` web-viewer (#237, isaac#238). The WebRTC livestream ports are sourced from `host.yaml` (#231), not hardcoded. Both container names carry `${INSTANCE_SUFFIX}` (empty for the default run, `-<inst>` under `--instance`; owv#55). Exercised via `POST_RUN_DRYRUN=1`.
+Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the per-stack `${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}` web-viewer (#237, isaac#238). The WebRTC livestream ports are sourced from `host.yaml` (#231), not hardcoded. Both container names carry `${INSTANCE_SUFFIX}` (empty for the default run, `-<inst>` under `--instance`; owv#55). Note `--instance` here is an internal isolation seam for CI/tooling (a distinct compose project + container/viewer names per stack, so a CI actor never reaps a co-hosted manual stack), not a return of user-facing same-repo multi-instance, which ADR-0019 removed as a feature. Exercised via `POST_RUN_DRYRUN=1`.
 
 | Test | Description |
 |------|-------------|
@@ -60,7 +60,7 @@ Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`,
 | `post-run: isaac ports are copied into the Isaac container as an env file (#231)` | Set `ISAAC_*_PORT` are `docker cp`'d to `/etc/isaac/livestream-ports.env` for the later runheadless exec to source. |
 | `post-run: no livestream ports -> no env file copied to the Isaac container (#231)` | With no ports set, no env file is copied -- exact current behavior (Kit defaults). |
 | `post-run: invalid livestream port aborts with rc 1 (#231)` | A non-numeric / out-of-range port fails the hook via the shared resolver. |
-| `post-run: viewer container name derives from IMAGE_NAME (per-stack)` | The viewer name is `${USER_NAME}-${IMAGE_NAME}-owv` (here `alice-isaac-owv`): `docker rm -f alice-isaac-owv` precedes `docker run --name alice-isaac-owv` (idempotent); no `owv-<instance>` suffix (ADR-0019); two isolated stacks no longer collide (#237). |
+| `post-run: viewer container name derives from IMAGE_NAME (per-stack)` | The viewer name is `${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}` (here, default run, `alice-isaac-owv`): `docker rm -f alice-isaac-owv` precedes `docker run --name alice-isaac-owv` (idempotent); the default run carries an empty suffix, while `--instance` appends `-<inst>` (see the INSTANCE_SUFFIX test below, isaac#238/owv#55); two isolated stacks no longer collide (#237). |
 | `post-run: host.yaml present is copied into the default Isaac container` | A present host.yaml is `docker cp`'d to the default Isaac container `${USER_NAME}-${IMAGE_NAME}-stream` at `/etc/host.yaml` (no `-<instance>` suffix). |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
 | `post-run: identity is read from .env.generated, not .env (base A2 model)` | With `.env` absent, identity comes from `.env.generated`: container name is `alice-isaac-stream` (no leading dash) and the viewer image is `alice/...` (not `local/...`). |
