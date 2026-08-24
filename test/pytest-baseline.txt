@@ -96,7 +96,17 @@
 #   stream-stack project, and the XC_COMPOSE_PROJECT env override still wins).
 #   Pure -- loads the integration module by file path with env cleaned, no
 #   docker / no GPU. Live count is now 299 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 299
+#
+#   isaac#223 (GHCR stream-source producer image): adds 8 hosted unit tests
+#   (test/unit/pytest/test_stream_source_producer.py: the producer driver
+#   src/script/stream_source_producer.py imports without leaking
+#   omni/pxr/isaacsim/carb into sys.modules (function-local Isaac imports),
+#   the argparse surface exposes --public-ip/--port/--run-seconds,
+#   --public-ip/--port default from the PUBLIC_IP/ISAAC_SIGNAL_PORT env with
+#   an explicit flag overriding the env, and --help exits 0 on a bare host).
+#   Pure -- loads the driver by file path, no docker/GPU. Live count is now
+#   307 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 307
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -224,8 +234,8 @@ GPU_INTEGRATION_BASELINE = 31
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55
-#   cross-container compose-project isolation the live aggregate is 330 (299
-#   hosted-unit + 31 GPU-integration), well past the
+#   cross-container compose-project isolation + the isaac#223 producer the
+#   live aggregate is 338 (307 hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.

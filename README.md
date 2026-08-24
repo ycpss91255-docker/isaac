@@ -89,6 +89,30 @@ Notes:
 - `gpu_capabilities` in `setup.conf [deploy]` must include `video` — without it, nvidia-container-runtime does not mount NVENC libs (`libnvidia-encode.so`, `libnvcuvid.so`), so the server connects but cannot encode frames → black screen. The current `setup.conf` already includes `video`.
 - Verify the listeners from the server: `ss -tln | grep -E ':8011|:49100'` should show both `LISTEN ... :8011` and `LISTEN ... :49100`.
 
+### Deterministic stream-source producer (GHCR image, isaac#223)
+
+For CI and the browser-based visual e2e ([`omniverse_web_viewer#48`](https://github.com/ycpss91255-docker/omniverse_web_viewer/issues/48), consumed by the Tier B browser-frames smoke isaac#173), a pullable, pinned producer image publishes a *guaranteed non-black* WebRTC source without a live desktop Isaac session. On boot it renders a deterministic empty-but-lit stage — a dome + distant key light over a 12×12 checkerboard floor, camera framed at `eye=[15,-15,11]` — and livestreams it forever, so a browser can connect at any time and always see a reproducible frame. The whole scene is authored programmatically (no external asset), so the image is self-contained.
+
+- **Image**: `ghcr.io/ycpss91255-docker/isaac-stream-source:<tag>` (pinned, immutable tag — not `:latest`). Built from the `producer` Dockerfile stage.
+- **Driver**: `src/script/stream_source_producer.py`, baked at `/opt/isaac-producer/stream_source_producer.py` and launched by the image `CMD`.
+- **Publish**: manual only via the `Publish Stream-Source Producer (GHCR)` workflow (`workflow_dispatch`, input `tag`, default `0.0.1`). There is no push/tag trigger, so nothing publishes on merge.
+
+Run it:
+
+```bash
+# --network=host so the container's WebRTC listen ports = host's.
+# PUBLIC_IP is this host's LAN IP (what a remote browser dials);
+# ISAAC_SIGNAL_PORT overrides the default signaling port (49100).
+docker run --rm --network=host --gpus all \
+  -e PUBLIC_IP=<host-lan-ip> \
+  -e ISAAC_SIGNAL_PORT=49100 \
+  ghcr.io/ycpss91255-docker/isaac-stream-source:0.0.1
+
+# Then connect a browser / the omniverse_web_viewer to <host-lan-ip> (see above).
+```
+
+Required: an NVIDIA GPU runtime (`--gpus all`) for NVENC frame encoding, `--network=host`, and `PUBLIC_IP` for a non-localhost client. `ISAAC_SIGNAL_PORT` is optional (defaults to `49100`). The driver also accepts `--public-ip` / `--port` / `--run-seconds N` (`N>0` bounds a smoke run; the default runs forever).
+
 ## ROS 2 bridge (bundled, build-time distro)
 
 Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`, both with Python 3.11 rclpy matching kit's embedded interpreter. **This image hard-bakes the distro at build time** via `setup.conf [build] arg_N=ROS_DISTRO=<value>` (default `humble`, CoreSAM-aligned).
