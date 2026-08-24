@@ -89,6 +89,30 @@ post-run hook はさらに `network.public_ip` を `SIGNALING_SERVER` env とし
 - `setup.conf [deploy] gpu_capabilities` に `video` が必須 — なければ nvidia-container-runtime が NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`）を mount せず、server 接続成功でも encode できない → 黒画面。現在の `setup.conf` には追加済み
 - Server 側で listener を確認：`ss -tln | grep -E ':8011|:49100'` で 2 つの `LISTEN` が見えるはず
 
+### 決定論的 stream-source producer（GHCR image、isaac#223）
+
+CI とブラウザベースの視覚 e2e（[`omniverse_web_viewer#48`](https://github.com/ycpss91255-docker/omniverse_web_viewer/issues/48)、Tier B browser-frames smoke isaac#173 が消費）向けに、デスクトップ Isaac session を立ち上げずに*確実に非ブラック*な WebRTC ソースを提供する、pull 可能で版号を pin した producer image。起動時に決定論的な「空だが光のある」シーン — dome + distant key light を 12×12 チェッカーボード床に当て、カメラは `eye=[15,-15,11]` にフレーミング — をレンダリングし、永久に livestream するので、ブラウザはいつ接続しても再現可能なフレームを見る。シーン全体はプログラムで生成（外部 asset なし）、image は自己完結。
+
+- **Image**：`ghcr.io/ycpss91255-docker/isaac-stream-source:<tag>`（pin した immutable tag — `:latest` ではない）。`producer` Dockerfile stage から build。
+- **Driver**：`src/script/stream_source_producer.py`、`/opt/isaac-producer/stream_source_producer.py` に bake され、image `CMD` が起動。
+- **公開**：`Publish Stream-Source Producer (GHCR)` workflow の手動起動のみ（`workflow_dispatch`、input `tag`、デフォルト `0.0.1`）。push/tag trigger は無いので、merge で自動公開されない。
+
+実行：
+
+```bash
+# --network=host でコンテナの WebRTC listen port = host の port。
+# PUBLIC_IP はこの host の LAN IP（リモートブラウザがダイヤルする先）；
+# ISAAC_SIGNAL_PORT はデフォルト signaling port（49100）を上書き。
+docker run --rm --network=host --gpus all \
+  -e PUBLIC_IP=<host-lan-ip> \
+  -e ISAAC_SIGNAL_PORT=49100 \
+  ghcr.io/ycpss91255-docker/isaac-stream-source:0.0.1
+
+# その後ブラウザ / omniverse_web_viewer で <host-lan-ip> に接続（上記参照）。
+```
+
+必須：NVENC フレームエンコード用の NVIDIA GPU runtime（`--gpus all`）、`--network=host`、非 localhost client には `PUBLIC_IP`。`ISAAC_SIGNAL_PORT` は任意（デフォルト `49100`）。driver は `--public-ip` / `--port` / `--run-seconds N`（`N>0` で smoke run を区切る；デフォルトは永久実行）も受け付ける。
+
 ## ROS 2 bridge（内蔵、build-time distro）
 
 Isaac Sim 5.1 は Humble と Jazzy 両方の内部 ROS 2 ライブラリを `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` に同梱しており、両方とも kit 内蔵インタプリタと一致する Python 3.11 rclpy。**本イメージは build-time に distro を hard-bake する** — `setup.conf [build] arg_N=ROS_DISTRO=<value>` 経由で指定（デフォルト `humble`、CoreSAM 整合）。

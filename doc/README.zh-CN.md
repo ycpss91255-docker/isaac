@@ -89,6 +89,30 @@ post-run hook 同时也把 `network.public_ip` 当 `SIGNALING_SERVER` env 传给
 - `setup.conf [deploy] gpu_capabilities` 必须含 `video` — 否则 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 连得上但画面 encode 不出来 → 黑画面。当前 `setup.conf` 已加
 - Server 端确认 listener：`ss -tln | grep -E ':8011|:49100'` 应看到两个 `LISTEN`
 
+### 确定性 stream-source producer（GHCR image，isaac#223）
+
+给 CI 与浏览器版视觉 e2e（[`omniverse_web_viewer#48`](https://github.com/ycpss91255-docker/omniverse_web_viewer/issues/48)，由 Tier B browser-frames smoke isaac#173 消费）用的一个可 pull、pin 版号的 producer image，不需要开一个桌面 Isaac session 就能提供*保证非全黑*的 WebRTC 来源。开机时它渲染一个确定性的空但打光的场景 — dome + distant key light 打在 12×12 棋盘格地板上，相机取景在 `eye=[15,-15,11]` — 并永久 livestream，所以浏览器随时连上都看到可重现的画面。整个场景以程序化方式生成（无外部 asset），image 自给自足。
+
+- **Image**：`ghcr.io/ycpss91255-docker/isaac-stream-source:<tag>`（pin 的 immutable tag — 非 `:latest`）。由 `producer` Dockerfile stage build。
+- **Driver**：`src/script/stream_source_producer.py`，baked 在 `/opt/isaac-producer/stream_source_producer.py`，由 image `CMD` 启动。
+- **发布**：只走 `Publish Stream-Source Producer (GHCR)` workflow 手动触发（`workflow_dispatch`，input `tag`，默认 `0.0.1`）。没有 push/tag trigger，所以 merge 不会自动发布。
+
+运行：
+
+```bash
+# --network=host 让容器的 WebRTC listen port = host 的。
+# PUBLIC_IP 是本机 LAN IP（远端浏览器要拨的）；
+# ISAAC_SIGNAL_PORT 覆写默认 signaling port（49100）。
+docker run --rm --network=host --gpus all \
+  -e PUBLIC_IP=<host-lan-ip> \
+  -e ISAAC_SIGNAL_PORT=49100 \
+  ghcr.io/ycpss91255-docker/isaac-stream-source:0.0.1
+
+# 然后用浏览器 / omniverse_web_viewer 连 <host-lan-ip>（见上）。
+```
+
+必要条件：NVIDIA GPU runtime（`--gpus all`）做 NVENC 编码、`--network=host`、非 localhost client 需要 `PUBLIC_IP`。`ISAAC_SIGNAL_PORT` 可选（默认 `49100`）。driver 也接受 `--public-ip` / `--port` / `--run-seconds N`（`N>0` 界定 smoke run；默认永久运行）。
+
 ## ROS 2 bridge（内置，build-time distro）
 
 Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 内置 Humble 与 Jazzy 两套 ROS 2 lib，两者都是 Python 3.11 rclpy，与 kit 内嵌 interpreter 对齐。**本 image 在 build time 把 distro hard-bake 进去** — 透过 `setup.conf [build] arg_N=ROS_DISTRO=<value>` 注入（默认 `humble`，与 CoreSAM 对齐）。

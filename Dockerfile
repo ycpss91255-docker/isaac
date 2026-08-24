@@ -491,6 +491,35 @@ FROM devel AS stream
 ENV ISAAC_LIVESTREAM=2
 CMD ["sleep", "infinity"]
 
+############################## producer ##############################
+# [isaac #223 / owv#48 / #173] Deterministic WebRTC stream-source producer.
+# Published as a pullable, pinned GHCR image
+# (ghcr.io/ycpss91255-docker/isaac-stream-source:<tag>, via
+# .github/workflows/publish-stream-source.yaml) so the omniverse_web_viewer
+# visual e2e (owv#48) and the Tier B browser-frames smoke (isaac#173) always
+# have a real, reproducible WebRTC source without a live desktop Isaac
+# session. Unlike the headless / stream stages (which idle and have driver
+# scripts exec'd in from the bind-mounted workspace), this stage BAKES its
+# driver and boots it directly, so `docker run --network=host -e
+# PUBLIC_IP=<ip> <image>` launches a running producer with no volume mount.
+#
+# src/ is not carried by any base stage (it is bind-mounted at runtime for
+# the devel / headless / stream stages), so the single driver file is COPY'd
+# in explicitly here. COPY writes as the builder (not the image USER), so it
+# lands root-owned 0644 (world-readable) under /opt without a USER switch;
+# /isaac-sim/python.sh reads it fine. The driver reads PUBLIC_IP /
+# ISAAC_SIGNAL_PORT from env (its argparse defaults); ISAAC_LIVESTREAM=2 is
+# inherited from the stream stage.
+FROM stream AS producer
+
+COPY --chmod=0644 src/script/stream_source_producer.py \
+     /opt/isaac-producer/stream_source_producer.py
+
+ENV PUBLIC_IP="" \
+    ISAAC_SIGNAL_PORT=49100
+
+CMD ["/isaac-sim/python.sh", "/opt/isaac-producer/stream_source_producer.py"]
+
 ############################## builder + runtime split (optional) ##############################
 # Three concrete stages for repos that need a separate runtime image
 # (compiled binaries / generated artifacts to ship without dev deps).

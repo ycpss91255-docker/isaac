@@ -1,0 +1,61 @@
+name: Publish Stream-Source Producer (GHCR)
+
+# isaac#223: publish the deterministic WebRTC stream-source producer image
+# (the Dockerfile `producer` stage) to GHCR as a pullable, pinned tag, so
+# the omniverse_web_viewer visual e2e (owv#48) and the Tier B browser-frames
+# smoke (isaac#173) always have a real, reproducible WebRTC source.
+#
+# MANUAL ONLY. There is deliberately no push / tag trigger: the image must
+# publish only when the maintainer dispatches this workflow (issue #223
+# requires a pinned, immutable tag, not a `:latest` that moves on merge), so
+# nothing is pushed to GHCR as a side effect of merging to main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Immutable image tag to publish (e.g. 0.0.1)'
+        required: true
+        default: '0.0.1'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # Hosted runner is fine: this only builds + pushes the producer image
+    # (which layers a single COPY + CMD on the Isaac base). No GPU needed --
+    # Kit never boots at build time.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Isaac Sim BASE_IMAGE is ~15 GB extracted; ubuntu-latest's ~14 GB free
+      # disk risks "no space left on device" during the BuildKit COPY of the
+      # base tree. Free the tool-cache first (mirrors main.yaml's
+      # free_disk_space, base#470).
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/share/boost "${AGENT_TOOLSDIRECTORY}" || true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the producer image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          target: producer
+          push: true
+          tags: ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
