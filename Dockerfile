@@ -39,6 +39,7 @@ ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS sys
 
 ARG USER_NAME="user"
@@ -349,6 +350,7 @@ CMD ["bash"]
 
 ############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+# hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
@@ -396,7 +398,8 @@ RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
 # stream_smoke.sh -> stream_smoke_lib.sh.
 COPY script/ci /lint/ci
 RUN shellcheck -S warning -x /lint/ci/*.sh
-RUN cd /lint && hadolint Dockerfile
+WORKDIR /lint
+RUN hadolint Dockerfile
 
 # [isaac] Python testing toolkit (pytest + common deps). Installed into
 # Isaac Sim's bundled Python (/isaac-sim/python.sh) because PEP 668
@@ -445,7 +448,7 @@ COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
 COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_baseline.sh
 
-ARG USER
+ARG USER="${USER_NAME}"
 USER "${USER}"
 
 RUN bats /smoke_test/
