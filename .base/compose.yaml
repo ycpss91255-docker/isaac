@@ -1,70 +1,155 @@
 services:
+  # test-tools: base's own tooling image (ADR-00000011 sec.2/4).
+  # `just docker build --target test-tools` builds it from the standalone
+  # Dockerfile.test-tools via the shared docker wrapper, replacing the raw
+  # `docker build -f` one-liner. build-only service: never `run`.
+  #
+  # Every service here names its image with the SAME `TEST_TOOLS_IMAGE`,
+  # and NONE of them supplies a default. Two DIFFERENT defaults used to
+  # live here -- `test-tools:local` on this build-only service, the
+  # published ghcr tag on the consumers -- so a bare
+  # `docker compose build test-tools` tagged one image while a bare
+  # `docker compose run ci` pulled another: the suite ran against the
+  # published image, the edit to the tooling Dockerfile had no effect, and
+  # nothing warned. One SHARED default would have removed the divergence
+  # and kept the failure mode (a bare compose run still quietly building or
+  # pulling something), so there is no default at all. `just` is the single
+  # entry point and the scripts behind it set this variable; a path that
+  # reaches an unset value has left that entry point, so the `:?` form
+  # refuses the whole invocation and names the recipe to run instead.
+  #
+  # `just test` (script/test/test.sh) resolves the local tag as a content
+  # hash of dockerfile/Dockerfile.test-tools
+  # (`./script/test/test.sh --test-tools-image`) and exports it -- identical
+  # inputs share a tag and hit the build cache, different inputs cannot
+  # clobber each other (a sibling run rebuilding a shared tag once displaced
+  # a live run's image mid-pass, and the pass still reported green).
+  # `just docker build --target test-tools` asks that same resolver, so the
+  # tag the build writes IS the tag the run reads rather than two
+  # derivations that agree by luck. CI pins its own tags through the same
+  # variable and is unaffected.
+  test-tools:
+    build:
+      context: .
+      dockerfile: dockerfile/Dockerfile.test-tools
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
+
+  # smoke: the local harness for the SHIPPED smoke specs
+  # (dist/test/bats/smoke/), which are build-time assertions of a
+  # downstream Dockerfile `-test` stage and so have nowhere to run inside
+  # base -- base is the template source and has no Dockerfile of its own.
+  # `just test smoke` builds this service through the docker namespace;
+  # dockerfile/Dockerfile.smoke mirrors the stage's COPY set, its non-root
+  # USER and its `RUN bats`, so BUILDING it IS the test. Build-only, like
+  # test-tools: never `run`.
+  #
+  # It names NO image, and that is deliberate. Every other service here
+  # names ${TEST_TOOLS_IMAGE} because it CONSUMES that image; this one
+  # PRODUCES one, so compose tags the build `<project>-smoke` -- and the
+  # entry point keys that project to the checkout (a hash of its absolute
+  # path), so two checkouts and two concurrent runs write two tags. A
+  # literal tag here would be one name every one of them writes, i.e. the
+  # collision the project naming exists to prevent; it is also what lets an
+  # ownership-scoped teardown reclaim the image by name.
+  #
+  # TEST_TOOLS_IMAGE is passed as a build ARG (the harness is
+  # `FROM ${TEST_TOOLS_IMAGE}`) with no default, for the same reason the
+  # image references above carry none: `just` is the entry point and the
+  # script behind it resolves the tag.
+  smoke:
+    build:
+      context: .
+      dockerfile: dockerfile/Dockerfile.smoke
+      args:
+        TEST_TOOLS_IMAGE: ${TEST_TOOLS_IMAGE:?set by 'just test smoke' -- run that instead of driving docker compose directly}
+
   # Fast CI: ShellCheck + Bats only. Uses the prebuilt test-tools image
   # (alpine: bash + bats + bats-{support,assert,mock} + shellcheck +
   # hadolint baked in), so _install_deps short-circuits via its
-  # `command -v bats` guard — no per-run apt-install. TEST_TOOLS_IMAGE
-  # can be overridden to pin a specific tag during local rebuild flows;
-  # default :latest tracks the most recent template release tag because
-  # release-test-tools.yaml rebuilds it on every v* push.
+  # `command -v bats` guard — no per-run apt-install. Which tag that is
+  # comes from TEST_TOOLS_IMAGE (see the header above): the local
+  # content-hash tag `just test` resolves and builds, or whatever CI pins.
+  #
+  # HOST_UID / HOST_GID are the uid:gid this service writes the mounted
+  # checkout as, and they carry NO default: 1000 used to be substituted
+  # when they were absent, so on any host whose developer is not uid 1000 a
+  # bare compose run left files owned by a stranger and said nothing.
+  # Every `just` entry supplies them (the root justfile exports them, and
+  # test.sh / the `system` recipe set them again for the paths that are
+  # reachable without it); a path that reaches an unset value has left
+  # those entry points, and the `:?` form refuses it by name. Note that
+  # compose interpolates the WHOLE file whatever service is named, so an
+  # unset id refuses `docker compose build test-tools` too -- which is the
+  # point: `just` is the entry, not raw compose.
   ci:
-    image: ${TEST_TOOLS_IMAGE:-ghcr.io/ycpss91255-docker/test-tools:latest}
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
       - .:/source
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
     entrypoint: /bin/bash
     command:
       - -c
-      - ./script/ci/ci.sh --ci
+      - ./script/test/test.sh --ci
 
-  # Behavioural (#249): same image as `ci` but with the host docker
-  # socket mounted so test/behavioural/*.bats can drive
+  # System: same image as `ci` but with the host docker
+  # socket mounted so test/bats/system/*.bats can drive
   # `docker buildx build --target runtime-test ...` against synthesized
   # fixtures and assert build pass/fail. Opt-in: never invoked by the
-  # default `make test` flow. Local users run via `make
-  # test-behavioural`; CI runs via a dedicated Behavioural Test job
-  # in self-test.yaml. The dedicated buildx builder (template-behavioural)
-  # is created/pruned per ci.sh --behavioural run so this service does
+  # default `just test` flow. Local users run via
+  # `just test system`; CI runs via a dedicated
+  # System Test job
+  # in self-test.yaml. The dedicated buildx builder (template-system)
+  # is created/pruned per test.sh --system run so this service does
   # NOT pollute the host's default buildx context or shared image cache.
-  ci-behavioural:
-    image: ${TEST_TOOLS_IMAGE:-ghcr.io/ycpss91255-docker/test-tools:latest}
+  ci-system:
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
       - .:/source
       - /var/run/docker.sock:/var/run/docker.sock
+      # Same-path host mount for the field-deploy e2e (deploy_bundle_e2e_spec):
+      # the generated deploy.sh runs `docker compose up` whose bind-mount
+      # sources are resolved by the HOST daemon, not inside this container. A
+      # bundle built under the container's private /tmp is invisible to the
+      # host daemon (it would silently create an empty dir and fail the
+      # file-over-baked-default mount). Mounting this path identically on host
+      # and container makes the bundle's config binds resolve correctly.
+      - /tmp/base-deploy-e2e:/tmp/base-deploy-e2e
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
       - MOUNT_DOCKER_SOCK=1
     entrypoint: /bin/bash
     command:
       - -c
-      - ./script/ci/ci.sh --ci --behavioural
+      - ./script/test/test.sh --ci --system
 
-  # Coverage: same pipeline plus kcov instrumentation. Stays on kcov/kcov
-  # because kcov is not in the alpine test-tools image (building it from
-  # source would balloon image size and pull in deps unrelated to fast CI).
-  # APT_MIRROR_DEBIAN is opt-in for networks where deb.debian.org is
-  # unreachable; _install_deps rewrites /etc/apt/sources.list before
-  # apt-installing bats/bats-support/bats-assert + git-cloning bats-mock.
+  # Coverage: same pre-baked test-tools image as `ci`, plus kcov
+  # instrumentation. kcov is now source-built INTO the test-tools
+  # image (Dockerfile.test-tools kcov-builder stage; not in any Alpine
+  # repo), so the coverage path runs on the same one-pull Alpine image as
+  # the rest of the suite — no more debian kcov/kcov service, no per-shard
+  # apt-install of ~24 packages (_install_deps), no APT_MIRROR_DEBIAN
+  # fragility. The only difference from `ci` is COVERAGE=1, which routes
+  # the in-container dispatch through _run_coverage.
   coverage:
-    image: kcov/kcov
+    image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
     security_opt:
       - seccomp=unconfined
     volumes:
       - .:/source
     working_dir: /source
     environment:
-      - HOST_UID=${HOST_UID:-1000}
-      - HOST_GID=${HOST_GID:-1000}
-      - APT_MIRROR_DEBIAN=${APT_MIRROR_DEBIAN:-deb.debian.org}
+      - HOST_UID=${HOST_UID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
+      - HOST_GID=${HOST_GID:?set by 'just test' / 'just test system' -- run one of those instead of driving docker compose directly}
     entrypoint: /bin/bash
     command:
       - -c
-      - ./script/ci/ci.sh --ci
+      - ./script/test/test.sh --ci
