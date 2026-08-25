@@ -1,1 +1,1 @@
-../.base/script/docker/wrapper/prune.sh
+../dist/script/docker/wrapper/prune.sh

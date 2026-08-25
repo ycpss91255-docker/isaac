@@ -1,28 +1,25 @@
-# managed by template (do not remove)
-.env
-.env.bak
-compose.yaml
-setup.conf.bak
-setup.conf.local
 coverage/
-.Dockerfile.generated
+.env
+/deploy/
+multi_run/
+# The per-worktree setup.conf override. base self-uses the docker
+# namespace it ships, so a base checkout can carry one too, and it must
+# never be committed -- an untracked layer that got committed would
+# silently become everyone's config.
+.setup.conf.local
+# Wrapper transcripts (#606/#609). base runs its own wrappers during the
+# test suite, which writes transcripts under log/ (any depth, e.g.
+# script/docker/log/). The canonical .gitignore sync targets consumer
+# repos, not base itself, so ignore them here directly.
+log/
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
 
-.docker.xauth
-
-# Docker bind-mount auto-mkdir artifacts (root-owned ghost dirs)
-isaac_ws/
-
-# Per-host deployment config (use config/host.yaml.example as template)
-config/host.yaml
-
-# Per-instance overlays (base #465) — machine-specific (ports / cache
-# paths). The committed example.{env,yaml} template is the exception.
-/config/instances/*
-!/config/instances/example.env
-!/config/instances/example.yaml
-# Per-instance cache trees — created by the pre-run hook.
-/instance/
-
-runtime.env
-
-.env.generated
+# Claude Code session state when launched inside this sub-repo.
+# Workspace-level Claude config lives in ycpss91255-docker/claude-workspace.
+.claude
+CLAUDE.md
+test/bats/.shard-weights

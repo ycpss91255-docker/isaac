@@ -1,0 +1,853 @@
+name: Docker Build & Smoke Test
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+        description: "Container image name (e.g. ros_noetic)"
+      build_args:
+        required: false
+        type: string
+        default: ""
+        description: "Multi-line KEY=VALUE build args"
+      build_runtime:
+        required: false
+        type: boolean
+        default: true
+        description: "Whether to build runtime stage"
+      test_tools_version:
+        required: false
+        type: string
+        default: "latest"
+        description: |
+          Tag for the `ghcr.io/ycpss91255-docker/test-tools:<tag>` image
+          consumed as a build-arg by the downstream Dockerfile's test
+          stage. Caller should pin this to the template release they
+          upgraded from (e.g. `test_tools_version: v0.10.1`) for
+          reproducibility; default `latest` works but loses
+          determinism against an in-flight template release.
+
+          Replaces the earlier GITHUB_WORKFLOW_REF parsing, which was
+          read the caller's own tag ref (e.g. a downstream repo's
+          `v1.5.0`) rather than the template's pinned @tag, so
+          downstream tag pushes would try to pull
+          `ghcr.io/.../test-tools:<downstream-tag>` which never exists.
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+        description: |
+          Comma-separated target platforms. Each runs as a parallel job on
+          its own native runner (linux/amd64 → ubuntu-latest, linux/arm64
+          → ubuntu-24.04-arm), so arm64 builds run natively and stay
+          in the 5-15 min range.
+
+          Each matrix shard runs the full pipeline (test-tools build,
+          test stage smoke tests, devel stage, runtime stage) natively
+          for its platform.
+
+          Default "linux/amd64" preserves single-platform behavior —
+          existing downstream repos see no CI change until they opt in
+          by adding `platforms: linux/amd64,linux/arm64` in their
+          main.yaml call.
+
+          Supported values: linux/amd64, linux/arm64. Other values are
+          rejected by the compute-matrix step.
+      context_path:
+        required: false
+        type: string
+        default: "."
+        description: |
+          Build context passed to docker/build-push-action's `context:`
+          input. Defaults to repo root for backwards compatibility with
+          the standard template layout (Dockerfile + compose.yaml at
+          repo root).
+
+          Set to a subdirectory (e.g. `docker`) when the consumer repo
+          keeps its docker assets nested — typically to keep
+          template-managed files separated from application source. The
+          path is relative to the repo root after `actions/checkout`.
+
+          Pairs with `dockerfile_path`; both inputs are independent so
+          callers can override one without the other.
+      dockerfile_path:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional explicit Dockerfile path relative to the repo root.
+          Empty string (default) defers to `<context_path>/Dockerfile`,
+          matching docker/build-push-action's own default.
+
+          Override only when the Dockerfile is named non-standardly or
+          lives outside `<context_path>/` — most consumers should leave
+          this empty and rely on the implicit `<context_path>/Dockerfile`.
+      build_contexts:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Optional newline-separated `<name>=<location>` pairs forwarded
+          to docker/build-push-action's `build-contexts:` input. Mirrors
+          compose's `additional_contexts:` so the named contexts the
+          local `./build.sh` flow reads from `setup.conf
+          [additional_contexts]` (#199) reach BuildKit when CI bypasses
+          compose. Empty default = no extra contexts (zero diff for
+          existing callers).
+
+          Paths are resolved relative to the repo root (the
+          `actions/checkout` working dir), NOT to `context_path`. So a
+          caller using `context_path: docker` and wanting a context
+          rooted at the repo top declares `build_contexts: repo_root=.`,
+          not `repo_root=..` (the latter form is what compose's
+          `additional_contexts:` needs because compose resolves paths
+          relative to compose.yaml, which lives inside `docker/`).
+
+          Example:
+            with:
+              context_path: docker
+              build_contexts: |
+                repo_root=.
+                third_party=./vendor
+      extra_stages:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Comma-separated list of extra Dockerfile stages to build after
+          the standard devel/runtime pipeline. For each stage <name>, if
+          a corresponding <name>-test stage exists in the Dockerfile, it
+          is built first (ephemeral, same as devel-test / runtime-test
+          convention).
+
+          Each extra stage gets its own GHA cache scope
+          (<cache-key>-<name>-cache / <cache-key>-<name>-test-cache).
+
+          Stages in the standard pipeline blocklist (sys, devel-base,
+          devel, devel-test, runtime-test, runtime) are rejected.
+
+          Default empty string preserves existing behavior — no extra
+          stages are built. Closes #415.
+      cache_variant:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Suffix appended to the GHA buildx cache scope key (#272). Use
+          when the caller invokes build-worker.yaml multiple times with
+          the same `image_name` but different `build_args` (the
+          env/ros{,2}_distro pattern, where one `image_name: ros2_distro`
+          is shared across 4 matrix variants distinguished by
+          `BASE_IMAGE`). Pass the per-call matrix expression — e.g.
+          `matrix.target.name` from the caller's strategy.matrix — or any
+          per-call unique string to give each shard its own cache scope.
+
+          Single-call repos (agent/*, single-distro app/* repos) can
+          leave this empty — the default scope `${image_name}-${hardware}-cache`
+          is already per-(repo, arch). Multi-distro repos that embed the
+          distro in `image_name` (e.g. `image_name: ros1_bridge-humble`)
+          also do not need this — distro is already in the scope.
+
+          Resolved scope key shape:
+            ${image_name}[-${cache_variant}]-${matrix.hardware}-cache
+
+          Examples:
+            ai_agent          -> ai_agent-x86_64-cache
+            ros1_bridge-humble -> ros1_bridge-humble-x86_64-cache
+            ros2_distro + cache_variant=humble-desktop-full
+                              -> ros2_distro-humble-desktop-full-x86_64-cache
+      free_disk_space:
+        required: false
+        type: boolean
+        default: false
+        description: |
+          Opt-in pre-build cleanup that removes pre-installed GitHub
+          Actions runner tooling the docker build does not need (Android
+          SDK, .NET, GHC tool-cache). Frees ~30 GB on `ubuntu-latest`,
+          which ships with only ~14 GB free out of the box. Required for
+          repos whose `BASE_IMAGE` does not fit — e.g. Isaac Sim (~15 GB
+          extracted) deterministically hits
+          `ERROR: write ...: no space left on device` during the
+          BuildKit COPY phase otherwise. Default `false` so existing
+          small-image callers do not pay the ~30 s cleanup overhead.
+
+          Uses `jlumbroso/free-disk-space@main` for the cleanup itself —
+          a third-party action that removes pre-installed runner
+          content; pinning a SHA would be safer but `main` matches what
+          most consumers of that action use today. Step is positioned
+          before `Set up Docker Buildx` so buildx's overlayfs snapshot
+          dir lands on the freed space.
+
+          Closes #470.
+
+          Example (Isaac Sim downstream):
+            with:
+              image_name: isaac
+              free_disk_space: true
+      submodules:
+        required: false
+        type: string
+        default: ""
+        description: |
+          Submodule checkout mode passed to `actions/checkout` in the
+          build job. Empty string (default) = submodules disabled,
+          preserving existing behavior. Set to `true` for top-level
+          submodules or `recursive` for nested submodules.
+
+          Only the `build` job checkout is affected — the `path-filter`
+          job (which only runs `git diff`) does not need submodule
+          content and keeps `submodules: false` unconditionally.
+
+          Example (repo with source as a submodule):
+            with:
+              image_name: omniverse_web_viewer
+              submodules: recursive
+      cache_backend:
+        required: false
+        type: string
+        default: "gha"
+        description: |
+          Where the buildx layer cache is stored: `gha` (default) or
+          `registry`. Any value other than `registry` is treated as `gha`.
+
+          `gha` uses GitHub Actions cache (`type=gha`) -- the historical
+          behaviour, with a hard 10 GB per-repo ceiling. Source-heavy repos
+          exceed that ceiling, so GHA evicts entries (LRU) while they are
+          still being written and the next run recompiles cold. Adding cache
+          scopes (`cache_variant`) makes it worse, not better: it is a
+          capacity problem, not a scope problem (#801).
+
+          `registry` stores the cache in the GHCR registry
+          (`type=registry,ref=ghcr.io/<owner>/<repo>/buildcache:<scope>`),
+          which has no 10 GB ceiling, so the second run genuinely hits and
+          does not recompile. Selecting `registry` requires the calling job
+          to grant `packages: write` -- verified up front by the preflight
+          (#800), which does a real write-scope probe (not just a login) so
+          a caller that forgot the permission fails within seconds with the
+          fix instead of 403-ing deep in a 20-minute build. The registry
+          backend also adds a GHCR `docker/login-action` login step.
+
+          Default `gha` keeps every existing caller unchanged (backward
+          compatible) and needs no extra permission. Closes #801.
+
+          Example (opt in on a source-heavy repo):
+            with:
+              image_name: ros1_bridge
+              cache_backend: registry
+            permissions:
+              contents: read
+              packages: write
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # #800 — caller-contract preflight. Runs before any build compute so a
+  # downstream main.yaml that forgot a required input or a needed
+  # permission fails within seconds with a plain-language fix, instead of
+  # 403-ing or silently skipping deep in a 20-minute build.
+  #
+  # The declared requirement list lives in
+  # script/ci/preflight/build.manifest and is validated by the pure-shell
+  # script/ci/preflight.sh — both fetched from base at the SAME ref as
+  # this workflow (github.job_workflow_sha) so the validator can never
+  # drift from the worker it guards. Adding a future requirement is one
+  # line in that manifest; the preflight follows automatically. The logic
+  # is unit- + integration-tested under `just test`; this job is the thin
+  # wiring that feeds it the real inputs / permission probes.
+  # ────────────────────────────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .preflight-base
+      - name: Probe GHCR packages write (registry cache backend, #801)
+        # Only the registry cache backend needs packages: write. The default
+        # gha backend stores the buildx cache in GHA cache and pulls
+        # test-tools anonymously, so report granted -- the manifest's
+        # packages requirement is guarded on cache_backend == registry and
+        # is not enforced for gha callers (backward compatible).
+        #
+        # For registry, verify a REAL packages: write capability, not just
+        # that login works: a read-only token can still `docker login`, so
+        # login alone is no proof. Request a push-scoped GHCR token and open
+        # a blob upload against the repo's buildcache namespace -- HTTP 202
+        # means write is granted, 401/403 means the caller did not grant
+        # packages: write, so the preflight fails early with the fix instead
+        # of 403-ing deep in a 20-minute build.
+        id: ghcr
+        env:
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          if [ "${CACHE_BACKEND}" != "registry" ]; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" \
+            --password-stdin >/dev/null 2>&1 || true
+          repo_lc="$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')"
+          token="$(curl -fsSL -u "${GHCR_ACTOR}:${GHCR_TOKEN}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo_lc}/buildcache:pull,push" \
+            | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${token}" \
+            "https://ghcr.io/v2/${repo_lc}/buildcache/blobs/uploads/")"
+          if [ "${code}" = "202" ]; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+          else
+            echo "packages=missing" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Validate caller contract (preflight)
+        env:
+          PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}
+          PREFLIGHT_PERM_PACKAGES: ${{ steps.ghcr.outputs.packages }}
+        run: bash .preflight-base/script/ci/preflight.sh .preflight-base/script/ci/preflight/build.manifest
+
+  # ────────────────────────────────────────────────────────────────
+  # #273 — doc-only PR fast-pass.
+  #
+  # Classifies the PR diff against an allowlist of doc-only paths
+  # (markdown, doc/, LICENSE, gitignore, CODEOWNERS, dependabot). If
+  # NO file outside that allowlist changed, downstream build /
+  # compute-matrix jobs skip and the aggregator job (`docker-build`)
+  # short-circuits to success so branch protection's required
+  # status check still passes.
+  #
+  # Non-PR triggers (push to main / tag / workflow_dispatch) always
+  # report code_changed=true so release / post-merge runs are
+  # unaffected.
+  #
+  # Phase 2 (#273): classifier is now pure shell (`git diff --name-only
+  # base...head` + `case` glob match) instead of `dorny/paths-filter@v3`.
+  # The classifier logic is platform-agnostic shell — only the wrapping
+  # YAML + GITHUB_OUTPUT line binds to GitHub Actions. Future migration
+  # to a non-GitHub CI host (e.g. internal GitLab CI) needs only an
+  # adapter shim around the same case statement, no rewrite of the
+  # allowlist semantics. Bash glob `*` matches `/` inside `case` so
+  # `*.md` covers `doc/test/TEST.md` and `doc/*` covers nested paths.
+  # ────────────────────────────────────────────────────────────────
+  path-filter:
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.classify.outputs.code_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # `git diff --name-only base...head` needs both refs reachable;
+          # PR events checkout only the merge ref by default.
+          fetch-depth: 0
+      - name: Classify changed paths (pure shell — #273 Phase 2)
+        id: classify
+        env:
+          # Pre-expand the two SHAs into env vars so the inline shell
+          # below uses plain `$base` / `$head` shell expansion — avoids
+          # embedding template tokens inside the case-glob body and
+          # keeps the classifier itself portable to non-GitHub CI hosts.
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          has_code=0
+          # Bash `case` globs treat `*` as matching `/` too, so `*.md`
+          # covers nested-path markdown files and `doc/*` covers any
+          # depth under doc/. Patterns must mirror the Phase 1 dorny
+          # allowlist 1:1 (issue body documents them):
+          #   **/*.md, doc/**, LICENSE, .gitignore,
+          #   .github/CODEOWNERS, .github/dependabot.yml
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              *.md|doc/*|LICENSE|.gitignore|.github/CODEOWNERS|.github/dependabot.yml)
+                continue
+                ;;
+              *)
+                has_code=1
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          if [ "${has_code}" -eq 1 ]; then
+            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "code_changed=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  # ────────────────────────────────────────────────────────────────
+  # Parse the comma-separated `platforms` input into a matrix
+  # definition. Each supported platform gets the right runner label
+  # (native arm64 runners are available for public repos under the
+  # ycpss91255-docker org) and a canonical HARDWARE build-arg value.
+  # ────────────────────────────────────────────────────────────────
+  compute-matrix:
+    needs: path-filter
+    if: needs.path-filter.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      # The platform -> matrix logic is pushed down into a pure-shell,
+      # host-testable script (script/ci/build_worker/compute_matrix.sh,
+      # #802) so the "a matrix condition that produces no jobs" semantic
+      # break is caught by `just test` bats, not only in production. The
+      # script is fetched from base at the SAME ref as this workflow
+      # (github.job_workflow_sha) so the resolver can never drift from the
+      # worker it feeds -- the exact version-match pattern the #800
+      # preflight uses. The step keeps only the thin GITHUB_OUTPUT plumbing.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+      - id: set
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          matrix="$(bash .worker-base/script/ci/build_worker/compute_matrix.sh)"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+
+  # ────────────────────────────────────────────────────────────────
+  # Per-platform build. Each shard runs on its native runner.
+  # Full test + devel + runtime pipeline runs per platform.
+  # ────────────────────────────────────────────────────────────────
+  build:
+    needs: [path-filter, compute-matrix, preflight]
+    if: needs.path-filter.outputs.code_changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      # #802 -- base-owned worker logic (the cache-scope resolver) is fetched
+      # at the worker's own ref (github.job_workflow_sha) into a dedicated
+      # path so it can never drift from the worker, and never collides with
+      # the caller checkout above. Same version-match pattern as the #800
+      # preflight job.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+
+      # #470 — Opt-in pre-build cleanup for large BASE_IMAGE repos. Runs
+      # before Set up Docker Buildx so buildx's overlayfs snapshot dir
+      # lands on the freed space; tool-cache: true also wipes
+      # /opt/hostedtoolcache (~10 GB on its own). large-packages: false
+      # avoids the ~5 min apt-get cleanup which is the bulk of this
+      # action's runtime when enabled.
+      - name: Free disk space
+        if: ${{ inputs.free_disk_space }}
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Check template version
+        run: |
+          LOCAL_VER=""
+          if [ -f .base/.version ]; then
+            LOCAL_VER=$(tr -d '[:space:]' < .base/.version)
+          fi
+          if [ -n "${LOCAL_VER}" ]; then
+            LATEST_VER=$(git ls-remote --tags --sort=-v:refname \
+              https://github.com/ycpss91255-docker/base.git \
+              | grep -oP 'refs/tags/v\d+\.\d+\.\d+$' | head -1 | sed 's|refs/tags/||')
+            if [ -n "${LATEST_VER}" ] && [ "${LOCAL_VER}" != "${LATEST_VER}" ]; then
+              echo "::warning::template ${LOCAL_VER} → ${LATEST_VER} available"
+            else
+              echo "template is up to date (${LOCAL_VER})"
+            fi
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # #801 -- the registry cache backend reads/writes the buildx cache
+      # under ghcr.io/<repo>/buildcache, which needs an authenticated buildx
+      # session for cache-to. Gated on cache_backend so the default gha path
+      # adds no login; packages: write is verified up front by the preflight.
+      - name: Log in to GHCR (registry cache backend)
+        if: ${{ inputs.cache_backend == 'registry' }}
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute cache scope
+        # #272 — derive a per-(repo, variant, arch) cache scope base.
+        # ${image_name}[-${cache_variant}]-${matrix.hardware}.
+        # See `cache_variant` input description for naming rationale.
+        # `matrix.hardware` (x86_64 / aarch64) is preferred over
+        # `matrix.platform` (linux/amd64) because some buildx cache
+        # backends balk on `/` in scope keys.
+        #
+        # #378 b1 — per-target suffix (`-devel-test-cache`, `-devel-cache`,
+        # `-runtime-test-cache`, `-runtime-cache`) is appended at the use
+        # site (each docker/build-push-action call). Pre-#378 all 4 build
+        # steps shared one `<base>-cache` scope under `mode=max`, so a
+        # late-stage COPY change in devel cascaded the manifest pointer
+        # in the shared scope and invalidated runtime / runtime-test
+        # caches on the next PR (refs the audit in
+        # https://github.com/ycpss91255-docker/base/issues/378). Splitting
+        # by target isolates each chain's manifest history.
+        #
+        # Shape migration cost: every existing scope key is orphaned by
+        # this change — first PR per active downstream pays a 4-way
+        # cold-restart (sequentially, the 4 build steps within one job
+        # share layers in the buildx local store so it's not 4x time).
+        # After that, every PR enjoys isolated per-target caches.
+        # #802 -- the base-key derivation is pushed down into a pure-shell,
+        # host-testable script (script/ci/build_worker/cache_scope.sh),
+        # fetched from base at the worker's own ref (github.job_workflow_sha,
+        # checked out below into .worker-base) so it can never drift from the
+        # worker it feeds. This step keeps only the GITHUB_OUTPUT plumbing;
+        # the per-target suffix (-devel-cache, ...) is still appended at each
+        # build-push use site.
+        id: cache
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CACHE_VARIANT: ${{ inputs.cache_variant }}
+          HARDWARE: ${{ matrix.hardware }}
+        run: |
+          key="$(bash .worker-base/script/ci/build_worker/cache_scope.sh)"
+          echo "key=${key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate .env
+        # WS_PATH is keyed to the run for the same reason every name
+        # self-test.yaml creates is: `runs-on: ${{ matrix.runner }}` is
+        # exactly the knob a self-hosted migration turns, and the moment
+        # two jobs share a machine a fixed /tmp/workspace is the SAME
+        # directory in both. Nothing mounts it today (the worker builds
+        # with `push: false` and no `tags:`, so it creates no named docker
+        # artifact at all) -- which is precisely why keying it now costs
+        # nothing and cannot be forgotten later.
+        run: |
+          cat > .env << EOF
+          USER_NAME=ci
+          USER_GROUP=ci
+          USER_UID=1000
+          USER_GID=1000
+          HARDWARE=${{ matrix.hardware }}
+          DOCKER_HUB_USER=ci
+          GPU_ENABLED=false
+          IMAGE_NAME=${{ inputs.image_name }}
+          WS_PATH=/tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          EOF
+          mkdir -p /tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Build devel-test stage (includes lint + bats smoke)
+        # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
+        # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
+        # the image from GHCR on `COPY --from=<name:tag>` when the tag
+        # is not present locally, so no explicit docker-pull step is
+        # needed here. Public visibility of the GHCR package means
+        # anonymous pull works, keeping the build-args simple.
+        #
+        # `inputs.test_tools_version` lets the caller pin the
+        # test-tools image tag to whichever template release they
+        # upgraded from (e.g. `test_tools_version: v0.10.1`). Default
+        # `latest` tracks whatever the most recent template release
+        # published — fine for non-tagged CI, but downstream repos
+        # cutting their own release should pin explicitly for
+        # reproducibility (the earlier GITHUB_WORKFLOW_REF auto-parse
+        # was wrong: that ref is the caller's own tag, not template's).
+        #
+        # Stage rename note (#243): target was `test` prior to v0.21.0;
+        # renamed to `devel-test` for symmetry with the new
+        # `runtime-test` stage. Downstream Dockerfiles must rename
+        # `FROM devel AS test` -> `FROM devel AS devel-test` to keep
+        # CI green after upgrading to template v0.21.0+.
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache,mode=max', steps.cache.outputs.key) }}
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            ${{ inputs.build_args }}
+
+      - name: Build devel stage
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache,mode=max', steps.cache.outputs.key) }}
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            ${{ inputs.build_args }}
+
+      - name: Build runtime-test stage (install check)
+        # Mirrors the devel-test pattern (#243): ephemeral stage
+        # FROM runtime, runs an inline `RUN <smoke>` so build failure
+        # surfaces a smoke failure. Default smoke is generic
+        # install-check (whoami + bash --version); downstream override
+        # via `build_args: RUNTIME_SMOKE_CMD=<command>` to test domain
+        # binaries.
+        #
+        # Constraint: smoke command must be CLI-only -- no GUI tools
+        # that init QApplication / OGRE on `--version` / `--help`
+        # (rqt, rviz2, gazebo-classic). Prefer `<binary> --help`,
+        # `command -v <binary>`, package manager queries.
+        #
+        # Gated by `inputs.build_runtime` so agent/* repos with no
+        # runtime stage skip cleanly.
+        if: ${{ inputs.build_runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache,mode=max', steps.cache.outputs.key) }}
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            ${{ inputs.build_args }}
+
+      - name: Build runtime stage
+        if: ${{ inputs.build_runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache,mode=max', steps.cache.outputs.key) }}
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            ${{ inputs.build_args }}
+
+      # ────────────────────────────────────────────────────────────
+      # #415 — Extra stages loop.
+      #
+      # Iterates over the comma-separated `extra_stages` input and
+      # builds each stage (plus its <name>-test companion if present
+      # in the Dockerfile). Uses `docker buildx build` directly
+      # because GHA YAML does not support dynamic step generation.
+      # GHA cache (`type=gha`) works because docker/setup-buildx-action
+      # already configured the builder with the cache backend.
+      #
+      # Blocklist prevents re-building stages owned by the standard
+      # pipeline. Test-stage detection reuses the same `FROM ... AS`
+      # regex pattern as setup.sh's _parse_dockerfile_stages().
+      # ────────────────────────────────────────────────────────────
+      - name: Build extra stages
+        if: ${{ inputs.extra_stages != '' }}
+        env:
+          EXTRA_STAGES: ${{ inputs.extra_stages }}
+          CACHE_KEY: ${{ steps.cache.outputs.key }}
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
+          REPO: ${{ github.repository }}
+          CONTEXT_PATH: ${{ inputs.context_path }}
+          DOCKERFILE: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          BUILD_CONTEXTS_INPUT: ${{ inputs.build_contexts }}
+          BUILD_ARGS_INPUT: ${{ inputs.build_args }}
+          PLATFORM: ${{ matrix.platform }}
+          HARDWARE: ${{ matrix.hardware }}
+          TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"
+        run: |
+          set -euo pipefail
+
+          # #801 -- honor cache_backend for extra stages too, so a caller
+          # using cache_backend: registry does not silently gha-cache these
+          # stages (the exact 10 GB ceiling this feature escapes). Same
+          # selection as the four standard build-push steps: registry ->
+          # type=registry,ref=ghcr.io/<repo>/buildcache:<scope> (mode=max on
+          # cache-to), gha -> byte-for-byte the original type=gha,scope form.
+          # The registry backend's buildx login is already established by the
+          # job-level "Log in to GHCR" step (gated on the same input).
+          cache_from_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s' "${scope}"
+            fi
+          }
+          cache_to_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s,mode=max' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s,mode=max' "${scope}"
+            fi
+          }
+
+          blocklist="sys devel-base devel devel-test runtime-test runtime"
+
+          available_stages=$(grep -iE '^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+' \
+            "${DOCKERFILE}" | \
+            sed -E 's/^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+).*/\1/i')
+
+          build_arg_flags=(
+            --build-arg "USER_NAME=ci"
+            --build-arg "USER_GROUP=ci"
+            --build-arg "USER_UID=1000"
+            --build-arg "USER_GID=1000"
+            --build-arg "HARDWARE=${HARDWARE}"
+            --build-arg "TEST_TOOLS_IMAGE=${TEST_TOOLS_IMAGE}"
+          )
+          while IFS= read -r line; do
+            [ -z "${line}" ] && continue
+            build_arg_flags+=(--build-arg "${line}")
+          done <<< "${BUILD_ARGS_INPUT}"
+
+          build_ctx_flags=()
+          if [ -n "${BUILD_CONTEXTS_INPUT}" ]; then
+            while IFS= read -r line; do
+              [ -z "${line}" ] && continue
+              build_ctx_flags+=(--build-context "${line}")
+            done <<< "${BUILD_CONTEXTS_INPUT}"
+          fi
+
+          IFS=',' read -ra stages <<< "${EXTRA_STAGES}"
+          for stage in "${stages[@]}"; do
+            stage="$(echo "${stage}" | tr -d '[:space:]')"
+            [ -z "${stage}" ] && continue
+
+            for blocked in ${blocklist}; do
+              if [ "${stage}" = "${blocked}" ]; then
+                echo "::error::extra_stages contains blocked stage '${stage}'. Use the standard pipeline inputs instead."
+                exit 1
+              fi
+            done
+
+            test_stage="${stage}-test"
+            if echo "${available_stages}" | grep -qx "${test_stage}"; then
+              echo "::group::Build ${test_stage} (extra stage test)"
+              docker buildx build \
+                --file "${DOCKERFILE}" \
+                --target "${test_stage}" \
+                --platform "${PLATFORM}" \
+                --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
+                --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
+                "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+                "${CONTEXT_PATH}"
+              echo "::endgroup::"
+            fi
+
+            echo "::group::Build ${stage} (extra stage)"
+            docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${stage}" \
+              --platform "${PLATFORM}" \
+              --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
+              --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"
+            echo "::endgroup::"
+          done
+
+      # ── Reclaim ──────────────────────────────────────────────────
+      # The downstream half of the same rule. This job creates no named
+      # docker artifact of its own (`push: false`, no `tags:`, no
+      # compose), so `--run` normally finds nothing -- what matters here
+      # is `--stale`: a downstream self-hosted host is shared with every
+      # other repo in the org, and its buildx cache and dangling build
+      # residue accumulate whether or not this workflow named anything.
+      #
+      # Reached through the SAME `.worker-base` checkout the cache-scope
+      # script uses, so the collector is version-matched to the worker
+      # rather than copied into every caller repo -- callers pin the
+      # worker by ref, and the ref carries this file with it.
+      #
+      # 12h for the reason self-test.yaml uses it: the window has to sit
+      # above the longest a job may run, or the sweep deletes a sibling
+      # job's work in flight.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: |
+          bash .worker-base/script/ci/reclaim.sh \
+            --run "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --stale 12h
+
+  # ────────────────────────────────────────────────────────────────
+  # Stable-name aggregator so downstream branch-protection rules
+  # keep working. Keeping this job's name as `docker-build`
+  # preserves the status-check context that public-ycpss91255-docker
+  # container repos currently require on their `main` branch
+  # (`call-docker-build / docker-build`). Matrix shards publish as
+  # `call-docker-build / build (linux/amd64)` etc. — those are the
+  # actual build runs; this one just gates on them.
+  # ────────────────────────────────────────────────────────────────
+  docker-build:
+    needs: [path-filter, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix result
+        # #273 — short-circuit to success when the PR diff was doc-only,
+        # so branch protection's required `call-docker-build / docker-build`
+        # check still resolves green without the matrix actually running.
+        run: |
+          if [ "${{ needs.path-filter.outputs.code_changed }}" = "false" ]; then
+            echo "Doc-only PR; full build matrix skipped. Required check passes (#273)."
+            exit 0
+          fi
+          result="${{ needs.build.result }}"
+          echo "Matrix build result: ${result}"
+          if [ "${result}" != "success" ]; then
+            exit 1
+          fi

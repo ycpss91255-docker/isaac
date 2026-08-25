@@ -1,1 +1,1 @@
-../.base/script/docker/wrapper/stop.sh
+../dist/script/docker/wrapper/stop.sh
