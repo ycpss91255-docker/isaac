@@ -1,1 +1,1 @@
-../.base/script/docker/wrapper/setup_tui.sh
+../.base/dist/script/docker/wrapper/setup_tui.sh
