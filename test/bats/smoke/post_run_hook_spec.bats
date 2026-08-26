@@ -30,10 +30,13 @@ setup() {
   export FILE_PATH="${REPO}"
   export POST_RUN_DRYRUN=1
   export HOST_YAML_LIB="${BATS_TEST_DIRNAME}/host_yaml.sh"
-  # The default (no --instance) case must be byte-identical to today's names.
-  # Clear any ambient INSTANCE_SUFFIX so the default tests never see a suffix
-  # leaked in from the harness env; the instance case sets it explicitly.
-  unset INSTANCE_SUFFIX
+  # The default-project case must be byte-identical to today's names. Clear
+  # any ambient PROJECT_NAME so the default tests never see a viewer suffix
+  # leaked in from the harness env; the distinct-project case sets
+  # PROJECT_NAME explicitly via .env.generated below. base v0.42.0 removed
+  # INSTANCE_SUFFIX (base#666); the viewer suffix is now derived from the
+  # resolved PROJECT_NAME (empty when it equals ${DOCKER_HUB_USER}-${IMAGE_NAME}).
+  unset PROJECT_NAME
   mkdir -p "${REPO}/config"
   # Identity vars live in .env.generated (base A2 model), NOT .env -- the
   # hook must source .env.generated to resolve USER_NAME / IMAGE_NAME /
@@ -141,25 +144,28 @@ teardown() {
   ! echo "${output}" | grep -qE 'owv-'
 }
 
-@test "post-run: INSTANCE_SUFFIX scopes the viewer + Isaac container names (--instance, isaac#238)" {
-  # Under `run.sh --instance demo` the wrapper computes and exports
-  # INSTANCE_SUFFIX=-demo (base _compute_project_name) before firing this
-  # hook. The compose stream container already carries the suffix
-  # (compose.yaml container_name); the hook must follow so the viewer name
-  # and the docker cp target are instance-scoped, not the shared bare names.
-  export INSTANCE_SUFFIX=-demo
+@test "post-run: a distinct PROJECT_NAME suffixes the viewer; the Isaac cp target stays base-fixed (owv#55, isaac#238)" {
+  # base v0.42.0 removed INSTANCE_SUFFIX (base#666). Under a distinct resolved
+  # PROJECT_NAME (what a CI actor pins for its own isolated stack), the hook
+  # derives an isaac-owned viewer suffix from it so co-hosted stacks get
+  # distinct viewer names. The Isaac stream container's name is base-fixed by
+  # compose.yaml (container_name: ${USER_NAME}-isaac-stream, no suffix -- the
+  # residual co-host collision on that fixed name is filed upstream as
+  # base#920), so the docker cp target stays that fixed name.
+  printf 'USER_NAME=alice\nIMAGE_NAME=isaac\nDOCKER_HUB_USER=alice\nPROJECT_NAME=alice-isaac-demo\n' \
+    > "${REPO}/.env.generated"
   printf 'network:\n  public_ip: "127.0.0.1"\n' > "${REPO}/config/host.yaml"
   run --separate-stderr "${HOOK}" -t stream -d
   [ "$status" -eq 0 ]
-  # Isaac container (docker cp target) is the instanced name.
-  echo "${output}" | grep -qE 'docker cp .*alice-isaac-stream-demo:/etc/host.yaml'
-  # Viewer is the instanced name for both the stale-drop and the run.
+  # Viewer is the per-project name for both the stale-drop and the run.
   echo "${output}" | grep -qE 'docker rm -f alice-isaac-owv-demo'
   echo "${output}" | grep -qE 'docker run .*--name alice-isaac-owv-demo'
-  # Never the bare (un-instanced) Isaac container name. Guard via
+  # Isaac container (docker cp target) is the base-fixed stream name.
+  echo "${output}" | grep -qE 'docker cp .*alice-isaac-stream:/etc/host.yaml'
+  # Never a per-project-suffixed Isaac container cp target. Guard via
   # `run ...; [ status -ne 0 ]` (effective under bats set -e; a bare
   # `! grep` is exempt, SC2314) -- and LAST, since `run` clobbers $output.
-  run grep -qE 'docker cp .*alice-isaac-stream:/etc/host.yaml' <<< "${output}"
+  run grep -qE 'docker cp .*alice-isaac-stream-demo:/etc/host.yaml' <<< "${output}"
   [ "$status" -ne 0 ]
 }
 
