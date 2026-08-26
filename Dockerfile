@@ -417,12 +417,17 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from base + repo-specific). Repo-local .bats
-# files live under test/smoke/bats/ per isaac#64 (separating tool
-# layers under test/<category>/<tool>/), so future Python smoke tests
-# under test/smoke/pytest/ do not collide with bats discovery.
-COPY .base/test/smoke/ /smoke_test/
-COPY test/smoke/bats/ /smoke_test/
+# Smoke test (shared from base + repo-specific). base v0.42.0 ships its
+# smoke templates under the canonical tool-first layout
+# .base/dist/test/bats/smoke/{shared,devel-test,runtime-test}/ (base#650 /
+# base#835). Repo-local .bats files move to the matching test/bats/smoke/
+# (base's canonical consumer layout; this is what release-worker.yaml's
+# archive keep-list expects). Selective COPY of base's shared baseline +
+# the devel-test stage specs, then the repo's own smoke specs, flattened
+# into /smoke_test/ for `bats /smoke_test/` (see .base/doc/test/smoke.md).
+COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+COPY test/bats/smoke/ /smoke_test/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 # [#233] Tier A stream-smoke decision logic (client-connect sequence +
@@ -430,9 +435,10 @@ COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
 # [owv#55] The Tier A GPU driver itself, baked next to
 # stream_smoke_isolation_spec.bats so the spec can exercise its compose-
-# project isolation (--instance bring-up + instance-scoped teardown)
-# against stub run.sh / docker -- behavioral, no docker, no GPU. The GPU
-# path stays host-side and nightly-only (stream-smoke.yaml).
+# project isolation (distinct PROJECT_NAME bring-up + project-scoped
+# teardown; base v0.42.0 removed --instance, base#666) against stub
+# run.sh / docker -- behavioral, no docker, no GPU. The GPU path stays
+# host-side and nightly-only (stream-smoke.yaml).
 COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
