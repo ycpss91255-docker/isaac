@@ -1,4 +1,4 @@
-# Dockerfile - Isaac Sim 5.1.0 dev container (rebased onto base v0.28.0
+# Dockerfile - Isaac Sim 6.0.1 dev container (rebased onto base v0.28.0
 # Dockerfile.example baseline; isaac-specific additions layered on top).
 #
 # Upstream baseline: .base/dockerfile/Dockerfile.example (subtree pinned
@@ -35,7 +35,7 @@
 # `devel-base` / `devel-test` here). They will be removed from the
 # blocklist in a future major.
 
-ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
+ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:6.0.1"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
@@ -49,7 +49,7 @@ ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
 ARG DEBIAN_FRONTEND=noninteractive
 
-# [isaac] Isaac Sim 5.1.0 base image ships with a non-root default user
+# [isaac] Isaac Sim 6.0.1 base image ships with a non-root default user
 # (isaac-sim, UID 1234); switch to root so the system-setup steps below
 # (apt, locale-gen, useradd) have permission. devel stage drops back to
 # USER_NAME at the end. DL3002 false-positive is acknowledged upstream

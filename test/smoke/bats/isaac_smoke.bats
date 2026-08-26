@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
-# Isaac Sim 5.1.0 image smoke. Image-side; runs in /smoke_test/ inside
-# the test stage built atop nvcr.io/nvidia/isaac-sim:5.1.0.
+# Isaac Sim 6.0.1 image smoke. Image-side; runs in /smoke_test/ inside
+# the test stage built atop nvcr.io/nvidia/isaac-sim:6.0.1.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
