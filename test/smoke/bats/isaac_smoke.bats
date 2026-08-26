@@ -12,11 +12,11 @@ setup() {
   test -x /isaac-sim/runapp.sh
 }
 
-@test "isaac-sim ships Python 3.11 in /isaac-sim/kit/python/bin/python3" {
+@test "isaac-sim ships Python 3.12 in /isaac-sim/kit/python/bin/python3" {
   test -x /isaac-sim/kit/python/bin/python3
   run /isaac-sim/kit/python/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
   assert_success
-  assert_output "3.11"
+  assert_output "3.12"
 }
 
 @test "runtime user is host-aligned (not root, not isaac-sim default)" {
@@ -37,15 +37,15 @@ setup() {
 }
 
 @test "bundled ROS 2 humble + jazzy libs are both readable" {
-  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/humble/lib
-  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib
-  run ls /isaac-sim/exts/isaacsim.ros2.bridge/humble/lib/librmw_fastrtps_cpp.so
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.core/humble/lib
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.core/jazzy/lib
+  run ls /isaac-sim/exts/isaacsim.ros2.core/humble/lib/librmw_fastrtps_cpp.so
   assert_success
-  run ls /isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib/librmw_fastrtps_cpp.so
+  run ls /isaac-sim/exts/isaacsim.ros2.core/jazzy/lib/librmw_fastrtps_cpp.so
   assert_success
 }
 
-@test "bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.11)" {
-  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/humble/rclpy/rclpy
-  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.bridge/jazzy/rclpy/rclpy
+@test "bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.12)" {
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.core/humble/rclpy/rclpy
+  assert_dir_exists /isaac-sim/exts/isaacsim.ros2.core/jazzy/rclpy/rclpy
 }

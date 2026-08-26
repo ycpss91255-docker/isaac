@@ -143,7 +143,7 @@ ARG CONFIG_SRC="config"
 # (driver). Installed against the bundled Isaac Sim binary via the
 # documented _isaac_sim symlink, into /isaac-sim's Python, so every stage
 # deriving from devel (headless / stream / devel-test) has it. Pinned to a
-# 2.3 tag (built on Isaac Sim 5.1, Python 3.11 -- NVIDIA's recommended
+# 2.3 tag (built on Isaac Sim 5.1, Python 3.12 -- NVIDIA's recommended
 # pairing). Kept early in devel so day-to-day config / app COPY changes
 # below do not invalidate this large layer. The framework (isaac_devkit)
 # stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
@@ -277,7 +277,7 @@ RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
 # /etc/isaac/ros-distro at every container start, hard-baking against
 # runtime override.
 ENV ROS_DISTRO=${ROS_DISTRO} \
-    LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib
+    LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/${ROS_DISTRO}/lib
 
 # [isaac] ENTRYPOINT shim for headless / stream stages: re-reads
 # /etc/isaac/ros-distro and unconditionally exports ROS_DISTRO +
