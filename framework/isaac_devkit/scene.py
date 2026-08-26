@@ -359,12 +359,23 @@ def build_scene(scene, stage, repo_root):
         collider, no rigid body).
       * ``mobility is None``      -> no physics props.
 
-    The ``stage`` param is retained for signature stability (the spawners
-    use the active USD context, not an explicit stage handle); it is set
-    as the active stage when a context is available.
+    Isaac Lab 3.0 API (spawn stage binding): the ``sim_utils`` spawners
+    resolve their target stage from a thread-local context via
+    ``get_current_stage()`` (``isaaclab/sim/utils/stage.py:496``), NOT from
+    the ``omni.usd`` context. Opening the stage on the ``omni.usd`` context
+    (the driver's ``_open_stage``) no longer populates that thread-local, so
+    in 3.0 ``cfg.func()`` -> ``_spawn_geom_from_prim_type``
+    (``shapes.py:284``) reaches ``get_current_stage()`` returning ``None`` and
+    raises ``AttributeError: 'NoneType' ... GetPrimAtPath``. Isaac Lab 2.3
+    resolved the stage internally; 3.0 requires the caller to bind it. We
+    wrap the spawn loop in ``sim_utils.use_stage(stage)``
+    (``isaaclab/sim/utils/stage.py:229``), which sets ``_context.stage`` for
+    the spawn duration so ``get_current_stage()`` returns the real stage.
 
     Sensors (unchanged) are resolved and set up via ``isaac_devkit.sensors``.
     """
+    import contextlib
+
     import isaaclab.sim as sim_utils
 
     _set_active_stage(stage)
@@ -376,15 +387,25 @@ def build_scene(scene, stage, repo_root):
         except Exception:  # noqa: BLE001  (spawners still use the active context)
             stage = None
 
-    for spec in to_isaaclab_cfg(scene, repo_root):
-        cfg = _materialize_cfg(sim_utils, spec)
-        cfg.func(
-            spec.prim_path,
-            cfg,
-            translation=spec.translation,
-            orientation=spec.orientation,
-        )
-        _apply_mobility_physics(spec, stage)
+    # Bind the thread-local spawn stage the Isaac Lab 3.0 way (see docstring).
+    # ``use_stage`` asserts a real ``Usd.Stage``; fall back to a no-op context
+    # when no stage is available so spawning still attempts via any active
+    # context (matching the pre-3.0 best-effort behavior).
+    stage_ctx = (
+        sim_utils.use_stage(stage)
+        if stage is not None
+        else contextlib.nullcontext()
+    )
+    with stage_ctx:
+        for spec in to_isaaclab_cfg(scene, repo_root):
+            cfg = _materialize_cfg(sim_utils, spec)
+            cfg.func(
+                spec.prim_path,
+                cfg,
+                translation=spec.translation,
+                orientation=spec.orientation,
+            )
+            _apply_mobility_physics(spec, stage)
 
     sensor_paths = resolve_sensor_configs(scene, repo_root)
     if sensor_paths:

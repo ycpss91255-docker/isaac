@@ -46,14 +46,26 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import NamedTuple
 
-# Built-in collision approximations exposed by ``UrdfConverterCfg.collider_type``
-# (ADR-0020 decision 2). ``"convex_hull"`` is Isaac Lab's default: the whole
-# part's convex hull, which fills in every concavity. ``"convex_decomposition"``
+# Built-in collision approximations exposed by ``UrdfConverterCfg`` (ADR-0020
+# decision 2). ``"convex_hull"`` is Isaac Lab's default: the whole part's
+# convex hull, which fills in every concavity. ``"convex_decomposition"``
 # breaks the mesh into multiple convex pieces, preserving a concavity (e.g. the
 # gap between a forklift's forks). Neither is a full-resolution triangle-mesh
 # collider; full-mesh (static-only) and SDF colliders are out of scope (#167).
+#
+# The repo's public collider_type values (snake_case) stay stable; Isaac Lab
+# 3.0 renamed the cfg field ``collider_type`` -> ``collision_type`` and changed
+# its Literal values to title-case-with-spaces
+# (``isaaclab/sim/converters/urdf_converter_cfg.py:150`` in v3.0.0-beta2.patch1:
+# ``collision_type: Literal["Convex Hull", "Convex Decomposition",
+# "Bounding Sphere", "Bounding Cube"]``). ``_ISAACLAB_COLLISION_TYPE`` maps our
+# stable values onto the 3.0 field at construction time.
 _COLLIDER_TYPES = ("convex_hull", "convex_decomposition")
 _DEFAULT_COLLIDER_TYPE = "convex_hull"
+_ISAACLAB_COLLISION_TYPE = {
+    "convex_hull": "Convex Hull",
+    "convex_decomposition": "Convex Decomposition",
+}
 
 # Isaac Lab's Kit experience file (cloned to /opt/IsaacLab in the image,
 # ADR-0018 decision 4 / 5). It pins the URDF importer extension
@@ -659,8 +671,9 @@ def _convert_urdf(
     transitively pulls in omni, so its imports are local too.
 
     Args:
-        collider_type: Collision approximation passed to
-            ``UrdfConverterCfg.collider_type`` (ADR-0020 decision 2, #167).
+        collider_type: Collision approximation mapped onto
+            ``UrdfConverterCfg.collision_type`` (Isaac Lab 3.0; was
+            ``collider_type`` in 2.3) (ADR-0020 decision 2, #167).
             ``"convex_hull"`` (default) fills concavities; a concave part
             (e.g. a forklift's forks) needs ``"convex_decomposition"`` so
             the gap is preserved as multiple convex pieces.
@@ -688,8 +701,10 @@ def _convert_urdf(
         merge_fixed_joints=merge_fixed_joints,
         # Collision approximation (ADR-0020 decision 2, #167). The Isaac Lab
         # default "convex_hull" fills concavities; "convex_decomposition"
-        # preserves them as multiple convex pieces.
-        collider_type=collider_type,
+        # preserves them as multiple convex pieces. Isaac Lab 3.0 renamed the
+        # field collider_type -> collision_type with title-case values
+        # (urdf_converter_cfg.py:150); map our stable snake_case values on.
+        collision_type=_ISAACLAB_COLLISION_TYPE[collider_type],
         # Import-time default drive (#168). None leaves drives unconfigured
         # -- the fixed-joint-safe default (a fixed-joint robot fails with an
         # under-specified JointDriveCfg, "Missing values for ...
