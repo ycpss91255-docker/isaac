@@ -147,7 +147,8 @@ ARG CONFIG_SRC="config"
 # pairing). Kept early in devel so day-to-day config / app COPY changes
 # below do not invalidate this large layer. The framework (isaac_devkit)
 # stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
-# framework mounted).
+# framework mounted). Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab
+# pairing for Isaac Sim 6.0.0 / 6.0.1 (Isaac Lab 3.0 Beta 2, Python 3.12).
 #
 # RL learning frameworks (rl_games / rsl_rl / sb3 / skrl / robomimic) are
 # NOT installed yet (`--install none` below): the current product is
@@ -164,35 +165,38 @@ ARG CONFIG_SRC="config"
 #
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
-# Pinned to v2.3.2 -- NVIDIA's official Isaac Lab pairing for Isaac Sim
-# 5.1.0 (the recommended/latest 2.3.x). #177, supersedes the earlier
-# v2.3.0 workaround.
+# Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab pairing for Isaac
+# Sim 6.0.1 (Isaac Lab 3.0 Beta 2; IsaacSim#655 GA + IsaacLab compat
+# matrix). Bumped from the 5.1-line v2.3.2 as part of the 6.0.1 upgrade.
 #
-# v2.3.1+ (Isaac Lab PR #4000) made UrdfConverter hard-enable the URDF
-# importer extension "isaacsim.asset.importer.urdf-2.4.31" and call
-# ImportConfig.set_merge_fixed_ignore_inertia() (2.4.31 restores
-# merge_fixed_joints, removed from the 2.4.30 importer bundled in
-# isaac-sim:5.1.0; ADR-0020 decision 4). The first v2.3.2 attempt failed
-# with "AttributeError: set_merge_fixed_ignore_inertia" and emitted no
-# USD. Root cause (#177): model_import booted a BARE
-# SimulationApp({"headless": True}), which loads the DEFAULT Isaac Sim
-# experience -- that pre-loads the bundled 2.4.30 importer, so the manager
-# cannot swap to 2.4.31 ("isaacsim.asset.importer.urdf-2.4.31 is
-# incompatible with other constraints") and the converter runs against
-# 2.4.30, which lacks the merge method.
+# [round 2 -- torch] Isaac Sim 6.0.1 DEPRECATED its bundled PyTorch: the
+# 2.11.0+cu128 wheel now lives under /isaac-sim/extsDeprecated/
+# omni.isaac.ml_archive/pip_prebundle and is NOT on python.sh's default
+# sys.path (Isaac Sim now prints "pip install torch" and expects a
+# USER-installed torch). Isaac Lab pulls torch hard, so leaving install
+# resolution to isaaclab.sh let it drag in a torch whose bundled
+# nvidia-nccl-cu12 predates ncclCommShrink (added in NCCL 2.28); the
+# deprecated 2.11 libtorch_cuda.so then failed to load with
+# "undefined symbol: ncclCommShrink" and Kit boot aborted with
+# "PyTorch (torch) dependency is not installed/enabled" (round-1 GPU run:
+# 29/31 integration tests down from this single cause). Fix: install one
+# canonical torch (2.11.0+cu128, matching the deprecated bundle and Isaac
+# Lab 3.0's `torch>=2.10` + download.pytorch.org/whl/cu128 pin) into
+# /isaac-sim's python BEFORE isaaclab.sh runs (RUN below), so the nccl
+# 2.28.9 that ships with that wheel is the one on the path. cu128 wheels
+# carry sm_120 (Blackwell / RTX 5090) kernels -- verified
+# torch.cuda.get_arch_list() includes sm_120 and a GPU matmul runs.
 #
-# Fix is at BOOT time, not build time: model_import now boots Kit with
-# Isaac Lab's own experience /opt/IsaacLab/apps/isaaclab.python.kit (cloned
-# here), which pins "isaacsim.asset.importer.urdf" = {version = "2.4.31",
-# exact = true}. With that experience the 2.4.30 importer is never loaded,
-# and UrdfConverter's enable resolves 2.4.31 cleanly -- the GPU runner HAS
-# network and fetches it from the Kit extension registry. No build-time
-# extension pre-fetch is needed (and would be impossible: the image build
-# runs on a non-GPU ubuntu-latest, where Kit cannot start). pip is also a
-# dead end -- isaacsim-asset-importer-urdf is not on pypi.nvidia.com and
-# the isaacsim meta pins the same bundled 2.4.30. See
-# framework/isaac_devkit/model_import.py (_simulation_app_kwargs).
-ARG ISAACLAB_VERSION="v2.3.2"
+# NOTE (URDF importer, deferred to a later round): the 5.1 line needed a
+# boot-time experience pin ("isaacsim.asset.importer.urdf-2.4.31", ADR-0020
+# decision 4 / #177) because 5.1 bundled the older 2.4.30 importer that
+# lacked set_merge_fixed_ignore_inertia(). Isaac Sim 6.0.1 instead bundles
+# isaacsim.asset.importer.urdf-3.11.2, and Isaac Lab 3.0's own
+# isaaclab.python.kit experience targets that line -- so the 2.4.31 pin in
+# framework/isaac_devkit/model_import.py (_simulation_app_kwargs) is now
+# stale. It is left as-is here because it does NOT block torch import / Kit
+# boot; the URDF-import path is revisited in a dedicated round.
+ARG ISAACLAB_VERSION="v3.0.0-beta2.patch1"
 # Two build-env quirks are worked around here:
 #   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
 #      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
@@ -206,6 +210,19 @@ ARG ISAACLAB_VERSION="v2.3.2"
 #      never installs (`pip show isaaclab` then fails the build). PIP_CONSTRAINT
 #      pins setuptools < 80 (still ships pkg_resources) for every install AND
 #      the isolated build envs (pip >= 22.1 applies constraints to build deps).
+# [isaac round 2] Install the canonical PyTorch FIRST (see the torch note
+# above). Isaac Sim 6.0.1 no longer ships an importable torch on the
+# default path, and Isaac Lab depends on it hard. Pinning torch==2.11.0
+# from the cu128 index here -- before isaaclab.sh --install -- makes
+# isaaclab.sh see `torch>=2.10` already satisfied and leaves the matching
+# nvidia-nccl-cu12 2.28.9 (which HAS ncclCommShrink) as the one on the
+# path, avoiding the round-1 "undefined symbol: ncclCommShrink" boot
+# abort. cu128 wheels include sm_120 (RTX 5090) kernels. Baked in `devel`
+# so every derived stage (headless / stream / devel-test) inherits it.
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
+        "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128 && \
+    /isaac-sim/python.sh -c "import torch; assert torch.cuda.is_available() is not None; print('torch', torch.__version__)"
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
     git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
