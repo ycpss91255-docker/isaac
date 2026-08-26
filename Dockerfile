@@ -239,7 +239,7 @@ RUN /isaac-sim/python.sh -m pip install --no-cache-dir xacro
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Layer 1: .base/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
-COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/dist/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree pull).
 # Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
@@ -379,9 +379,9 @@ COPY script/*.sh /lint/script/
 # and all libs consolidated under script/docker/lib/. _lib.sh, i18n.sh,
 # _tui_conf.sh are now under lib/. Preserve the lib/ subdirectory in
 # /lint/ so the source paths inside _lib.sh resolve identically to the
-# normal .base/ layout. The `COPY .base/script/docker/lib /lint/lib`
+# normal .base/ layout. The `COPY .base/dist/script/docker/lib /lint/lib`
 # below brings ALL of these in one shot.
-COPY .base/script/docker/lib /lint/lib
+COPY .base/dist/script/docker/lib /lint/lib
 # Lint coverage for repo-local Dockerfile-internal build helpers
 # (base #275). Uncomment if your repo has any <repo>/script/docker/*.sh
 # build helpers (see the commented example in the devel stage above);
