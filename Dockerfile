@@ -459,6 +459,16 @@ USER "${USER}"
 
 RUN bats /smoke_test/
 
+# Restore the runtime working directory to the workspace mount. The
+# hadolint step above uses `WORKDIR /lint` (base v0.42.0's declarative
+# migration of `cd /lint && hadolint`, avoiding hadolint DL3003), but
+# that WORKDIR persists into the image -- leaving the devel-test runtime
+# CWD at /lint. `./script/run.sh -t test -- ... pytest test/integration/
+# pytest/` passes a workspace-relative path, so a /lint CWD makes pytest
+# collect 0 items ("rootdir: /lint"). Reset to ${HOME}/work (the bind
+# mount target, same as the devel stage) so relative test paths resolve.
+WORKDIR "${HOME}/work"
+
 # [isaac #127] Idle on startup so the `test` compose service survives
 # `compose up -d` and `./script/run.sh -t test -- <cmd>` (up -d + exec)
 # can run GPU pytest inside it. The inherited devel CMD ["bash"] exits
