@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import a URDF into a single Isaac Lab instanceable USD.
+"""Import a URDF into a single Isaac Lab self-contained USD.
 
 Run inside the Isaac Sim 5.1 / Isaac Lab 2.3 container:
 
@@ -9,10 +9,10 @@ Run inside the Isaac Sim 5.1 / Isaac Lab 2.3 container:
         --output /home/yunchien/work/src/model/usd/robot/openbase/ \\
         --name openbase
 
-Output (ADR-0018 decision 6 -- a single instanceable USD):
+Output (ADR-0018 decision 6 -- a single self-contained USD):
 
     <output>/
-    └── <name>.usd      # Isaac-Lab-produced instanceable USD (the whole artifact)
+    └── <name>.usd      # Isaac-Lab-produced self-contained USD (the whole artifact)
 
 Re-import with ``--force`` regenerates ``<name>.usd`` cleanly. There is no
 longer a separate geometry / material / textures layout (the old "Asset
@@ -33,8 +33,18 @@ URDF -> USD conversion is delegated to Isaac Lab's
 ``isaaclab.sim.converters.UrdfConverterCfg`` / ``UrdfConverter``
 (ADR-0018 decision 6), which wraps the same
 ``isaacsim.asset.importer.urdf`` engine the legacy ``omni.kit.commands``
-path drove, while producing an instanceable USD (the format ADR-0018's
-deferred "C" scene cloning needs).
+path drove.
+
+Isaac Lab 3.0 output-model note (ADR-0018 decision 6, re-based): the 3.0
+URDF importer's default (``run_asset_transformer=True``) emits a DIRECTORY-
+structured *layered* asset (``<robot>/<robot>.usda`` + a ``payloads/``
+tree), not a single file. ``_convert_urdf`` sets ``run_asset_transformer=
+False`` so the importer saves the fully-composed, self-contained stage to a
+single file, then re-exports it to the canonical ``<name>.usd`` -- so the
+repo's single-USD contract holds. (Un-instancing on the
+``convex_decomposition`` path drops the instanceable wrapper ADR-0018's
+deferred "C" scene cloning wanted; that instanceable-format decision is a
+recalibration target once "C" lands.)
 """
 
 import argparse
@@ -60,6 +70,13 @@ from typing import NamedTuple
 # ``collision_type: Literal["Convex Hull", "Convex Decomposition",
 # "Bounding Sphere", "Bounding Cube"]``). ``_ISAACLAB_COLLISION_TYPE`` maps our
 # stable values onto the 3.0 field at construction time.
+#
+# A3 caveat: Isaac Lab 3.0's URDF importer consumes ``collision_type`` ONLY for
+# the opt-in ``collision_from_visuals`` path. For URDF ``<collision>`` MESH
+# geometry the underlying ``urdf_usd_converter`` hard-codes ``convexHull``
+# (``geometry.py:82``) and ``URDFImporter`` never forwards ``collision_type``
+# to it, so ``"convex_decomposition"`` has no effect at import time. We enforce
+# it with a post-import USD edit (``_author_convex_decomposition``).
 _COLLIDER_TYPES = ("convex_hull", "convex_decomposition")
 _DEFAULT_COLLIDER_TYPE = "convex_hull"
 _ISAACLAB_COLLISION_TYPE = {
@@ -143,7 +160,7 @@ def _simulation_app_kwargs():
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        description="Import a URDF into a single Isaac Lab instanceable USD.",
+        description="Import a URDF into a single Isaac Lab self-contained USD.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -570,7 +587,7 @@ def _build_joint_drive_cfg(stiffness, damping):
     if gains is None:
         return None
     # JointDriveCfg / PDGainsCfg are NESTED configclasses on
-    # UrdfConverterCfg in Isaac Lab v2.3.2
+    # UrdfConverterCfg in Isaac Lab 3.0
     # (UrdfConverterCfg.JointDriveCfg.PDGainsCfg), not module-top classes.
     from isaaclab.sim.converters import UrdfConverterCfg
 
@@ -583,7 +600,7 @@ def _build_joint_drive_cfg(stiffness, damping):
 
 
 def apply_joint_drive(
-    prim_path, stiffness, damping, *, drive_type="force"
+    prim_path, stiffness, damping, *, drive_type="force", stage=None
 ):
     """Apply a per-joint drive to an already-imported joint prim (runtime).
 
@@ -613,13 +630,23 @@ def apply_joint_drive(
     delegate's return): ``modify_joint_drive_properties`` is wrapped by
     Isaac Lab's ``@apply_nested`` decorator, whose wrapper returns ``None``
     unconditionally -- it never propagates the inner function's success
-    bool (Isaac Lab v2.3.2 ``sim/utils/prims.py``). Trusting that return
-    therefore always reads as falsy even on success. Instead we apply the
-    drive and then VERIFY by reading the joint prim's ``DriveAPI`` back from
-    the current stage, returning that verified boolean. (``apply_nested``
-    also silently skips prims inside an instanced/prototype subtree -- the
-    joint prim must be a defining prim, not an instance proxy, for the
-    DriveAPI to land; the read-back surfaces that case as ``False`` too.)
+    bool (Isaac Lab ``sim/utils/prims.py``). Trusting that return therefore
+    always reads as falsy even on success. Instead we apply the drive and
+    then VERIFY by reading the joint prim's ``DriveAPI`` back from the stage,
+    returning that verified boolean. (``apply_nested`` also silently skips
+    prims inside an instanced/prototype subtree -- the joint prim must be a
+    defining prim, not an instance proxy, for the DriveAPI to land; the
+    read-back surfaces that case as ``False`` too.)
+
+    Stage binding (A4, Isaac Lab 3.0 API change): 3.0's ``get_current_stage``
+    reads a thread-local stage populated ONLY by ``sim_utils.use_stage(...)``
+    (``sim/utils/stage.py:496-524``); opening a stage on the ``omni.usd``
+    context (the driver / runner path) no longer populates it, so it returns
+    ``None`` and ``modify_joint_drive_properties`` crashes at
+    ``GetPrimAtPath`` on ``None`` (2.3 resolved the stage internally). We
+    resolve the stage explicitly -- caller-supplied, else ``get_current_stage``,
+    else the ``omni.usd`` context stage -- and pass it through both the modify
+    call and the read-back (mirroring the scene adapter's use_stage fix).
 
     Args:
         prim_path: USD prim path of the joint to drive. The angular /
@@ -630,12 +657,15 @@ def apply_joint_drive(
         drive_type: ``UsdPhysics`` drive mode, ``"force"`` (default) or
             ``"acceleration"`` -- how the joint effort is applied (NOT the
             angular/linear axis, which is auto-detected).
+        stage: The ``Usd.Stage`` holding the joint prim. Defaults to
+            ``None``, in which case it is resolved from Isaac Lab's current
+            stage, then the ``omni.usd`` context stage.
 
     Returns:
         ``True`` when the ``DriveAPI`` is present on the joint prim after
-        the apply (verified by re-reading the prim from the current stage),
-        ``False`` otherwise (prim invalid, not a revolute/prismatic joint,
-        or skipped as an instance proxy).
+        the apply (verified by re-reading the prim from the resolved stage),
+        ``False`` otherwise (no stage, prim invalid, not a
+        revolute/prismatic joint, or skipped as an instance proxy).
 
     Raises:
         ValueError: If a gain is missing/negative (validated host-side
@@ -653,6 +683,17 @@ def apply_joint_drive(
     from isaaclab.sim.utils import get_current_stage
     from pxr import UsdPhysics
 
+    # Resolve the stage the 3.0 way (see docstring): caller arg, then Isaac
+    # Lab's thread-local current stage, then the omni.usd context stage.
+    if stage is None:
+        stage = get_current_stage()
+    if stage is None:
+        import omni.usd
+
+        stage = omni.usd.get_context().get_stage()
+    if stage is None:
+        return False
+
     cfg = JointDrivePropertiesCfg(
         drive_type=drive_type,
         stiffness=gains[0],
@@ -662,10 +703,10 @@ def apply_joint_drive(
     # None even on success (it does NOT forward the inner bool), so we
     # cannot trust its return. It applies the DriveAPI itself when absent
     # (it is "modify" but does DriveAPI.Apply when none exists), so a
-    # drive-less import is fine. Verify by reading the DriveAPI back.
-    modify_joint_drive_properties(prim_path, cfg)
+    # drive-less import is fine. Pass the resolved stage explicitly (3.0's
+    # get_current_stage would otherwise be None) and verify by read-back.
+    modify_joint_drive_properties(prim_path, cfg, stage=stage)
 
-    stage = get_current_stage()
     prim = stage.GetPrimAtPath(prim_path)
     if not prim or not prim.IsValid():
         return False
@@ -688,13 +729,28 @@ def _convert_urdf(
     joint_drive_stiffness=None,
     joint_drive_damping=None,
 ):
-    """Convert a URDF to a single instanceable USD via Isaac Lab.
+    """Convert a URDF to a single self-contained USD via Isaac Lab.
 
     Preprocesses the URDF to resolve ``package://`` URIs, then delegates
     the conversion to ``isaaclab.sim.converters.UrdfConverterCfg`` /
     ``UrdfConverter`` (ADR-0018 decision 6) -- the same engine the legacy
     ``omni.kit.commands`` path drove, now via Isaac Lab's config-driven
-    interface, producing a single instanceable USD at ``usd_path``.
+    interface, producing a single self-contained USD at ``usd_path``.
+
+    Isaac Lab 3.0 output-model change (ADR-0018 decision 6, re-based): the
+    3.0 URDF importer no longer writes a single ``<name>.usd``. With
+    ``run_asset_transformer=True`` (its default) it emits a DIRECTORY-
+    structured *layered* asset -- ``<robot>/<robot>.usda`` plus a
+    ``payloads/`` tree (base / instances / geometry / materials / Physics),
+    named after the *asset file stem*, not ``usd_file_name`` (which it
+    overrides, ``urdf_converter.py:64-67`` in v3.0.0-beta2.patch1). To keep
+    the repo's single-USD contract we:
+
+    * set ``run_asset_transformer=False`` so the importer saves the fully-
+      composed, already-flattened stage to ONE self-contained file
+      (``converter.py:239-241`` -> ``Stage.Export``); and
+    * convert into a scratch ``usd_dir`` and re-export that single stage to
+      the canonical ``usd_path``, so ``<output>/`` holds only ``<name>.usd``.
 
     The caller is responsible for creating and closing the
     ``SimulationApp`` (Kit) before/after this runs: the converters
@@ -703,12 +759,14 @@ def _convert_urdf(
     transitively pulls in omni, so its imports are local too.
 
     Args:
-        collider_type: Collision approximation mapped onto
-            ``UrdfConverterCfg.collision_type`` (Isaac Lab 3.0; was
-            ``collider_type`` in 2.3) (ADR-0020 decision 2, #167).
-            ``"convex_hull"`` (default) fills concavities; a concave part
-            (e.g. a forklift's forks) needs ``"convex_decomposition"`` so
-            the gap is preserved as multiple convex pieces.
+        collider_type: Collision approximation (ADR-0020 decision 2, #167).
+            ``"convex_hull"`` (default) fills concavities. Isaac Lab 3.0's
+            URDF importer honors ``collision_type`` ONLY for the opt-in
+            ``collision_from_visuals`` path; for URDF ``<collision>`` mesh
+            geometry it always authors ``convexHull`` (``urdf_usd_converter``
+            ``geometry.py:82`` hard-codes it). ``"convex_decomposition"`` is
+            therefore selected by a post-import edit of the produced stage
+            (``_author_convex_decomposition``), not the cfg field.
         joint_drive_stiffness: Position-control Kp for the import-time
             default drive (#168), or ``None`` for no drive.
         joint_drive_damping: Velocity Kd for the import-time default drive,
@@ -717,9 +775,10 @@ def _convert_urdf(
             ``joint_drive=None`` default (ADR-0020 decision 3).
 
     Returns:
-        Path to the produced USD (``converter.usd_path``, the
-        authoritative ``usd_dir / usd_file_name`` location).
+        Path to the produced single USD (``usd_path``).
     """
+    import shutil
+
     from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
     # Isaac Sim 6.0.1's URDF importer imports newton_usd_schemas at load, but
@@ -730,36 +789,107 @@ def _convert_urdf(
     _validate_collider_type(collider_type)
     resolved_urdf = _preprocess_urdf(urdf_path)
 
-    cfg = UrdfConverterCfg(
-        asset_path=str(resolved_urdf),
-        usd_dir=str(usd_path.parent),
-        usd_file_name=usd_path.name,
-        fix_base=fix_base,
-        merge_fixed_joints=merge_fixed_joints,
-        # Collision approximation (ADR-0020 decision 2, #167). The Isaac Lab
-        # default "convex_hull" fills concavities; "convex_decomposition"
-        # preserves them as multiple convex pieces. Isaac Lab 3.0 renamed the
-        # field collider_type -> collision_type with title-case values
-        # (urdf_converter_cfg.py:150); map our stable snake_case values on.
-        collision_type=_ISAACLAB_COLLISION_TYPE[collider_type],
-        # Import-time default drive (#168). None leaves drives unconfigured
-        # -- the fixed-joint-safe default (a fixed-joint robot fails with an
-        # under-specified JointDriveCfg, "Missing values for ...
-        # joint_drive.gains.stiffness"). A JointDriveCfg(position/force) is
-        # built only when stiffness+damping are supplied.
-        joint_drive=_build_joint_drive_cfg(
-            joint_drive_stiffness, joint_drive_damping
-        ),
-        # Always regenerate: the offline commit step wants a fresh,
-        # deterministic artifact, not a cache hit.
-        force_usd_conversion=True,
-    )
-    converter = UrdfConverter(cfg)
+    # Convert into a scratch dir (the 3.0 importer writes a <robot>/ subdir +
+    # sidecar .asset_hash / config.yaml); we re-export the single stage to the
+    # canonical usd_path, keeping <output>/ clean.
+    scratch_dir = tempfile.mkdtemp(prefix="urdf_convert_")
+    try:
+        cfg = UrdfConverterCfg(
+            asset_path=str(resolved_urdf),
+            usd_dir=scratch_dir,
+            usd_file_name=usd_path.name,
+            fix_base=fix_base,
+            merge_fixed_joints=merge_fixed_joints,
+            # Collision approximation (ADR-0020 decision 2, #167). Isaac Lab
+            # 3.0 renamed collider_type -> collision_type with title-case
+            # values (urdf_converter_cfg.py:150). NOTE: the 3.0 importer only
+            # consumes this for collision_from_visuals; URDF <collision> meshes
+            # are always authored convexHull, so convex_decomposition is
+            # enforced post-import (see _author_convex_decomposition below).
+            collision_type=_ISAACLAB_COLLISION_TYPE[collider_type],
+            # Import-time default drive (#168). None leaves drives unconfigured
+            # -- the fixed-joint-safe default (a fixed-joint robot fails with an
+            # under-specified JointDriveCfg, "Missing values for ...
+            # joint_drive.gains.stiffness"). A JointDriveCfg(position/force) is
+            # built only when stiffness+damping are supplied.
+            joint_drive=_build_joint_drive_cfg(
+                joint_drive_stiffness, joint_drive_damping
+            ),
+            # A2 (#168): Isaac Lab 3.0's multi-physics conversion re-reads
+            # urdf:dynamics:damping and CLOBBERS the joint_drive override
+            # damping back to the URDF value -- apply_joint_drives sets the
+            # override, then urdf_to_mjc_physx_conversion_utils
+            # .convert_urdf_to_physx overwrites damping (it does NOT touch
+            # stiffness, which is why only damping regressed). We drive PhysX
+            # only (no MuJoCo), so disable it -- both override gains survive.
+            run_multi_physics_conversion=False,
+            # A1 (ADR-0018 decision 6): emit a single self-contained USD, not
+            # the layered payloads/ asset the transformer profile produces.
+            run_asset_transformer=False,
+            # Always regenerate: the offline commit step wants a fresh,
+            # deterministic artifact, not a cache hit.
+            force_usd_conversion=True,
+        )
+        converter = UrdfConverter(cfg)
 
-    # ``converter.usd_path`` is the produced USD file path
-    # (AssetConverterBase property = usd_dir / usd_file_name). Trust it
-    # over a precomputed path in case Isaac Lab normalizes the name.
-    return Path(converter.usd_path)
+        # ``converter.usd_path`` (= scratch usd_dir / <asset-stem>/<asset-stem>
+        # .usda) is the single self-contained file the importer produced.
+        produced = Path(converter.usd_path)
+        if not produced.exists():
+            raise ValueError(
+                f"UrdfConverter did not produce {produced} "
+                f"(requested {usd_path})"
+            )
+
+        from pxr import Usd
+
+        stage = Usd.Stage.Open(str(produced))
+        if collider_type == "convex_decomposition":
+            _author_convex_decomposition(stage)
+        usd_path.parent.mkdir(parents=True, exist_ok=True)
+        # Stage.Export re-flattens the composed stage into a single
+        # self-contained file at the canonical path (scratch is discarded).
+        stage.Export(str(usd_path))
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    return usd_path
+
+
+def _author_convex_decomposition(stage):
+    """Author the ``convexDecomposition`` collision token post-import (A3).
+
+    Isaac Lab 3.0's URDF importer honors ``collision_type`` only for the
+    opt-in collision-from-visuals path; URDF ``<collision>`` mesh geometry is
+    always authored ``convexHull`` (``urdf_usd_converter`` ``geometry.py:82``
+    hard-codes ``UsdPhysics.Tokens.convexHull``, and ``URDFImporter`` never
+    forwards ``collision_type`` to that library). Selecting a decomposition
+    therefore requires a post-import edit of the produced stage: set every
+    collision mesh's ``UsdPhysics.MeshCollisionAPI`` approximation to
+    ``convexDecomposition`` -- the same token ``collision_from_visuals`` would
+    write; PhysX cooks the convex pieces at sim time from this token, so no
+    extra USD prims are authored.
+
+    USD forbids authoring on an instancing prototype, so any instanceable
+    prims are first un-instanced (the importer may emit an instanceable stage;
+    the composed collision meshes then become directly editable). The
+    ``isaaclab`` / ``pxr`` imports are function-local (ADR-0017 section 8).
+
+    Args:
+        stage: The produced ``Usd.Stage`` (opened from the converter output),
+            edited in place before it is exported to the canonical USD.
+    """
+    from pxr import UsdGeom, UsdPhysics
+
+    for prim in stage.Traverse():
+        if prim.IsInstanceable():
+            prim.SetInstanceable(False)
+    for prim in stage.Traverse():
+        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
+            mesh_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+            mesh_api.CreateApproximationAttr().Set(
+                UsdPhysics.Tokens.convexDecomposition
+            )
 
 
 class PrimSummary(NamedTuple):
@@ -944,7 +1074,7 @@ def import_urdf(
     joint_drive_stiffness=None,
     joint_drive_damping=None,
 ):
-    """Import a URDF into a single instanceable USD; return its ``PrimSummary``.
+    """Import a URDF into a single self-contained USD; return its ``PrimSummary``.
 
     ADR-0017 section 9 contract (greenfield -- not ported behavior),
     re-based onto Isaac Lab per ADR-0018 decision 6: the URDF -> USD
@@ -1097,7 +1227,7 @@ def main():
     ok = produced is not None and Path(produced).exists()
     if ok:
         size = Path(produced).stat().st_size
-        print("done: single instanceable USD produced", flush=True)
+        print("done: single self-contained USD produced", flush=True)
         print(f"  usd: {produced} ({size} bytes)", flush=True)
     else:
         print(
