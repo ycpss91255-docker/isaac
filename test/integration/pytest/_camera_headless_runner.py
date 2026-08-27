@@ -90,6 +90,33 @@ def _main() -> None:
         class _CameraSmokeDriver(IsaacDriver):
             USD = usd_path
 
+            def _play_timeline(self) -> None:
+                # Isaac Sim 6.0.1 regression: evaluating an
+                # IsaacCreateRenderProduct graph (setup_camera ->
+                # evaluate_sync) while the timeline is already PLAYING
+                # closes the app early -- BOOT OK prints, the RTX render
+                # delegate engages, then the process exits 0 before
+                # [CAMERA GRAPH OK]. The base IsaacDriver.run() plays the
+                # timeline BEFORE setup(); the passing frame paths build
+                # the graph FIRST and play afterwards (ExampleDriver.run
+                # order: _setup_sensors then _play_timeline; the
+                # realsense/lidar sensor tests never play at all). Defer
+                # the play so setup_camera runs against a stopped timeline,
+                # then play at the end of setup() (see _start_timeline).
+                pass
+
+            def _start_timeline(self) -> None:
+                import omni.timeline
+
+                timeline = omni.timeline.get_timeline_interface()
+                # 1e10 seconds is effectively infinite for the smoke.
+                timeline.set_end_time(1e10)
+                timeline.play()
+                # Warmup ticks let physx/render settle before the frame
+                # wait in main() (mirrors the base _play_timeline warmup).
+                for _ in range(10):
+                    self._app.update()
+
             def setup(self, stage) -> None:
                 import carb.settings
 
@@ -145,6 +172,12 @@ def _main() -> None:
                         reliability=ReliabilityPolicy.BEST_EFFORT,
                     ),
                 )
+
+                # Deferred timeline play (see _play_timeline override): the
+                # render-product graph is now built, so it is safe to start
+                # the timeline under Isaac Sim 6.0.1. main() then ticks to
+                # pump frames onto the ROS 2 topic.
+                self._start_timeline()
 
             def main(self) -> None:
                 import rclpy

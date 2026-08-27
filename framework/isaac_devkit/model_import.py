@@ -82,6 +82,38 @@ _ISAACLAB_COLLISION_TYPE = {
 # Overridable via ISAACLAB_KIT_EXPERIENCE for a non-default install path.
 _ISAACLAB_KIT_EXPERIENCE = "/opt/IsaacLab/apps/isaaclab.python.kit"
 
+# Isaac Sim 6.0.1's URDF importer imports ``newton_usd_schemas`` at load time,
+# but Isaac Lab 3.0's Kit experience excludes ``isaacsim.pip.newton``, so that
+# extension's ``pip_prebundle`` directory is never put on ``sys.path`` -- the
+# import then fails with ``ModuleNotFoundError`` and every URDF conversion dies
+# before it starts (issue #247). This directory holds the module.
+_NEWTON_PREBUNDLE = "/isaac-sim/exts/isaacsim.pip.newton/pip_prebundle"
+
+
+def _ensure_newton_usd_schemas_importable():
+    """Make ``newton_usd_schemas`` importable for the 6.0.1 URDF importer (#247).
+
+    Isaac Sim 6.0.1's URDF importer imports ``newton_usd_schemas`` on load, but
+    Isaac Lab 3.0's experience excludes ``isaacsim.pip.newton`` so the module is
+    not on ``sys.path`` -> ``ModuleNotFoundError`` -> all URDF imports fail. We
+    only need the *module* resolvable; we do NOT enable the Newton extension or
+    physics backend.
+
+    We APPEND (never prepend) the prebundle dir. That dir bundles ~20 packages
+    (mujoco, coacd, OpenGL, glfw, imgui_bundle, etils, absl, cbor2, numpy_stl,
+    ...); prepending would shadow the already-installed versions of those.
+    Appending lets existing installs win on name resolution while still letting
+    ``newton_usd_schemas`` (which nothing else provides) resolve. Defensive
+    no-op if the module already imports (e.g. a future image that ships it on
+    the path) or if the prebundle dir is absent (non-6.0.1 / hosted box).
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("newton_usd_schemas") is not None:
+        return
+    if os.path.isdir(_NEWTON_PREBUNDLE) and _NEWTON_PREBUNDLE not in sys.path:
+        sys.path.append(_NEWTON_PREBUNDLE)
+
 
 def _simulation_app_kwargs():
     """SimulationApp kwargs that pin Isaac Lab's 2.4.31-importer experience.
@@ -689,6 +721,11 @@ def _convert_urdf(
         authoritative ``usd_dir / usd_file_name`` location).
     """
     from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
+
+    # Isaac Sim 6.0.1's URDF importer imports newton_usd_schemas at load, but
+    # Isaac Lab 3.0's experience excludes isaacsim.pip.newton (issue #247).
+    # Make the module resolvable before UrdfConverter runs.
+    _ensure_newton_usd_schemas_importable()
 
     _validate_collider_type(collider_type)
     resolved_urdf = _preprocess_urdf(urdf_path)
