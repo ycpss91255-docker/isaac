@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <!--
   concave_ushape: a synthetic single-link, single-mesh CONCAVE fixture for
-  the #167 collider_type GPU test. NOT the forklift application model -- a
+  the #167 collider_type GPU test. NOT the forklift application model - a
   minimal, license-clean robot authored for this repo's test suite.
 
   The one link's collision geometry references mesh/ushape.stl, a watertight
-  U-shape (three bars, open top) -- a genuinely concave solid. collider_type
+  U-shape (three bars, open top) - a genuinely concave solid. collider_type
   acts on MESH collision geometry (not on URDF primitives), so the mesh is
   what makes the convex_hull-vs-convex_decomposition contrast observable:
 
@@ -17,7 +17,7 @@
   The GPU test (#167) imports this fixture both ways and asserts the
   decomposition produces more convex collider prims than the hull (the
   concavity is preserved). Full-resolution triangle-mesh / SDF colliders are
-  out of scope (#167) -- only the two built-in approximations are exercised.
+  out of scope (#167) - only the two built-in approximations are exercised.
 -->
 <robot name="concave_ushape">
 

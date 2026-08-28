@@ -33,7 +33,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE_FILE="${REPO_ROOT}/test/pytest-baseline.txt"
-PY_IMAGE="${PY_IMAGE:-python:3.11-slim}"
+PY_IMAGE="${PY_IMAGE:-python:3.12-slim}"
 
 MODE="hosted"
 if [[ "${1:-}" == "--gpu" ]]; then

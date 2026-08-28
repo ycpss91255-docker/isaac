@@ -184,6 +184,44 @@ class TestConstructionWithoutKit:
         assert driver._should_quit is True
 
 
+# ---------- boot_extension_kit_args (isaac#248) ----------
+
+
+class TestBootExtensionKitArgs:
+    """Pure helper building the Kit ``--enable`` argv for boot-time
+    extension loads (isaac#248: ros2.bridge must be enabled at boot, not
+    at runtime, under the Isaac Lab AppLauncher headless-rendering
+    experience on Isaac Sim 6.0.1).
+    """
+
+    def test_single_extension(self):
+        assert id_mod.boot_extension_kit_args(["isaacsim.ros2.bridge"]) == [
+            "--enable",
+            "isaacsim.ros2.bridge",
+        ]
+
+    def test_multiple_extensions_preserve_order(self):
+        assert id_mod.boot_extension_kit_args(
+            ("isaacsim.core.nodes", "isaacsim.ros2.bridge")
+        ) == [
+            "--enable",
+            "isaacsim.core.nodes",
+            "--enable",
+            "isaacsim.ros2.bridge",
+        ]
+
+    def test_empty_is_noop(self):
+        assert id_mod.boot_extension_kit_args(()) == []
+
+    def test_none_is_noop(self):
+        assert id_mod.boot_extension_kit_args(None) == []
+
+    def test_default_boot_extensions_include_ros2_bridge(self):
+        # The base driver ships ros2.bridge in its boot set so downstream
+        # setup_camera / setup_ros2_io never enable it at runtime.
+        assert "isaacsim.ros2.bridge" in id_mod.IsaacDriver.BOOT_EXTENSIONS
+
+
 # ---------- A7 contract shape + lifecycle-order spy (ADR-0017 additions) ----
 
 
@@ -267,6 +305,7 @@ class TestLifecycleOrderSpy:
             def shutdown(self):
                 calls.append("shutdown")
 
+        argv_before = list(sys.argv)
         _SpyDriver().run()
 
         assert calls == [
@@ -279,3 +318,7 @@ class TestLifecycleOrderSpy:
             "shutdown",
             "close",
         ]
+        # run() injects boot-time --enable kit args around AppLauncher
+        # construction (isaac#248) but must restore sys.argv afterwards so
+        # nothing else parsing argv sees the transient flags.
+        assert sys.argv == argv_before

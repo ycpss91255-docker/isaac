@@ -202,3 +202,24 @@ later:
   Isaac Lab too); `isaaclab.sim.converters` (`UrdfConverterCfg`); AppLauncher deep-dive
   (`HEADLESS` / `LIVESTREAM` env); issue #3250 (headless + enable_cameras watch).
 - Decisions superseded/amended here originate in the M2 MVP (#146) raw-`pxr` scene layer.
+
+## Update (2026-08-28) -- amended by the 6.0.1 migration (isaac#247, isaac#248)
+
+The Isaac Sim 5.1.0 -> 6.0.1 base-image migration bumps Isaac Lab **2.3 (`v2.3.2`) ->
+`v3.0.0-beta2.patch1`** and Kit Python **3.11 -> 3.12**. The spawn-backend DECISION (adopt Isaac
+Lab `sim_utils` spawners + `UrdfConverterCfg`, keep the OmniGraph ROS 2 outlet, `isaac_devkit`
+stays mounted) is unchanged; the API surface it rides on moved in Isaac Lab 3.0:
+
+- **`sim_utils` spawn now needs an explicit stage.** Isaac Lab 3.0 made `get_current_stage()`
+  thread-local, so the spawn path must pass the stage in via `sim_utils.use_stage(stage)` before
+  `cfg.func(...)`; relying on the implicit current stage no longer works.
+- **The 5.1-era exact-URDF-importer pin is retired.** Section 5's `v2.3.2` +
+  `isaacsim.asset.importer.urdf-2.4.31`-via-Isaac-Lab-Kit-experience mechanism (the #177
+  boot-config workaround for the `2.4.30` bundled importer) is gone: Isaac Sim 6.0.1 bundles
+  `isaacsim.asset.importer.urdf-3.11.2`, so `model_import` no longer needs a custom Kit
+  experience to load a specific importer version.
+- **AppLauncher lifecycle unchanged in shape** (still `AppLauncher` + the deferred
+  `SimulationContext` per #151/#154), but runs under Kit Python 3.12.
+
+See ADR-0020's 2026-08-28 update for the `UrdfConverterCfg` field/API changes in Isaac Lab 3.0,
+and the CHANGELOG `[Unreleased]` migration entry for the full environment delta.

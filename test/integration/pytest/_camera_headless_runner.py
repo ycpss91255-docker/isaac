@@ -90,6 +90,17 @@ def _main() -> None:
         class _CameraSmokeDriver(IsaacDriver):
             USD = usd_path
 
+            # No lifecycle overrides: the base IsaacDriver plays the
+            # timeline before setup() and enables isaacsim.ros2.bridge at
+            # BOOT (IsaacDriver.BOOT_EXTENSIONS). The Isaac Sim 6.0.1
+            # camera-headless regression was NOT the play-before-setup
+            # order (round-4's hypothesis, disproven) -- it was runtime
+            # enable_extension() / touching the isaacsim extension API
+            # under the Isaac Lab AppLauncher headless-rendering experience
+            # closing the app. Fixed framework-side (boot-time bridge +
+            # is_extension_enabled early return in setup_camera); see
+            # isaac#248. So the smoke runs the plain base lifecycle.
+
             def setup(self, stage) -> None:
                 import carb.settings
 
@@ -145,6 +156,9 @@ def _main() -> None:
                         reliability=ReliabilityPolicy.BEST_EFFORT,
                     ),
                 )
+
+                # The base IsaacDriver already played the timeline before
+                # setup(); main() ticks to pump frames onto the ROS 2 topic.
 
             def main(self) -> None:
                 import rclpy

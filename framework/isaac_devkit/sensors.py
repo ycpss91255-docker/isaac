@@ -409,18 +409,49 @@ def _setup_imu(cfg, stage):
 # -- Camera framework (former camera_setup.py, ADR-0006) --
 
 
+def _ensure_ros2_bridge_enabled():
+    """Enable ``isaacsim.ros2.bridge`` only if it is not already enabled.
+
+    Isaac Sim 6.0.1 regression (isaac#248): under the Isaac Lab
+    ``AppLauncher`` (``isaaclab.python.headless.rendering.kit`` experience,
+    headless + ``enable_cameras``), *touching the isaacsim extension API at
+    runtime* -- even ``import isaacsim.core.utils.extensions`` on its own,
+    before any ``enable_extension`` call -- tears the Kit process down with
+    a graceful ``_exit(0)`` (no Python traceback). It re-runs the
+    replicator / render-experience startup mid-run and closes the app. A
+    bare ``SimulationApp`` does not hit this; the base ``IsaacDriver``
+    (AppLauncher) does.
+
+    So the fast path here must NOT import that module at all. The lighter
+    ``omni.kit.app`` extension-manager query (``is_extension_enabled``) is
+    safe under the same experience, and the driver enables the bridge at
+    BOOT (``IsaacDriver.BOOT_EXTENSIONS``) -- so the AppLauncher path takes
+    the early return and never touches the fatal import. Callers on a bare
+    ``SimulationApp`` (the sensor-setup runner, the ExampleDriver) reach
+    the import + ``enable_extension`` and enable the bridge the first time,
+    which is safe there.
+    """
+    import omni.kit.app
+
+    mgr = omni.kit.app.get_app().get_extension_manager()
+    if mgr.is_extension_enabled("isaacsim.ros2.bridge"):
+        return
+
+    from isaacsim.core.utils.extensions import enable_extension
+
+    enable_extension("isaacsim.ros2.bridge")
+
+
 def setup_camera(cfg, stage):
     """Dispatch to the per-sensor-type setup function.
 
     Returns the OmniGraph path created for the camera publish chain.
     """
-    from isaacsim.core.utils.extensions import enable_extension
-
     # Single validation entry: guards direct callers that bypass load_config.
     validate_camera(cfg, source=cfg.get("_source", "<cfg>"))
 
     sensor_type = cfg["sensor"]["type"]
-    enable_extension("isaacsim.ros2.bridge")
+    _ensure_ros2_bridge_enabled()
 
     if sensor_type == "realsense":
         return _setup_realsense(cfg, stage)

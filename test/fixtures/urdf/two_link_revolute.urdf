@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   two_link_revolute: a synthetic articulated fixture for the #168
-  joint-drive GPU test. NOT the forklift application model -- a minimal,
+  joint-drive GPU test. NOT the forklift application model - a minimal,
   license-clean robot authored for this repo's test suite.
 
   Structure:
@@ -13,13 +13,13 @@
   apply_joint_drive (modify_joint_drive_properties) write a DriveAPI to.
   Both links carry inertials so the importer keeps the revolute joint
   (merge_fixed_joints only collapses fixed joints; a revolute joint always
-  survives). Geometry is primitive boxes -- no external mesh asset.
+  survives). Geometry is primitive boxes - no external mesh asset.
 
   GPU test (#168) asserts: with a joint_drive, the revolute joint prim
   gains a UsdPhysics.DriveAPI("angular") carrying the configured
   stiffness/damping. "The joint physically reaches a commanded target"
   needs stepped physics (SimulationContext, deferred #151) and is NOT
-  asserted here -- only that the drive is structurally CONFIGURED.
+  asserted here - only that the drive is structurally CONFIGURED.
 -->
 <robot name="two_link_revolute">
 

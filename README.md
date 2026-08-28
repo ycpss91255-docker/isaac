@@ -2,20 +2,20 @@
 
 **[English](README.md)** | **[繁體中文](doc/README.zh-TW.md)** | **[简体中文](doc/README.zh-CN.md)** | **[日本語](doc/README.ja.md)**
 
-NVIDIA Isaac Sim 5.1.0 Docker development environment, built on top of [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base) (previously `ycpss91255-docker/template`).
+NVIDIA Isaac Sim 6.0.1 Docker development environment, built on top of [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base) (previously `ycpss91255-docker/template`).
 
-Image scope covers Isaac Sim itself plus the env wiring needed for its bundled ROS 2 bridge to talk cross-container. NVIDIA Isaac Lab 2.3 is also baked in as the scene-spawn backend (`sim_utils` spawners, `UrdfConverter`, `AppLauncher`; ADR-0018). Downstream application nodes (CoreSAM, AGV bring-up) and the ROS 1 / ROS 2 bridge for Noetic interop live in sibling docker folders.
+Image scope covers Isaac Sim itself plus the env wiring needed for its bundled ROS 2 bridge to talk cross-container. NVIDIA Isaac Lab 3.0 (`v3.0.0-beta2.patch1`) is also baked in as the scene-spawn backend (`sim_utils` spawners, `UrdfConverter`, `AppLauncher`; ADR-0018). Downstream application nodes (CoreSAM, AGV bring-up) and the ROS 1 / ROS 2 bridge for Noetic interop live in sibling docker folders.
 
 The repo also carries the Isaac Sim workspace content (driver scripts, ADRs, USD/URDF models) under [`src/`](src/README.md); the Dockerfile + base subtree at root is the development environment that runs that workspace. Both used to live in `ycpss91255-research/isaac` and `ycpss91255-docker/isaac` as a research-wraps-docker submodule pair, merged here per [#78](https://github.com/ycpss91255-docker/isaac/issues/78).
 
 ## Prerequisites
 
-- NVIDIA driver `>= 580.65.06` (Isaac Sim 5.1 minimum)
+- NVIDIA driver `>= 580.95.05` (Isaac Sim 6.0.1 minimum; verified on driver 610)
 - GPU `>= RTX 4080` (or equivalent), VRAM `>= 16 GB`
 - Docker + nvidia-container-toolkit
 - ~20 GB free disk for the NGC image; cache dirs grow another 5–10 GB after first launch
 
-NGC image (`nvcr.io/nvidia/isaac-sim:5.1.0`) is publicly pullable — no `docker login nvcr.io` required.
+NGC image (`nvcr.io/nvidia/isaac-sim:6.0.1`) is publicly pullable — no `docker login nvcr.io` required.
 
 ## Quick Start
 
@@ -39,9 +39,9 @@ make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
 
 ## Connecting to the WebRTC livestream
 
-Isaac Sim 5.1 uses the NVCF (`omni.services.livestream.nvcf`) livestream protocol. Connect with the desktop client or a browser-based viewer:
+Isaac Sim 6.0.1 uses the NVCF (`omni.services.livestream.nvcf`) livestream protocol. Connect with the desktop client or a browser-based viewer:
 
-1. Download the **Isaac Sim WebRTC Streaming Client (1.1.5)** from [NVIDIA docs — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html). 1.1.5 is the latest, ships with 5.1.
+1. Download the **Isaac Sim WebRTC Streaming Client** from [NVIDIA docs — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/manual_livestream_clients.html). Use the client version NVIDIA lists there for your Isaac Sim release.
 2. While `stream` is running, launch the client and enter Server: `<server-ip>` (use `localhost` for same-machine, the server's LAN IP otherwise). **Do not add `:8011` or any port suffix** — the client manages signaling/data ports internally; appending a port routes through the wrong path and yields a black screen.
 3. Click Connect. First-time shader compile takes 1–3 min before the viewport renders.
 
@@ -115,9 +115,9 @@ Required: an NVIDIA GPU runtime (`--gpus all`) for NVENC frame encoding, `--netw
 
 ## ROS 2 bridge (bundled, build-time distro)
 
-Isaac Sim 5.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/`, both with Python 3.11 rclpy matching kit's embedded interpreter. **This image hard-bakes the distro at build time** via `setup.conf [build] arg_N=ROS_DISTRO=<value>` (default `humble`, CoreSAM-aligned).
+Isaac Sim 6.0.1 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` (in 5.1 this lived under `isaacsim.ros2.bridge/`; 6.0.1 split the monolithic bridge ext into `isaacsim.ros2.core` + `isaacsim.ros2.nodes` etc.), both with Python 3.12 rclpy matching kit's embedded interpreter. **This image hard-bakes the distro at build time** via `setup.conf [build] arg_N=ROS_DISTRO=<value>` (default `humble`, CoreSAM-aligned).
 
-The bridge extension `isaacsim.ros2.bridge` auto-loads via the default kit experience (`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`). No additional launch flag needed.
+The bridge extension is enabled at Kit boot by the base `IsaacDriver` (`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args), which is required for headless camera -> ROS 2 publish under 6.0.1 (isaac#248). No additional launch flag is needed on the driver path.
 
 Env wiring shipped in `setup.conf [environment]` (distro-agnostic):
 
@@ -219,7 +219,7 @@ The container runs as a host-UID-aligned non-root user (`USER_NAME` from `.env`,
 
 ## EULA
 
-`ACCEPT_EULA=Y` and `PRIVACY_CONSENT=Y` are injected via `setup.conf [environment]`. Note: Isaac Sim 5.1 reads privacy consent from `OMNI_ENV_PRIVACY_CONSENT` (different name from earlier versions); the `PRIVACY_CONSENT=Y` we currently set is harmless but has no effect — set explicitly if you want telemetry opt-in.
+`ACCEPT_EULA=Y` and `PRIVACY_CONSENT=Y` are injected via `setup.conf [environment]`. Note: Isaac Sim 6.0.1 reads privacy consent from `OMNI_ENV_PRIVACY_CONSENT` (the name adopted in 5.1, different from pre-5.1 versions); the `PRIVACY_CONSENT=Y` we currently set is harmless but has no effect — set explicitly if you want telemetry opt-in.
 
 ## Smoke Tests
 
