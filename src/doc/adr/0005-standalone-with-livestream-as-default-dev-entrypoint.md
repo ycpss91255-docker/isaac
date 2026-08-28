@@ -53,8 +53,8 @@ Verified during PR-A + PR-B of #19:
 ## References
 
 - Issue: `ycpss91255-docker/isaac#19` "Adopt standalone-with-livestream entrypoint (replace Script Editor Ctrl+Enter loop)"
-- Isaac Sim manual livestream client: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html>
-- Isaac Sim standalone application docs: <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/python_scripting/standalone_application.html>
+- Isaac Sim manual livestream client: <https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/manual_livestream_clients.html>
+- Isaac Sim standalone application docs: <https://docs.isaacsim.omniverse.nvidia.com/6.0.0/python_scripting/standalone_application.html>
 - Related ADRs: 0001 (Chassis SE(2) Slide), 0002 (cmd_vel teleop via in-kit Script Editor — superseded as entrypoint pattern by this ADR), 0003 (two-track simulation strategy), 0004 (Model A-hybrid block model), **0007 (custom streaming experience for SimulationApp)**
 - SOP: `doc/standalone_livestream_workflow.md`
 

@@ -78,7 +78,7 @@ PhysX 5.4.1 RigidBodyDynamics 原文把 L2 列為 canonical use cases 的核心:
 - PhysX 5.4.1 Articulations(links cannot be kinematic): https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/Articulations.html
 - PhysX 5.4.1 Advanced Collision Detection(squish / CCD): https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/AdvancedCollisionDetection.html
 - Isaac Lab — Making a physics prim fixed: https://isaac-sim.github.io/IsaacLab/main/source/how-to/make_fixed_prim.html
-- Isaac Sim 5.1 Physics Simulation Fundamentals: https://docs.isaacsim.omniverse.nvidia.com/5.1.0/physics/simulation_fundamentals.html
+- Isaac Sim 6.0 Physics Simulation Fundamentals: https://docs.isaacsim.omniverse.nvidia.com/6.0.0/physics/simulation_fundamentals.html
 
 ## Cross-references
 

@@ -22,7 +22,7 @@ fi
 
 ROS_DISTRO="$(< /etc/isaac/ros-distro)"
 export ROS_DISTRO
-export LD_LIBRARY_PATH="/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib"
+export LD_LIBRARY_PATH="/isaac-sim/exts/isaacsim.ros2.core/${ROS_DISTRO}/lib"
 
 EXTRA_ARGS=()
 if [[ -n "${PUBLIC_IP:-}" ]]; then

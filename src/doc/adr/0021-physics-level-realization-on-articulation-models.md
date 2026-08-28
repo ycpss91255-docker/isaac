@@ -203,7 +203,7 @@ needs-experiment:
 - PhysX 5.4 Articulations (links cannot be kinematic / reduced coordinate / high-gain
   stability / loop joints): https://nvidia-omniverse.github.io/PhysX/physx/5.4.0/docs/Articulations.html
 - Isaac Sim - Tuning Joint Drive Gains (position control = stiffness*dpos + damping*dvel;
-  tuning procedure): https://docs.isaacsim.omniverse.nvidia.com/5.1.0/robot_setup_tutorials/joint_tuning.html
+  tuning procedure): https://docs.isaacsim.omniverse.nvidia.com/6.0.0/robot_setup_tutorials/joint_tuning.html
 - IsaacLab #2886 (user report: arms sag under gravity unless stiffness ~25000; instability
   at very high stiffness; degrees/radians hypothesis): https://github.com/isaac-sim/IsaacLab/issues/2886
 - PhysX #308 (maximal-coordinate chained fixed joint is "very weak"): https://github.com/NVIDIAGameWorks/PhysX/issues/308
