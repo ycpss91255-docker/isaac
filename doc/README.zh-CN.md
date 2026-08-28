@@ -2,20 +2,20 @@
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
-NVIDIA Isaac Sim 5.1.0 Docker 开发环境，以 [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（前身为 `ycpss91255-docker/template`）为基础构建。
+NVIDIA Isaac Sim 6.0.1 Docker 开发环境，以 [`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（前身为 `ycpss91255-docker/template`）为基础构建。
 
-Image scope 涵盖 Isaac Sim 本体，加上让其内建 ROS 2 bridge 跨容器通讯所需的 env wiring。NVIDIA Isaac Lab 2.3 也一并 baked 进 image，作为 scene-spawn backend（`sim_utils` spawner、`UrdfConverter`、`AppLauncher`；ADR-0018）。下游应用节点（CoreSAM、AGV bring-up）以及给 Noetic interop 用的 ROS 1 / ROS 2 bridge 放在相邻的 docker folder。
+Image scope 涵盖 Isaac Sim 本体，加上让其内建 ROS 2 bridge 跨容器通讯所需的 env wiring。NVIDIA Isaac Lab 3.0（`v3.0.0-beta2.patch1`）也一并 baked 进 image，作为 scene-spawn backend（`sim_utils` spawner、`UrdfConverter`、`AppLauncher`；ADR-0018）。下游应用节点（CoreSAM、AGV bring-up）以及给 Noetic interop 用的 ROS 1 / ROS 2 bridge 放在相邻的 docker folder。
 
 本 repo 同时收纳 Isaac Sim workspace 内容（driver script、ADR、USD / URDF 模型）于 [`src/`](../src/README.md)；root 的 Dockerfile + base subtree 是运行该 workspace 的开发环境。两者原本分属 `ycpss91255-research/isaac` 与 `ycpss91255-docker/isaac`（research wraps docker via submodule），按 [#78](https://github.com/ycpss91255-docker/isaac/issues/78) 合并至此。
 
 ## 前置需求
 
-- NVIDIA driver `>= 580.65.06`（Isaac Sim 5.1 最低需求）
+- NVIDIA driver `>= 580.95.05`（Isaac Sim 6.0.1 最低需求；已在 driver 610 验证）
 - GPU `>= RTX 4080`（或同级），VRAM `>= 16 GB`
 - Docker + nvidia-container-toolkit
 - 约 20 GB 空闲空间给 NGC image；首次启动后 cache 再增长 5–10 GB
 
-NGC image（`nvcr.io/nvidia/isaac-sim:5.1.0`）公开可拉，无需 `docker login nvcr.io`。
+NGC image（`nvcr.io/nvidia/isaac-sim:6.0.1`）公开可拉，无需 `docker login nvcr.io`。
 
 ## Quick Start
 
@@ -39,9 +39,9 @@ make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
 
 ## 连接 WebRTC livestream
 
-Isaac Sim 5.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议。可以用桌面 client 或浏览器 viewer 连接：
+Isaac Sim 6.0.1 用 NVCF（`omni.services.livestream.nvcf`）livestream 协议。可以用桌面 client 或浏览器 viewer 连接：
 
-1. 从 [NVIDIA 文档 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/manual_livestream_clients.html) 下载 **Isaac Sim WebRTC Streaming Client (1.1.5)**。1.1.5 是 5.1 的最新版。
+1. 从 [NVIDIA 文档 — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/manual_livestream_clients.html) 下载 **Isaac Sim WebRTC Streaming Client**。请使用 NVIDIA 文档在该处列出、对应你 Isaac Sim 版本的 client 版本。
 2. `stream` 运行时，启动 client，输入 Server: `<server-ip>`（同机用 `localhost`，远端用 server 的 LAN IP）。**不要加 `:8011` 或任何 port 后缀** — client 自己会选 signaling / data port；加 port 后缀会走错 path、看到黑画面。
 3. 按 Connect。首次 shader compile 需 1–3 分钟 viewport 才会出画面。
 
@@ -115,9 +115,9 @@ docker run --rm --network=host --gpus all \
 
 ## ROS 2 bridge（内置，build-time distro）
 
-Isaac Sim 5.1 在 `/isaac-sim/exts/isaacsim.ros2.bridge/{humble,jazzy}/` 内置 Humble 与 Jazzy 两套 ROS 2 lib，两者都是 Python 3.11 rclpy，与 kit 内嵌 interpreter 对齐。**本 image 在 build time 把 distro hard-bake 进去** — 透过 `setup.conf [build] arg_N=ROS_DISTRO=<value>` 注入（默认 `humble`，与 CoreSAM 对齐）。
+Isaac Sim 6.0.1 在 `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` 内置 Humble 与 Jazzy 两套 ROS 2 lib（5.1 时放在 `isaacsim.ros2.bridge/`；6.0.1 把单一 bridge ext 拆成 `isaacsim.ros2.core` + `isaacsim.ros2.nodes` 等），两者都是 Python 3.12 rclpy，与 kit 内嵌 interpreter 对齐。**本 image 在 build time 把 distro hard-bake 进去** — 透过 `setup.conf [build] arg_N=ROS_DISTRO=<value>` 注入（默认 `humble`，与 CoreSAM 对齐）。
 
-`isaacsim.ros2.bridge` extension 透过预设 kit experience（`isaacsim.exp.full.kit` → `isaac.startup.ros_bridge_extension`）自动 load，`runheadless.sh` / `runapp.sh` 不需要加 `--enable` flag。
+Bridge extension 由 base `IsaacDriver` 在 Kit BOOT 阶段启用（`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args），这在 6.0.1 下是 headless camera -> ROS 2 publish 的必要条件（isaac#248）。driver 路径不需要额外 launch flag。
 
 Env wiring 写在 `setup.conf [environment]`（distro-agnostic）：
 
@@ -221,7 +221,7 @@ make stop                      # 收尾
 
 ## EULA
 
-`ACCEPT_EULA=Y` 与 `PRIVACY_CONSENT=Y` 通过 `setup.conf [environment]` 注入。注意：Isaac Sim 5.1 改用 `OMNI_ENV_PRIVACY_CONSENT` 读取 privacy consent（环境变量名称跟旧版不同）；目前设的 `PRIVACY_CONSENT=Y` 无害但实际无作用，要 telemetry opt-in 请另设正确的变量。
+`ACCEPT_EULA=Y` 与 `PRIVACY_CONSENT=Y` 通过 `setup.conf [environment]` 注入。注意：Isaac Sim 6.0.1 用 `OMNI_ENV_PRIVACY_CONSENT` 读取 privacy consent（此名称自 5.1 起采用，跟 5.1 之前的版本不同）；目前设的 `PRIVACY_CONSENT=Y` 无害但实际无作用，要 telemetry opt-in 请另设正确的变量。
 
 ## Smoke Tests
 

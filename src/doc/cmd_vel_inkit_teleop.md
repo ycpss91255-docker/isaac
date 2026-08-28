@@ -235,7 +235,7 @@ cd /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/docker
 
 ### 上游文件
 
-- [Isaac Sim 5.1 Mobile Robot Controllers](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/robot_simulation/mobile_robot_controllers.html)
-- [Isaac Sim 5.1 Known Issues](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/overview/known_issues.html)
+- [Isaac Sim 6.0 Mobile Robot Controllers](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/robot_simulation/mobile_robot_controllers.html)
+- [Isaac Sim 6.0 Known Issues](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/overview/known_issues.html)
 - [Isaac Sim 6.0 ROS 2 Bridge in Standalone Workflow](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/ros2_tutorials/tutorial_ros2_python.html)
 - [gazebo_planar_move_plugin (ROS 2 Humble)](https://docs.ros.org/en/ros2_packages/humble/api/gazebo_planar_move_plugin/) — 參考的 kinematic 平移語意

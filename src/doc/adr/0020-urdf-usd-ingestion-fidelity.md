@@ -138,3 +138,35 @@ option, not a URDF joint. No script handling is required for floating/planar in 
 - Decisions 4, 5, 7 are recorded as policy, not work: they need no code change on the current
   pin (merge off, inertia upstream, no floating/planar from the exporter), only awareness.
 - Supersedes nothing; amends ADR-0018 decision 6 with the ingestion-fidelity detail it deferred.
+
+## Update (2026-08-28) -- amended by the 6.0.1 migration (isaac#247, isaac#248)
+
+The Isaac Sim 5.1.0 -> 6.0.1 migration bumps Isaac Lab to `v3.0.0-beta2.patch1`, whose
+`UrdfConverter` changed shape. The ingestion-fidelity DECISIONS below stand (DAE meshes,
+convex-decomposition for concave parts, code-configured joint drive, xacro/units preprocess);
+how the converter realizes them moved:
+
+- **Decision 2 (collider approximation) -- field renamed + convex decomposition now a
+  post-import USD edit.** `UrdfConverterCfg.collider_type` is renamed **`collision_type`** in
+  Isaac Lab 3.0 (title-case values). The 3.0 importer hard-codes `convexHull` for collision
+  meshes, so `convex_decomposition` can no longer be requested through the converter cfg; it is
+  now enforced by a post-import edit of the produced USD (`UsdPhysics.MeshCollisionAPI`
+  approximation set to `convexDecomposition` on the collision mesh). The decision -- convex hull
+  is wrong for concave parts, concave parts must opt into decomposition -- is unchanged.
+- **Decision 3 (import-time joint drive) -- needs multi-physics conversion OFF.**
+  `JointDriveCfg` stiffness/damping are clobbered by Isaac Lab 3.0's MuJoCo conversion path, so
+  `UrdfConverterCfg` must set `run_multi_physics_conversion=False` for the configured drive
+  gains to survive into the produced USD.
+- **Single-USD output -- now via `run_asset_transformer=False` + `Stage.Export`.** The 3.0
+  converter emits a LAYERED directory by default; to keep the single-instanceable-USD contract
+  (ADR-0018 decision 6) `model_import` runs the converter with `run_asset_transformer=False`
+  and then `Stage.Export`s the single USD.
+- **Decision 4 (importer version pin) -- retired.** 6.0.1 bundles
+  `isaacsim.asset.importer.urdf-3.11.2`; the `2.4.31`-via-Isaac-Lab-Kit-experience pin (#177)
+  is no longer needed.
+- **`newton_usd_schemas` sys.path shim (isaac#247).** Isaac Sim 6.0.1's URDF-import path pulls
+  in `newton_usd_schemas`, which is not on the default Kit `sys.path`; `model_import` prepends
+  its location so the import resolves. This is a migration workaround, not a design change.
+
+See ADR-0018's 2026-08-28 update (spawn `use_stage`), ADR-0017's 2026-08-28 update (image /
+driver), and the CHANGELOG `[Unreleased]` migration entry for the full delta.

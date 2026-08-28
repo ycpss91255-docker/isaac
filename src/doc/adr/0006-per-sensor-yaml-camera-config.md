@@ -193,8 +193,8 @@ Short file names for single-camera scenes. For multi-camera scenes that reuse th
 
 ## References
 
-- [Camera and Depth Sensors — Isaac Sim 5.1 docs](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/assets/usd_assets_camera_depth_sensors.html)
-- [ROS 2 Cameras tutorial — Isaac Sim 5.1](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/ros2_tutorials/tutorial_ros2_camera.html)
+- [Camera and Depth Sensors — Isaac Sim 6.0 docs](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/assets/usd_assets_camera_depth_sensors.html)
+- [ROS 2 Cameras tutorial — Isaac Sim 6.0](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/ros2_tutorials/tutorial_ros2_camera.html)
 - [Stereolabs ZED Isaac Sim Extension](https://www.stereolabs.com/docs/isaac-sim)
 - ADR-0004 — Model A-hybrid forklift block model (kinematic carriage that the realsense.yaml mounts to by default)
 - ADR-0005 — Standalone-with-livestream as default dev entrypoint (driver runtime that loads these configs)
