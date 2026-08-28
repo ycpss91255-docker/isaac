@@ -117,6 +117,24 @@ def parse_livestream_applauncher(env_value: Optional[str]) -> Dict[str, Any]:
     )
 
 
+def boot_extension_kit_args(extensions) -> list:
+    """Build the Kit ``--enable <ext>`` argv for boot-time extension loads.
+
+    Isaac Lab's ``AppLauncher`` forwards leftover ``sys.argv`` tokens to
+    the underlying Kit process, so appending ``--enable <ext>`` pairs
+    before constructing the launcher makes Kit enable those extensions
+    during boot. See ``IsaacDriver.BOOT_EXTENSIONS`` for why the ROS 2
+    bridge must load at boot under Isaac Sim 6.0.1 (isaac#248).
+
+    Pure (host-runnable): returns the flat argv list; the caller splices
+    it into ``sys.argv``. Empty / falsy input yields ``[]`` (no-op).
+    """
+    args: list = []
+    for ext in extensions or ():
+        args += ["--enable", ext]
+    return args
+
+
 def resolve_repo_relative_usd(usd_path: str, *, module_file: str) -> Path:
     """Resolve a repo-relative USD path to an absolute ``Path``.
 
@@ -186,6 +204,24 @@ class IsaacDriver:
     USD: str = ""
     SCENE: str = ""
 
+    # Extensions enabled at Kit BOOT (via ``--enable`` kit args) rather
+    # than at runtime. Isaac Sim 6.0.1 regression (isaac#248): calling
+    # ``isaacsim.core.utils.extensions.enable_extension("isaacsim.ros2.bridge")``
+    # AFTER boot, while running on the Isaac Lab ``AppLauncher``
+    # (``isaaclab.python.headless.rendering.kit`` experience, headless +
+    # ``enable_cameras``), makes Kit gracefully ``_exit(0)`` -- the bridge
+    # pulls in the replicator / render-experience extension chain, and
+    # re-starting that stack mid-run under this experience tears the app
+    # down (no Python traceback; a bare ``SimulationApp`` does NOT hit
+    # this, which is why the ExampleDriver's own ``SimulationApp`` run()
+    # and the plain sensor-setup runner never regressed). Enabling the
+    # same extensions during boot -- so ``setup_camera`` /
+    # ``setup_ros2_io``'s own ``enable_extension`` calls are no-ops -- is
+    # the supported path and does not close the app. The base driver is
+    # the ROS 2 sim driver (``init_rclpy`` + the ros_io contract), so the
+    # ROS 2 bridge belongs in its boot set. Subclasses may override.
+    BOOT_EXTENSIONS: tuple = ("isaacsim.core.nodes", "isaacsim.ros2.bridge")
+
     def __init__(self) -> None:
         self._should_quit: bool = False
         self._app: Any = None
@@ -209,7 +245,19 @@ class IsaacDriver:
         launcher_args = parse_livestream_applauncher(
             os.environ.get("ISAAC_LIVESTREAM")
         )
-        self._app_launcher = AppLauncher(launcher_args)
+        # Enable the boot-time extensions (ros2.bridge et al.) via Kit
+        # ``--enable`` args, which AppLauncher forwards from leftover
+        # sys.argv to the Kit process it constructs. This must happen at
+        # boot, not at runtime, under Isaac Sim 6.0.1 (isaac#248 -- see
+        # BOOT_EXTENSIONS). AppLauncher reads sys.argv only during
+        # construction, so restore it immediately afterwards to avoid
+        # leaking the flags to anything else parsing argv.
+        _saved_argv = list(sys.argv)
+        sys.argv += boot_extension_kit_args(self.BOOT_EXTENSIONS)
+        try:
+            self._app_launcher = AppLauncher(launcher_args)
+        finally:
+            sys.argv[:] = _saved_argv
         self._app = self._app_launcher.app
 
         # Override Kit's SIGINT (which swallows Ctrl+C) so the loop can
