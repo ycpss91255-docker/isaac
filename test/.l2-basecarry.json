@@ -1,0 +1,184 @@
+{
+  "issue": "isaac#228",
+  "adr": "ADR-0008 L2 kinematic base carries an arm (rule 4: articulation link cannot be kinematic)",
+  "isaac_variant": "6.0.1",
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "warmup_steps": 60,
+  "base_profile_s": {
+    "accel": 0.5,
+    "cruise": 0.5,
+    "decel": 0.5,
+    "settle": 1.0
+  },
+  "arm_pendulum_length_m": 0.4,
+  "arm_mass_kg": 2.0,
+  "baseline_5_1": "none committed -- first-run 6.0.1 characterization of base-carry ride-along and base-motion joint disturbance",
+  "summary": {
+    "topology_A_usd_hierarchy_carries_arm": false,
+    "finding": "topology A (USD-hierarchy parent) does NOT carry the floating articulation -- a joint is forced for base carry (see revolute_maximal)",
+    "carry_via_joint_ride_along_ok": true,
+    "carry_via_joint_stable_all": true,
+    "disturbance_scales_with_accel": {
+      "k_1000": {
+        "accels_mps2": [
+          2.0,
+          5.0
+        ],
+        "peak_dev_rad": [
+          0.008786423928180883,
+          0.021963550645084914
+        ],
+        "monotonic_nondecreasing": true
+      },
+      "k_10000": {
+        "accels_mps2": [
+          2.0,
+          5.0
+        ],
+        "peak_dev_rad": [
+          0.00351599036048712,
+          0.008789843843913393
+        ],
+        "monotonic_nondecreasing": true
+      }
+    }
+  },
+  "topologies": {
+    "usd_child": {
+      "description": "Topology A literal: a floating 1-revolute articulation parented UNDER the kinematic base prim in the USD stage (no joint to the base). Tests whether a moving kinematic USD parent drags a floating articulation.",
+      "drive_api": "kinematic base driven by RigidBodyView.set_kinematic_targets (+X profile); arm is a FLOATING articulation parented UNDER the base prim in USD (no joint to base). SingleRigidPrim reads the arm-root world pose.",
+      "lanes": [
+        {
+          "tag": "usd_child",
+          "base_travel_x_m": 2.5,
+          "arm_root_travel_x_m": -1.9387045606711586e-24,
+          "ride_along_x_err_m": 2.5,
+          "follow_ratio": -7.754818242684634e-25,
+          "nan_seen": false,
+          "topology_A_carries": false
+        }
+      ],
+      "topology_A_usd_hierarchy_carries_arm": false,
+      "finding": "topology A (USD-hierarchy parent) does NOT carry the floating articulation -- a joint is forced for base carry (see revolute_maximal)"
+    },
+    "revolute_maximal": {
+      "description": "Working carry: kinematic base + a dynamic pendulum arm joined by a maximal-coordinate UsdPhysics.RevoluteJoint with an angular drive holding the joint. No ArticulationRootAPI, so the isaac#197 kinematic+articulation-weld tensor crash is avoided. Measures ride-along + base-motion disturbance on the held joint.",
+      "drive_api": "physics tensor RigidBodyView.set_kinematic_targets (pos xyz + quat xyzw) per tick on the physics:kinematicEnabled base -> real PhysX kinematic target with solver velocity; arm carried by a maximal UsdPhysics.RevoluteJoint + angular DriveAPI (hold target 0); SingleRigidPrim reads the arm pose back. (set_world_pose would be a no-velocity teleport, #217.)",
+      "stiffnesses_stored": [
+        1000.0,
+        10000.0
+      ],
+      "accels_mps2": [
+        2.0,
+        5.0
+      ],
+      "lanes": [
+        {
+          "tag": "k01000_a020",
+          "stiffness_stored": 1000.0,
+          "base_peak_accel_mps2": 2.0,
+          "axis_inertia_izz": 0.32000000000000006,
+          "damping_stored": 35.77708763999664,
+          "base_travel_x_m": 1.0,
+          "arm_travel_x_m": 1.0000004768371582,
+          "follow_ratio": 1.0000004768371582,
+          "ride_along_anchor_err_max_m": 7.292038728650827e-07,
+          "hold_peak_dev_accel_rad": 0.008785904235112878,
+          "hold_peak_dev_accel_deg": 0.5033952318780837,
+          "hold_peak_dev_decel_rad": 0.008786423928180883,
+          "hold_peak_dev_decel_deg": 0.5034250080975226,
+          "hold_residual_rad": 2.0600026289496755e-06,
+          "hold_residual_mrad": 0.0020600026289496753,
+          "nan_seen": false,
+          "stable": true
+        },
+        {
+          "tag": "k01000_a050",
+          "stiffness_stored": 1000.0,
+          "base_peak_accel_mps2": 5.0,
+          "axis_inertia_izz": 0.32000000000000006,
+          "damping_stored": 35.77708763999664,
+          "base_travel_x_m": 2.5,
+          "arm_travel_x_m": 2.5000009536743164,
+          "follow_ratio": 1.0000003814697265,
+          "ride_along_anchor_err_max_m": 1.4324359053405879e-06,
+          "hold_peak_dev_accel_rad": 0.021962328528825216,
+          "hold_peak_dev_accel_deg": 1.2583487329814473,
+          "hold_peak_dev_decel_rad": 0.021963550645084914,
+          "hold_peak_dev_decel_deg": 1.2584187550852022,
+          "hold_residual_rad": 4.769853316026309e-06,
+          "hold_residual_mrad": 0.004769853316026309,
+          "nan_seen": false,
+          "stable": true
+        },
+        {
+          "tag": "k10000_a020",
+          "stiffness_stored": 10000.0,
+          "base_peak_accel_mps2": 2.0,
+          "axis_inertia_izz": 0.32000000000000006,
+          "damping_stored": 113.13708498984761,
+          "base_travel_x_m": 1.0,
+          "arm_travel_x_m": 1.0,
+          "follow_ratio": 1.0,
+          "ride_along_anchor_err_max_m": 7.88473606605146e-07,
+          "hold_peak_dev_accel_rad": 0.00351599036048712,
+          "hold_peak_dev_accel_deg": 0.20145140846459286,
+          "hold_peak_dev_decel_rad": 0.0035143104795179,
+          "hold_peak_dev_decel_deg": 0.2013551583749722,
+          "hold_residual_rad": 6.162440504568916e-07,
+          "hold_residual_mrad": 0.0006162440504568917,
+          "nan_seen": false,
+          "stable": true
+        },
+        {
+          "tag": "k10000_a050",
+          "stiffness_stored": 10000.0,
+          "base_peak_accel_mps2": 5.0,
+          "axis_inertia_izz": 0.32000000000000006,
+          "damping_stored": 113.13708498984761,
+          "base_travel_x_m": 2.5,
+          "arm_travel_x_m": 2.5000009536743164,
+          "follow_ratio": 1.0000003814697265,
+          "ride_along_anchor_err_max_m": 1.819067153540566e-06,
+          "hold_peak_dev_accel_rad": 0.008789843843913393,
+          "hold_peak_dev_accel_deg": 0.5036209548352857,
+          "hold_peak_dev_decel_rad": 0.008785798061260567,
+          "hold_peak_dev_decel_deg": 0.5033891485644516,
+          "hold_residual_rad": 2.1986741695634565e-06,
+          "hold_residual_mrad": 0.0021986741695634564,
+          "nan_seen": false,
+          "stable": true
+        }
+      ],
+      "ride_along_ok": true,
+      "stable_all": true,
+      "disturbance_scales_with_accel": {
+        "k_1000": {
+          "accels_mps2": [
+            2.0,
+            5.0
+          ],
+          "peak_dev_rad": [
+            0.008786423928180883,
+            0.021963550645084914
+          ],
+          "monotonic_nondecreasing": true
+        },
+        "k_10000": {
+          "accels_mps2": [
+            2.0,
+            5.0
+          ],
+          "peak_dev_rad": [
+            0.00351599036048712,
+            0.008789843843913393
+          ],
+          "monotonic_nondecreasing": true
+        }
+      }
+    }
+  },
+  "metric": "revolute_maximal: per (stiffness, accel) ride_along_anchor_err_max_m + follow_ratio (joint carries arm), hold_peak_dev_accel/decel_rad (held-joint peak deviation in accel/decel windows), hold_residual_rad (mean |dev| after base stops). usd_child: ride_along_x_err_m + follow_ratio (does a moving kinematic USD parent carry a floating articulation).",
+  "error": null
+}
