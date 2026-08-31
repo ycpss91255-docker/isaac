@@ -1,0 +1,117 @@
+{
+  "issue": "isaac#197",
+  "adr": "ADR-0008 hybrid: standalone L2 kinematic + standalone L3 via maximal loop joint",
+  "isaac_variant": "6.0.1",
+  "warmup_steps": 90,
+  "motion_steps": 240,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "anchor_speed_mps": 0.5,
+  "ramp_step_m": 0.008333333333333333,
+  "weld_offset_m": [
+    0.0,
+    0.0,
+    -0.6
+  ],
+  "masses_kg": [
+    1.0,
+    10.0,
+    100.0,
+    1000.0
+  ],
+  "variants": [
+    "rigid"
+  ],
+  "metric": "per (variant, mass): static_give_norm_m / static_give_z_m (seam give under gravity hold), follow_ratio (dynamic +X travel / anchor +X travel = force transfer), max_give_norm_motion_m + max_lag_x_m (dynamic give during sweep), stable (no NaN, give < blow-up); boundary_give = ||D - (anchor + offset)||",
+  "expectation_5_1_baseline": "none committed -- first-run 6.0.1 characterization. Per ADR-0008 + PhysX #308: force TRANSFERS (follow_ratio ~1, anchor carries the dynamic side), the maximal fixed joint is COMPLIANT ('weak', nonzero give rising with load), system STABLE (no blow-up) at reasonable mass ratios -> hybrid usable but soft at the seam",
+  "drive_api": "physics tensor RigidBodyView.set_kinematic_targets (pos xyz + quat xyzw) per tick on the physics:kinematicEnabled anchor -> true PhysX kinematic target with solver velocity; SingleRigidPrim.get_world_pose reads the dynamic body back; connection is a UsdPhysics.FixedJoint (maximal-coordinate loop joint)",
+  "blowup_threshold_m": 5.0,
+  "artic_build_errors": {},
+  "lanes": [
+    {
+      "tag": "rigid_m001",
+      "variant": "rigid",
+      "mass_kg": 1.0,
+      "built": true,
+      "static_give_z_m": -2.3841857821338408e-08,
+      "static_give_norm_m": 2.3841857821338408e-08,
+      "anchor_travel_x_m": 2.0,
+      "body_travel_x_m": 1.999999761581421,
+      "follow_ratio": 0.9999998807907104,
+      "max_give_norm_motion_m": 3.5842171616852534e-07,
+      "max_lag_x_m": 3.5762786865234375e-07,
+      "nan_seen": false,
+      "give_bounded": true,
+      "stable": true
+    },
+    {
+      "tag": "rigid_m010",
+      "variant": "rigid",
+      "mass_kg": 10.0,
+      "built": true,
+      "static_give_z_m": -2.3841857821338408e-08,
+      "static_give_norm_m": 2.3841857821338408e-08,
+      "anchor_travel_x_m": 2.0,
+      "body_travel_x_m": 1.999999761581421,
+      "follow_ratio": 0.9999998807907104,
+      "max_give_norm_motion_m": 3.5842171616852534e-07,
+      "max_lag_x_m": 3.5762786865234375e-07,
+      "nan_seen": false,
+      "give_bounded": true,
+      "stable": true
+    },
+    {
+      "tag": "rigid_m100",
+      "variant": "rigid",
+      "mass_kg": 100.0,
+      "built": true,
+      "static_give_z_m": -2.3841857821338408e-08,
+      "static_give_norm_m": 2.3841857821338408e-08,
+      "anchor_travel_x_m": 2.0,
+      "body_travel_x_m": 1.999999761581421,
+      "follow_ratio": 0.9999998807907104,
+      "max_give_norm_motion_m": 3.5842171616852534e-07,
+      "max_lag_x_m": 3.5762786865234375e-07,
+      "nan_seen": false,
+      "give_bounded": true,
+      "stable": true
+    },
+    {
+      "tag": "rigid_m1000",
+      "variant": "rigid",
+      "mass_kg": 1000.0,
+      "built": true,
+      "static_give_z_m": -2.3841857821338408e-08,
+      "static_give_norm_m": 2.3841857821338408e-08,
+      "anchor_travel_x_m": 2.0,
+      "body_travel_x_m": 1.999999761581421,
+      "follow_ratio": 0.9999998807907104,
+      "max_give_norm_motion_m": 3.5842171616852534e-07,
+      "max_lag_x_m": 3.5762786865234375e-07,
+      "nan_seen": false,
+      "give_bounded": true,
+      "stable": true
+    }
+  ],
+  "force_transfer_ok": true,
+  "compliant_confirmed": false,
+  "give_rises_with_mass": {
+    "rigid": {
+      "masses_kg": [
+        1.0,
+        10.0,
+        100.0,
+        1000.0
+      ],
+      "static_give_norm_m": [
+        2.3841857821338408e-08,
+        2.3841857821338408e-08,
+        2.3841857821338408e-08,
+        2.3841857821338408e-08
+      ],
+      "monotonic_nondecreasing": true
+    }
+  },
+  "stable_all": true,
+  "error": null
+}

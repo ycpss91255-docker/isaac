@@ -29,7 +29,7 @@ setup() {
 @test "wrapper exports LD_LIBRARY_PATH derived from ROS_DISTRO" {
   run /usr/local/bin/isaac-ros-env-wrapper.sh bash -c 'printf "%s" "${LD_LIBRARY_PATH}"'
   assert_success
-  assert_output "/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+  assert_output "/isaac-sim/exts/isaacsim.ros2.core/humble/lib"
 }
 
 @test "wrapper hard-overrides runtime ROS_DISTRO env" {
@@ -66,5 +66,5 @@ setup() {
 @test "devel stage ENV LD_LIBRARY_PATH points to baked humble lib" {
   run bash -c 'printf "%s" "${LD_LIBRARY_PATH}"'
   assert_success
-  assert_output "/isaac-sim/exts/isaacsim.ros2.bridge/humble/lib"
+  assert_output "/isaac-sim/exts/isaacsim.ros2.core/humble/lib"
 }

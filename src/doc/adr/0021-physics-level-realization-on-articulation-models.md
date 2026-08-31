@@ -203,7 +203,7 @@ needs-experiment:
 - PhysX 5.4 Articulations (links cannot be kinematic / reduced coordinate / high-gain
   stability / loop joints): https://nvidia-omniverse.github.io/PhysX/physx/5.4.0/docs/Articulations.html
 - Isaac Sim - Tuning Joint Drive Gains (position control = stiffness*dpos + damping*dvel;
-  tuning procedure): https://docs.isaacsim.omniverse.nvidia.com/5.1.0/robot_setup_tutorials/joint_tuning.html
+  tuning procedure): https://docs.isaacsim.omniverse.nvidia.com/6.0.0/robot_setup_tutorials/joint_tuning.html
 - IsaacLab #2886 (user report: arms sag under gravity unless stiffness ~25000; instability
   at very high stiffness; degrees/radians hypothesis): https://github.com/isaac-sim/IsaacLab/issues/2886
 - PhysX #308 (maximal-coordinate chained fixed joint is "very weak"): https://github.com/NVIDIAGameWorks/PhysX/issues/308
@@ -220,3 +220,15 @@ needs-experiment:
 - **ADR-0020** -- URDF -> USD ingestion fidelity; `joint_drive` (#168) and `collider_type`
   (#167) are the drive/collision inputs the physics.yaml feeds.
 - **#168** -- the `*pi/180` revolute gain scaling first hit here.
+
+## Update (2026-08-31) -- re-validated on Isaac Sim 6.0.1; no drive drift
+
+The L2.5 / L3 drive physics was empirically re-run on Isaac Sim 6.0.1 / Isaac Lab 3.0 (driver 610) after the 5.1.0 -> 6.0.1 migration (#250), because the migration reworked the drive plumbing (Isaac Lab 2.3 -> 3.0, `run_multi_physics_conversion=False`, the `UrdfConverter` output model, `JointDriveCfg`). Reproducible drivers committed under `src/script/exp_*.py`. **No material drift** -- the D1/D1a numbers hold on 6.0.1:
+
+- **L2.5 sag sweep (isaac#185, `exp_l25_sag_sweep.py`):** 19.40 mm @ k=5000, 0.791 mm @ k=1e5, 0.0180 mm (18 um) @ k=1e6 (10 kg) -- reproduces the recorded 5.1 baseline to precision; droop tracks `m*g/k` at low k and beats it at high k, same sub-linear pattern.
+- **Multi-joint sag accumulation (isaac#226):** additive down a serial chain (tip 60.21 mm vs 5.1 60.30 mm), cross-joint disturbance a bounded transient recovering to <0.02 mm.
+- **Drive precision under external contact load (isaac#184):** L3/L2.5 error ratio ~21.5x tracks the stiffness ratio; contact-load droop = equivalent inertial-load droop.
+- **`*pi/180` revolute gain scaling (isaac#189):** confirmed twice -- the passing `test_joint_drive_integration.py` (800*pi/180 = 13.9626) and a direct DriveAPI read-back (180 deg -> pi exactly, proving the conversion is applied once; a prismatic/linear drive stores N/m with no conversion).
+- **Drive constraints (isaac#188):** effort clamp (holds/stalls at m*g), velocity clamp (70.3 -> 0.303 m/s), position limit (clamps at bound), and solver position-iteration count vs precision (near-flat, droop set by the PD `m*g/k` not iterations) -- all verified empirically for the first time.
+
+Isaac Lab 3.0's drive changes did not shift the steady-state drive behaviour. See ADR-0008's 2026-08-31 update for the L2-kinematic side and the `set_world_pose` vs `set_kinematic_targets` finding.

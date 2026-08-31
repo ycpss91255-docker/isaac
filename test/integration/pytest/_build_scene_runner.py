@@ -49,6 +49,9 @@ def _main() -> None:
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
+    # Default to failure so any escape that skips both branches below still
+    # exits non-zero (the pytest layer asserts returncode == 0).
+    exit_code = 1
     try:
         import omni.usd
         from pxr import UsdPhysics
@@ -101,6 +104,7 @@ def _main() -> None:
             flush=True,
         )
         print("[EXIT CLEAN]", flush=True)
+        exit_code = 0
     except Exception as exc:  # noqa: BLE001
         import traceback
 
@@ -109,9 +113,33 @@ def _main() -> None:
         # gets truncated in the CompletedProcess repr) so a spawn failure
         # reports its exact frame.
         print("[TRACEBACK]\n" + traceback.format_exc(), flush=True)
-        raise
+        exit_code = 1
     finally:
-        app.close()
+        # Deterministic teardown (isaac#248 round 9). Do NOT fall through to
+        # SimulationApp.close(): under Isaac Sim 6.0.1, in a cold/headless CI
+        # container the Omniverse Hub connector cannot launch -- the base
+        # image bakes HUB__CACHE__PATH=/var/cache/hub (root-owned, unwritable
+        # by the container user) and HUB__ARGS__DETECT_ONLY=true, so the hub
+        # child exits 1 ("Permission denied ... without writing file
+        # /tmp/hub-<user>-<hash>.config.json") and carb.omniclient spins a
+        # background reconnect task that keeps retrying. If that task is still
+        # in flight when close() drains Kit, carb aborts the process with
+        #   TaskGroup::~TaskGroup(): Assertion (empty()) failed:
+        #   Destroying busy TaskGroup!  ->  SIGABRT, returncode 1
+        # even though the adapter work already finished ([ADAPTER OK] /
+        # [EXIT CLEAN]). Warm local runs miss the race because the retry loop
+        # has backed off by shutdown; CI hits it deterministically. close()
+        # already _exit(0)s on success anyway (Isaac's fast-shutdown path), so
+        # an explicit os._exit reaches the same clean exit deterministically
+        # while skipping the asserting carb teardown. This throwaway
+        # subprocess holds nothing that needs graceful release -- the OS
+        # reclaims the GPU context and threads on exit -- and asset access is
+        # unaffected because the Isaac assets root resolves over HTTPS (S3),
+        # not through Hub. Flush first so the pytest layer still parses every
+        # marker line off stdout.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(exit_code)
 
 
 if __name__ == "__main__":
