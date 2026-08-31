@@ -71,6 +71,14 @@ jobs:
       # server + attaches a client + holds the connection for the dwell;
       # tears down (docker rm -f) on every exit via its own trap.
       - name: Stream smoke (Isaac boots + a client streams + survives dwell)
+        env:
+          # Per-run-unique compose project (owv#55): the smoke's project-
+          # scoped teardown then cannot reap a co-hosted manual stream stack
+          # on this shared GPU host. base v0.42.0 removed --instance (base#666);
+          # the seam is a distinct PROJECT_NAME the script pins in
+          # .env.generated. base self-test.yaml convention -- run_id +
+          # run_attempt (stable across a job's steps, unique per re-run).
+          SMOKE_PROJECT: isaac-smoke-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash script/ci/stream_smoke.sh
 
       - name: Upload kit log on failure

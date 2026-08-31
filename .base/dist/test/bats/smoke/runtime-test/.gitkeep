@@ -1,0 +1,3 @@
+# Reserved for runtime-test-only smoke specs (see dist/dockerfile/Dockerfile
+# runtime-test stage). Empty until a runtime-specific assertion is added;
+# the shared/ baseline still runs on this stage.

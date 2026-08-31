@@ -11,3 +11,9 @@ coverage/
 .Dockerfile.generated
 .docker.xauth
 isaac_ws/
+# managed by template (do not remove)
+.env.generated
+.setup.conf.bak
+.setup.conf.local
+log/
+/deploy/

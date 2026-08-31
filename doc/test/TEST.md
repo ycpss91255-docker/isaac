@@ -1,8 +1,8 @@
 # TEST.md
 
-**102 tests** total.
+**104 tests** total.
 
-## test/smoke/bats/host_yaml_spec.bats (16)
+## test/bats/smoke/host_yaml_spec.bats (16)
 
 Shared host.yaml parser (`script/host_yaml.sh`), used by both the post-run hook and `runheadless-host-config.sh`: the `public_ip` resolver (#104) and the `livestream.ports` resolver (#231).
 
@@ -25,7 +25,7 @@ Shared host.yaml parser (`script/host_yaml.sh`), used by both the post-run hook 
 | `host_yaml: resolve_port non-numeric -> rc 1 + error` | A non-numeric port fails fast with an error. |
 | `host_yaml: resolve_port out-of-range -> rc 1 + error` | A port outside 1..65535 fails fast with an error. |
 
-## test/smoke/bats/runheadless_host_config_spec.bats (12)
+## test/bats/smoke/runheadless_host_config_spec.bats (12)
 
 Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-config.sh`); ports from container env or the post-run hook's port env file (#231/#234), `public_ip` from `/etc/host.yaml`. Exercised via `RUNHEADLESS_DRYRUN=1` (base #465/#440).
 
@@ -44,9 +44,9 @@ Single builder of the Isaac livestream Kit invocation (`script/runheadless-host-
 | `runheadless: invalid public_ip -> rc 1 (shared parser rejects)` | Garbage in host.yaml fails fast via the shared `resolve_public_ip`. |
 | `runheadless: forwards extra args after the built kit-args` | Trailing `"$@"` (e.g. a scene USD) is appended after the constructed args. |
 
-## test/smoke/bats/post_run_hook_spec.bats (17)
+## test/bats/smoke/post_run_hook_spec.bats (17)
 
-Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the per-stack `${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}` web-viewer (#237, isaac#238). The WebRTC livestream ports are sourced from `host.yaml` (#231), not hardcoded. Both container names carry `${INSTANCE_SUFFIX}` (empty for the default run, `-<inst>` under `--instance`; owv#55). Note `--instance` here is an internal isolation seam for CI/tooling (a distinct compose project + container/viewer names per stack, so a CI actor never reaps a co-hosted manual stack), not a return of user-facing same-repo multi-instance, which ADR-0019 removed as a feature. Exercised via `POST_RUN_DRYRUN=1`.
+Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`, copies host.yaml into the Isaac container and starts the per-project `${USER_NAME}-${IMAGE_NAME}-owv<suffix>` web-viewer (#237, isaac#238). The WebRTC livestream ports are sourced from `host.yaml` (#231), not hardcoded. base v0.42.0 removed `--instance` / `INSTANCE_SUFFIX` (base#666); the viewer suffix is now derived from the resolved `PROJECT_NAME` (empty when it equals the default `${DOCKER_HUB_USER}-${IMAGE_NAME}` -> byte-identical to today's names, `-<remainder>` for any distinct project; owv#55). A distinct `PROJECT_NAME` is the internal isolation seam for CI/tooling (a distinct compose project + per-project viewer name, so a CI actor never reaps a co-hosted manual stack), not a return of user-facing same-repo multi-instance, which ADR-0019 removed as a feature. The Isaac stream container name is base-fixed by `compose.yaml` `container_name` (no suffix; residual co-host collision filed as base#920), so the `docker cp` target is that fixed name. Exercised via `POST_RUN_DRYRUN=1`.
 
 | Test | Description |
 |------|-------------|
@@ -60,34 +60,35 @@ Post-run hook (`script/hooks/post/run.sh`, base #440): on `run.sh -t stream -d`,
 | `post-run: isaac ports are copied into the Isaac container as an env file (#231)` | Set `ISAAC_*_PORT` are `docker cp`'d to `/etc/isaac/livestream-ports.env` for the later runheadless exec to source. |
 | `post-run: no livestream ports -> no env file copied to the Isaac container (#231)` | With no ports set, no env file is copied -- exact current behavior (Kit defaults). |
 | `post-run: invalid livestream port aborts with rc 1 (#231)` | A non-numeric / out-of-range port fails the hook via the shared resolver. |
-| `post-run: viewer container name derives from IMAGE_NAME (per-stack)` | The viewer name is `${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}` (here, default run, `alice-isaac-owv`): `docker rm -f alice-isaac-owv` precedes `docker run --name alice-isaac-owv` (idempotent); the default run carries an empty suffix, while `--instance` appends `-<inst>` (see the INSTANCE_SUFFIX test below, isaac#238/owv#55); two isolated stacks no longer collide (#237). |
+| `post-run: viewer container name derives from IMAGE_NAME (per-stack)` | The viewer name is `${USER_NAME}-${IMAGE_NAME}-owv<suffix>` (here, default project, `alice-isaac-owv`): `docker rm -f alice-isaac-owv` precedes `docker run --name alice-isaac-owv` (idempotent); the default project carries an empty suffix, while a distinct `PROJECT_NAME` appends `-<remainder>` (see the distinct-PROJECT_NAME test below, isaac#238/owv#55); two isolated stacks no longer collide (#237). |
 | `post-run: host.yaml present is copied into the default Isaac container` | A present host.yaml is `docker cp`'d to the default Isaac container `${USER_NAME}-${IMAGE_NAME}-stream` at `/etc/host.yaml` (no `-<instance>` suffix). |
 | `post-run: invalid host.yaml aborts with rc 1` | Garbage in host.yaml fails the hook (validated on the host first). |
 | `post-run: identity is read from .env.generated, not .env (base A2 model)` | With `.env` absent, identity comes from `.env.generated`: container name is `alice-isaac-stream` (no leading dash) and the viewer image is `alice/...` (not `local/...`). |
 | `post-run: .env overlays .env.generated identity (user override wins)` | `.env` (sourced second) overrides `.env.generated`: a `USER_NAME=bob` overlay yields `bob-isaac-stream`. |
 | `post-run: viewer image is omniverse_web_viewer:runtime, not stale owv:runtime (#121)` | Viewer `docker run` uses `${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime` (owv renamed serve->runtime, #123); regression guard that the old short stale `owv:runtime` is not launched. |
-| `post-run: INSTANCE_SUFFIX scopes the viewer + Isaac container names (--instance, isaac#238)` | With `INSTANCE_SUFFIX=-demo` exported (as `run.sh --instance demo` does via `_compute_project_name`), the `docker cp` targets `alice-isaac-stream-demo` and the viewer is `alice-isaac-owv-demo` (rm + `--name`); guards that the bare un-instanced `alice-isaac-stream:` cp target never appears. Completes isaac#238 / owv#55. |
+| `post-run: a distinct PROJECT_NAME suffixes the viewer; the Isaac cp target stays base-fixed (owv#55, isaac#238)` | With `PROJECT_NAME=alice-isaac-demo` in `.env.generated` (a distinct project a CI actor pins), the viewer is `alice-isaac-owv-demo` (rm + `--name`) and the `docker cp` target stays the base-fixed `alice-isaac-stream`; guards that a per-project-suffixed `alice-isaac-stream-demo:` cp target never appears. base v0.42.0 removed `INSTANCE_SUFFIX` (base#666); the residual co-host collision on the fixed stream name is base#920. |
 
-## test/smoke/bats/post_stop_hook_spec.bats (2)
+## test/bats/smoke/post_stop_hook_spec.bats (2)
 
-Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compose web-viewer that `stop.sh` does not see. The viewer name carries `${INSTANCE_SUFFIX}` (isaac#238).
-
-| Test | Description |
-|------|-------------|
-| `post-stop: stops the per-stack viewer (name derived from IMAGE_NAME)` | `stop.sh` removes the per-stack `${USER_NAME}-${IMAGE_NAME}-owv` viewer (here `alice-isaac-owv`); the default (no-instance) case carries no `-<instance>` suffix; two isolated stacks no longer collide (#237). |
-| `post-stop: INSTANCE_SUFFIX scopes the viewer name (--instance, isaac#238)` | With `INSTANCE_SUFFIX=-demo` exported (as `stop.sh --instance demo` does via `_down_one` -> `_compute_project_name`), the teardown targets `alice-isaac-owv-demo`, symmetric with what post/run created. |
-
-## test/smoke/bats/stream_smoke_isolation_spec.bats (3)
-
-Behavioral guard for `script/ci/stream_smoke.sh` compose-project isolation (the remaining axis of `ycpss91255-docker/omniverse_web_viewer#55`). The nightly Tier A GPU smoke used to bring its stack up in the DEFAULT project and tear it down by name with `docker rm -f "${USER}-${IMAGE}-stream" owv` -- the exact name a manually-run DEFAULT stack uses, plus the stale pre-isaac#238 literal `owv` (which matched nothing, leaving the real viewer on the serve port). It now runs under a dedicated instance (default `smoke`, overridable via `SMOKE_COMPOSE_INSTANCE`) and targets the instance-scoped stream + viewer that post/run.sh creates for that instance. The spec runs the real driver against a stub `run.sh` + stub `docker` (both record argv) -- behavioral, hermetic (no docker, no GPU). The driver is baked into `/smoke_test/` next to this spec by the devel-test stage.
+Post-stop hook (`script/hooks/post/stop.sh`, base #440): stops the out-of-compose web-viewer that `stop.sh` does not see. The viewer suffix is derived from the resolved `PROJECT_NAME` (base v0.42.0 removed `INSTANCE_SUFFIX`, base#666; isaac#238).
 
 | Test | Description |
 |------|-------------|
-| `stream_smoke: brings the stack up under a dedicated --instance (owv#55)` | With `SMOKE_COMPOSE_INSTANCE=demo`, the recorded `run.sh` argv carries `-t stream -d --instance demo` -- the bring-up is placed in a non-default compose project, never the default project a manual stream stack lives in. |
-| `stream_smoke: teardown targets the instance-scoped stream + viewer, not the bare name or literal owv (owv#55, isaac#238)` | The recorded `docker rm -f` argv is `alice-isaac-stream-demo alice-isaac-owv-demo`; effective guards (`run ...; [ status -ne 0 ]`) that neither the bare default-project `alice-isaac-stream` nor the stale literal `owv` is ever a teardown target. |
-| `stream_smoke: instance defaults to 'smoke' when SMOKE_COMPOSE_INSTANCE is unset (owv#55)` | With the override unset, the dedicated default instance is `smoke`: `run.sh` gets `--instance smoke` and teardown targets `alice-isaac-stream-smoke alice-isaac-owv-smoke`, so a bare manual `run.sh -t stream -d` never collides with the nightly smoke. |
+| `post-stop: stops the per-stack viewer (name derived from IMAGE_NAME)` | `stop.sh` removes the per-project `${USER_NAME}-${IMAGE_NAME}-owv` viewer (here `alice-isaac-owv`); the default-project case carries no `-<remainder>` suffix; two isolated stacks no longer collide (#237). |
+| `post-stop: a distinct PROJECT_NAME scopes the viewer name (owv#55, isaac#238)` | With `PROJECT_NAME=alice-isaac-demo` in `.env.generated`, the post-stop hook derives the same suffix post/run used and targets `alice-isaac-owv-demo`, symmetric with what post/run created, so one stack's stop cannot leave another's viewer behind. |
 
-## test/smoke/bats/stream_smoke_lib_spec.bats (21)
+## test/bats/smoke/stream_smoke_isolation_spec.bats (4)
+
+Behavioral guard for `script/ci/stream_smoke.sh` compose-project isolation (the remaining axis of `ycpss91255-docker/omniverse_web_viewer#55`). The nightly Tier A GPU smoke used to bring its stack up in the DEFAULT project and tear it down by name with `docker rm -f "${USER}-${IMAGE}-stream" owv` -- the exact name a manually-run DEFAULT stack uses, plus the stale pre-isaac#238 literal `owv` (which matched nothing, leaving the real viewer on the serve port). base v0.42.0 removed `--instance` (base#666); the smoke now pins a distinct `PROJECT_NAME` (default `<derived>-smoke`, overridable via `SMOKE_PROJECT`) in `.env.generated`, brings the stack up with a plain `run.sh -t stream -d`, resolves its stream container BY PROJECT (`docker compose -p <proj> ps -q stream`), and tears down project-scoped (`docker compose -p <proj> down`) plus the isaac-owned per-project viewer. The spec runs the real driver against a stub `run.sh` + stub `docker` (both record argv) -- behavioral, hermetic (no docker, no GPU). The driver is baked into `/smoke_test/` next to this spec by the devel-test stage.
+
+| Test | Description |
+|------|-------------|
+| `stream_smoke: brings the stack up under a distinct PROJECT_NAME, no --instance (owv#55)` | With `SMOKE_PROJECT=alice-isaac-demo`, the recorded `run.sh` argv carries `-t stream -d` with NO `--instance` (base#666), and the distinct project is written into `.env.generated` -- the bring-up is placed in a non-default compose project, never the default project a manual stream stack lives in. |
+| `stream_smoke: resolves the stream container BY PROJECT, not by a global name (owv#55)` | The recorded `docker` argv carries `compose -p alice-isaac-demo ... ps -q stream` -- the container id is resolved via the project's own compose ps, so a co-hosted stack's identically-named container is never addressed. |
+| `stream_smoke: teardown is project-scoped + the per-project viewer, not the bare name or literal owv (owv#55, isaac#238)` | Teardown runs `docker compose -p alice-isaac-demo ... down` plus `docker rm -f alice-isaac-owv-demo`; effective guards (`run ...; [ status -ne 0 ]`) that neither the bare default-project `alice-isaac-stream` nor the stale literal `owv` is ever a `docker rm -f` target. |
+| `stream_smoke: project defaults to '<derived>-smoke' when SMOKE_PROJECT is unset (owv#55)` | With the override unset, the dedicated default project is `<derived>-smoke` (`alice-isaac-smoke`): it is written into `.env.generated`, teardown targets `compose -p alice-isaac-smoke ... down` + `alice-isaac-owv-smoke`, so a bare manual `run.sh -t stream -d` (project `alice-isaac`) never collides with the nightly smoke. |
+
+## test/bats/smoke/stream_smoke_lib_spec.bats (21)
 
 Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib.sh`, #233). Before #233 the smoke stopped at "Streaming server started.", so a Kit that boots, opens the signaling socket and then dies on the first real client attach passed green; the probe now attaches a client, asserts the observed stream-start sequence, and holds a dwell window. That logic is GPU-free and lives in a sourceable library so it is unit tested on every image build -- the GPU driver (`script/ci/stream_smoke.sh`) itself stays nightly-only (`stream-smoke.yaml`). The liveness probe is the overridable `smoke_alive` hook: the driver binds it to `docker ps`, these specs bind it to stubs (including one that flips to dead mid-dwell).
 
@@ -115,7 +116,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `log_tail: prints the last N lines between markers` | Failure reporting emits a framed, bounded kit log tail. |
 | `log_tail: missing log -> rc 0 and says so (teardown stays safe)` | The failure reporter never itself fails, so teardown still runs. |
 
-## test/smoke/bats/docker_env.bats (4)
+## test/bats/smoke/docker_env.bats (4)
 
 | Test | Description |
 |------|-------------|
@@ -124,7 +125,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `fastdds.xml is baked at /isaac-sim/fastdds.xml and world-readable` | Fast DDS profile (UDPv4-only) shipped by this repo's Dockerfile, content sanity-checked for `useBuiltinTransports=false` |
 | `custom streaming kit experience baked at /isaac-sim/apps/ (issue #21 fix-B)` | The repo's custom streaming `.kit` experience file is baked into `/isaac-sim/apps/` so the stream stage launches it |
 
-## test/smoke/bats/isaac_smoke.bats (7)
+## test/bats/smoke/isaac_smoke.bats (7)
 
 | Test | Description |
 |------|-------------|
@@ -136,7 +137,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `bundled ROS 2 humble + jazzy libs are both readable` | `librmw_fastrtps_cpp.so` present under both `humble/lib/` and `jazzy/lib/` — image carries both distros; the headless / stream shim picks one via `ARG ROS_DISTRO` |
 | `bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.11)` | `rclpy/` Python bindings present under both distros; kit-side `import rclpy` resolves to whichever the bridge extension activates |
 
-## test/smoke/bats/isaac_ros_env_wrapper.bats (10)
+## test/bats/smoke/isaac_ros_env_wrapper.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -151,7 +152,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `devel stage ENV ROS_DISTRO is baked (soft)` | Devel interactive shell sees `ROS_DISTRO=humble` from Dockerfile `ENV` |
 | `devel stage ENV LD_LIBRARY_PATH points to baked humble lib` | Same — `ENV LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` interpolated at build time |
 
-## test/smoke/bats/init_isaac_dirs_spec.bats (6)
+## test/bats/smoke/init_isaac_dirs_spec.bats (6)
 
 | Test | Description |
 |------|-------------|
@@ -162,7 +163,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `migration skips when destination already exists (no overwrite)` | Migration does not clobber an existing destination |
 | `missing .env errors with actionable message` | Absent `.env` produces a clear, actionable error |
 
-## test/smoke/bats/python_testing.bats (3)
+## test/bats/smoke/python_testing.bats (3)
 
 | Test | Description |
 |------|-------------|
@@ -170,13 +171,14 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `pyyaml installed in devel-test stage` | `import yaml; print(yaml.__version__)` succeeds — YAML available for Python config / fixture loading |
 | `pytest-cov installed in devel-test stage` | `pytest --help` mentions `--cov` — coverage plugin registered, enables `pytest --cov=<pkg>` invocations |
 
-## test/smoke/bats/assert_pytest_baseline_isolation_spec.bats (1)
+## test/bats/smoke/assert_pytest_baseline_isolation_spec.bats (2)
 
-Behavioral guard for `test/assert_pytest_baseline.sh --gpu` (owv#55 second axis; first axis was isaac#239). The `--gpu` tier runs the integration suite via a foreground `script/run.sh -t test` whose EXIT trap `_app_cleanup` does a project-wide `compose down --remove-orphans`; without `--instance` that resolves the default `yunchien-isaac` project a manual stream stack lives in. `assert_pytest_baseline.sh` is baked into `/smoke_test/` next to this spec so the devel-test bats suite can reach it. Hermetic — no docker, no GPU.
+Behavioral guard for `test/assert_pytest_baseline.sh --gpu` (owv#55 second axis; first axis was isaac#239). The `--gpu` tier runs the integration suite via a foreground `script/run.sh -t test` whose EXIT trap `_app_cleanup` does a project-wide `compose down --remove-orphans`; left at the default `yunchien-isaac` project that would reap a co-hosted manual stream stack. base v0.42.0 removed `--instance` (base#666); the tier now pins a distinct `PROJECT_NAME` in `.env.generated` (default `<derived>-baseline`, override `BASELINE_PROJECT`) before the `run.sh -t test` call. `assert_pytest_baseline.sh` is baked into `/smoke_test/` next to this spec so the devel-test bats suite can reach it. Hermetic — no docker, no GPU.
 
 | Test | Description |
 |------|-------------|
-| `assert_pytest_baseline --gpu isolates the GPU pytest run in its own compose project (--instance)` | Runs the script against a stub `run.sh` that records its argv, and asserts the `-t test` invocation carries `--instance` — placing the GPU pytest tier in a non-default, isolated compose project so `_app_cleanup`'s project-wide teardown can never reap a co-hosted manual `stream` container |
+| `assert_pytest_baseline --gpu isolates the GPU pytest run in its own compose project (PROJECT_NAME, owv#55)` | Runs the script against a stub `run.sh` (records argv) + a fake `.env.generated`, and asserts the `-t test` invocation NO LONGER carries `--instance` and that the distinct `BASELINE_PROJECT` was written into `.env.generated` before `run.sh` fired — placing the GPU pytest tier in a non-default, isolated compose project so `_app_cleanup`'s project-wide teardown can never reap a co-hosted manual `stream` container. |
+| `assert_pytest_baseline --gpu defaults the baseline project to <derived>-baseline when BASELINE_PROJECT is unset (owv#55)` | With the override unset, the pinned project defaults to a dedicated `<derived>-baseline` (`alice-isaac-baseline`, derived from the cache's own `PROJECT_NAME`), still distinct from the default project. |
 
 ## test/unit/pytest/ — hosted unit (pytest, not in the bats count above)
 

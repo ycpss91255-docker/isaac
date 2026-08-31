@@ -5,12 +5,12 @@
 # `stop.sh` tears down the compose (Isaac) containers but never sees the
 # viewer, so the symmetric cleanup lives here.
 #
-# The viewer container is ${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX}
-# -- the same name post/run creates -- so two isolated stacks on one host do
-# not tear down each other's viewer (#237), and an instanced stop reaps only
-# its own instance's viewer (isaac#238). stop.sh exports INSTANCE_SUFFIX via
-# _compute_project_name (in _down_one) before firing this hook; the suffix is
-# empty for the default stop, reproducing today's exact name.
+# The viewer container is ${USER_NAME}-${IMAGE_NAME}-owv<suffix> -- the same
+# name post/run creates -- so two isolated stacks on one host do not tear down
+# each other's viewer (#237), and a stop reaps only its own project's viewer
+# (isaac#238). base v0.42.0 removed INSTANCE_SUFFIX (base#666); the suffix is
+# derived from the resolved PROJECT_NAME (sourced from .env.generated below),
+# empty for the default project, reproducing today's exact name.
 #
 # Receives stop.sh's "$@". Skipped when stop.sh runs with --dry-run.
 set -euo pipefail
@@ -28,7 +28,17 @@ USER_NAME=""; IMAGE_NAME="isaac"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
-wv_container="${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX:-}"
+# Viewer suffix derived from the resolved compose project the same way
+# post/run.sh derives it (replaces base's removed INSTANCE_SUFFIX, base#666):
+# empty for the default project ${DOCKER_HUB_USER}-${IMAGE_NAME} or unset,
+# "-<remainder>" for any distinct project.
+_default_project="${DOCKER_HUB_USER:-local}-${IMAGE_NAME}"
+if [ -n "${PROJECT_NAME:-}" ] && [ "${PROJECT_NAME}" != "${_default_project}" ]; then
+  _viewer_suffix="-${PROJECT_NAME#"${_default_project}-"}"
+else
+  _viewer_suffix=""
+fi
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv${_viewer_suffix}"
 
 if [ "${POST_RUN_DRYRUN:-0}" = "1" ]; then
   printf 'docker rm -f %s\n' "${wv_container}"
