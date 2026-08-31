@@ -24,10 +24,18 @@ permissions:
 
 jobs:
   publish:
-    # Hosted runner is fine: this only builds + pushes the producer image
-    # (which layers a single COPY + CMD on the Isaac base). No GPU needed --
-    # Kit never boots at build time.
-    runs-on: ubuntu-latest
+    # GPU runner, and the reason is isaac#252. This job used to say "Hosted
+    # runner is fine ... No GPU needed -- Kit never boots at build time", and
+    # that was exactly the defect: a workflow that never boots Kit cannot
+    # discover that Kit will not stream. `:0.0.2` was built, pushed and
+    # consumed before anyone learned it bound no port. The image is now proven
+    # to stream on this runner BEFORE it is pushed, which needs a GPU.
+    runs-on: [self-hosted, gpu]
+    # One Kit on the GPU at a time, and never cancel mid-teardown.
+    concurrency:
+      group: isaac-publish-stream-source
+      cancel-in-progress: false
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -51,11 +59,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push the producer image
+      # BUILD, do not push. Nothing leaves this runner until it has streamed.
+      - name: Build the producer image locally
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
           target: producer
-          push: true
+          push: false
+          load: true
           tags: ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
+
+      # THE GATE. Boots the image the way a consumer does and asserts it
+      # binds its signalling port and serves a client. No override, no
+      # continue-on-error: an image that cannot be proven to stream is
+      # precisely the image that must not be published (isaac#252).
+      - name: Prove the built image actually streams
+        timeout-minutes: 30
+        run: bash script/ci/producer_smoke.sh
+             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
+
+      - name: Upload producer log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: producer-smoke-log-${{ inputs.tag }}
+          path: .producer-smoke/
+          if-no-files-found: ignore
+
+      # Only now.
+      - name: Push the proven image
+        run: docker push
+             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}

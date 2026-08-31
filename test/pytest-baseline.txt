@@ -117,7 +117,26 @@
 #   spy is strengthened in place (no collected change) to assert run()
 #   restores sys.argv after the boot-arg injection. All pure (no Isaac
 #   import). Live count is now 312 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 312
+#
+#   isaac#252 (the 6.0.1 livestream regression): adds 8 hosted unit tests
+#   (test_stream_source_producer.py 8 -> 16). Three pin the driver's Kit
+#   argv on the 6.0 namespace (_kit_args emits
+#   --/exts/omni.kit.livestream.app/primaryStream/{streamType,signalPort,
+#   streamPort,publicIp}, never the 5.x --/app/livestream/port, and NOT
+#   --enable -- the dependency belongs in the experience, not in a second
+#   declaration here); one covers the new --media-port / ISAAC_STREAM_PORT
+#   knob (6.0 makes the media port explicit, so two producers on one host
+#   collide on it even with distinct signalling ports). Two pin the
+#   EXPERIENCE, which is where the defect actually was: apps/
+#   isaacsim.exp.base.python.streaming.kit must depend on
+#   omni.kit.livestream.app and must define primaryStream.streamType.
+#   Three pin the PUBLISH PATH: the job runs where Kit can boot, the build
+#   step does not push, and the push stands behind an unconditional
+#   producer_smoke.sh with no continue-on-error. That last group is the one
+#   that would have stopped :0.0.2 -- the code tests would not have, because
+#   the driver was not where the defect was. Pure (file reads + a YAML
+#   parse, no docker/GPU). Live count is now 320 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 320
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -246,7 +265,7 @@ GPU_INTEGRATION_BASELINE = 31
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55
 #   cross-container compose-project isolation + the isaac#223 producer the
-#   live aggregate is 343 (312 hosted-unit + 31 GPU-integration), well past the
+#   live aggregate is 351 (320 hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.

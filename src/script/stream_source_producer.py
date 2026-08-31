@@ -43,6 +43,10 @@ import time
 STREAM_EXPERIENCE = "/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit"
 
 DEFAULT_SIGNAL_PORT = 49100
+# 6.0 makes the WebRTC media port explicit and separately bindable. Two
+# producers on one host collide on it even with distinct signalling ports,
+# so it is part of the container contract rather than an implicit default.
+DEFAULT_STREAM_PORT = 47998
 
 
 def _build_arg_parser():
@@ -58,6 +62,13 @@ def _build_arg_parser():
         env_port = int(env_port_raw) if env_port_raw else DEFAULT_SIGNAL_PORT
     except ValueError:
         env_port = DEFAULT_SIGNAL_PORT
+    env_media_raw = os.environ.get("ISAAC_STREAM_PORT", "")
+    try:
+        env_media_port = (
+            int(env_media_raw) if env_media_raw else DEFAULT_STREAM_PORT
+        )
+    except ValueError:
+        env_media_port = DEFAULT_STREAM_PORT
 
     ap = argparse.ArgumentParser(
         description=(
@@ -78,6 +89,15 @@ def _build_arg_parser():
         default=env_port,
         help="WebRTC signaling port "
              f"(default: $ISAAC_SIGNAL_PORT, else {DEFAULT_SIGNAL_PORT}).",
+    )
+    ap.add_argument(
+        "--media-port",
+        type=int,
+        default=env_media_port,
+        help="WebRTC media port "
+             f"(default: $ISAAC_STREAM_PORT, else {DEFAULT_STREAM_PORT}). "
+             "Explicit since 6.0: two producers on one host collide here "
+             "even with distinct signalling ports.",
     )
     ap.add_argument(
         "--run-seconds",
@@ -165,6 +185,55 @@ def _frame_camera():
     )
 
 
+def _kit_args(port, public_ip, media_port=DEFAULT_STREAM_PORT):
+    """The Kit argv the 6.0 livestream stack actually reads.
+
+    Isaac Sim 6.0 moved this twice over, and both halves matter:
+
+    1. THE SETTINGS MOVED. 5.x read `--/app/livestream/port` and
+       `--/app/livestream/publicEndpointAddress`. 6.0 reads
+       `--/exts/omni.kit.livestream.app/primaryStream/{signalPort,publicIp,
+       streamPort}`. Kit does not reject an unknown setting, so the old
+       spelling is silently inert.
+
+    2. THE EXTENSION MUST BE LOADED. `omni.kit.livestream.app` "creates a
+       primary stream at startup if the streamType setting is defined" -- and
+       our experience layers only `livestream.core` + `livestream.webrtc` onto
+       `isaacsim.exp.base` (deliberately, to avoid the OmniGraph image bundle
+       that segfaults under the Python launcher: isaac#21 / ADR-0007). On
+       5.1.0 the webrtc extension started the server by itself; on 6.0 it does
+       not, and nothing logs the difference.
+
+    Measured against the published `:0.0.2` on an RTX 5090 (isaac#252):
+
+      5.x flags only .............................. no port bound
+      + 6.0 setting paths ......................... no port bound
+      + LIVESTREAM=2 .............................. no port bound
+      + streamType, stock experience .............. no port bound
+      stock experience + `--enable ...livestream.app` ... bound ~35 s
+      FIXED EXPERIENCE, no `--enable` ............. bound ~40 s
+
+    The last two lines are why there is no `--enable` here. Both work, but the
+    dependency belongs in the experience -- that is what an experience file
+    IS -- and passing it from the driver as well would be a second declaration
+    of the same fact, drifting the moment one of them changes. The `.kit`
+    dependency is the fix; this function only carries the settings, which
+    genuinely did move namespace and have to come from the caller because the
+    ports are per-run.
+    """
+    args = [
+        "--/app/livestream/nvcf/quitOnSessionEnded=false",
+        f"--/exts/omni.kit.livestream.app/primaryStream/streamType=webrtc",
+        f"--/exts/omni.kit.livestream.app/primaryStream/signalPort={port}",
+        f"--/exts/omni.kit.livestream.app/primaryStream/streamPort={media_port}",
+    ]
+    if public_ip:
+        args.append(
+            f"--/exts/omni.kit.livestream.app/primaryStream/publicIp={public_ip}"
+        )
+    return args
+
+
 def main():
     # parse_known_args (not parse_args) so any Kit `--/app/...` args a caller
     # already put on the command line are ignored by argparse rather than
@@ -173,21 +242,18 @@ def main():
 
     # Kit args must be injected into sys.argv before SimulationApp() reads
     # them. This is idempotent when the caller passed them directly.
-    for kit_arg in (
-        "--/app/livestream/nvcf/quitOnSessionEnded=false",
-        f"--/app/livestream/port={args.port}",
-    ):
+    for kit_arg in _kit_args(args.port, args.public_ip, args.media_port):
         if kit_arg not in sys.argv:
             sys.argv.append(kit_arg)
-    if args.public_ip:
-        pe = f"--/app/livestream/publicEndpointAddress={args.public_ip}"
-        if pe not in sys.argv:
-            sys.argv.append(pe)
 
     from isaacsim import SimulationApp
 
+    # NOTE: no `"livestream": 2` here. That key does not exist in 6.0's
+    # DEFAULT_LAUNCHER_CONFIG and an unknown key is ignored, not rejected --
+    # it was doing nothing. Streaming is turned on by loading
+    # omni.kit.livestream.app and defining its streamType, both above.
     app = SimulationApp(
-        {"headless": True, "livestream": 2},
+        {"headless": True},
         experience=STREAM_EXPERIENCE,
     )
     try:
