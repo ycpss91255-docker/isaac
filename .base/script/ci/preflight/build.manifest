@@ -1,0 +1,19 @@
+# build-worker.yaml caller contract.
+#
+# Each non-comment line is ONE thing the reusable Docker build worker needs
+# the calling repo's .github/workflows/main.yaml to supply. build-worker's
+# preflight step runs script/ci/preflight.sh over this file BEFORE any build
+# compute, so a caller missing an item fails within seconds with the fix
+# below instead of 403-ing (or silently skipping) deep in a 20-minute build.
+#
+# Reading this file IS the contract: it tells you exactly what a caller must
+# provide without reading the worker YAML. Adding a future requirement is a
+# single new line here -- the preflight picks it up automatically.
+#
+# Format: <kind>|<key>|<envvar>|<description>|<hint>
+#   kind=input      -> <envvar> must be non-empty
+#   kind=permission -> <envvar> must equal "granted" (set by a probe step)
+#   \n in <hint> is expanded to a newline for a multi-line main.yaml snippet.
+
+input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name the build produces|Add the required input to the build-worker.yaml call in .github/workflows/main.yaml:\n\njobs:\n  call-docker-build:\n    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@<tag>\n    with:\n      image_name: <your-image-name>
+permission|packages|PREFLIGHT_PERM_PACKAGES|packages: write to store the buildx cache in GHCR (cache_backend: registry only)|You selected cache_backend: registry, which stores the buildx cache in the GHCR registry, so the job that calls build-worker.yaml must grant packages: write in .github/workflows/main.yaml:\n\njobs:\n  call-docker-build:\n    permissions:\n      contents: read\n      packages: write\n    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@<tag>\n    with:\n      cache_backend: registry\n\n(the default cache_backend: gha needs no packages permission.)|PREFLIGHT_CACHE_BACKEND=registry

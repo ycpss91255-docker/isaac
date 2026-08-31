@@ -1,0 +1,31 @@
+# Consumer container-ops entry (just). The layered entry (ADR-00000010):
+# symlinked into the consumer as <repo>/script/justfile, with
+# <repo>/justfile -> script/justfile, so users run `just <verb> [args...]`
+# from the repo root.
+#
+# Import/mod paths resolve relative to the SYMLINK location (the repo root),
+# not this file's real .base/dist/ location -- so `script/...` paths
+# below are repo-root-relative. Every action is a namespace (ADR-00000011,
+# zero special case): docker verbs come in via the `docker` module
+# (`just docker build` / `just docker run` / ...); repo-local command groups
+# come in via the repo-owned registry script/local/justfile.local (each
+# group a `mod?` line -> `just <group> <recipe>`).
+
+# Container-ops: build / run / exec / stop / prune / setup / setup-tui
+mod? docker 'script/docker/justfile.docker'
+
+# Manage the .base subtree: init / upgrade / update / completions (apt-aligned)
+mod? base 'script/base/justfile.base'
+
+# Repo-local command groups: `just template new <name>` scaffolds + registers
+mod? template 'script/template/justfile.template'
+
+# Repo-local command groups. script/local/justfile.local is REPO-OWNED
+# (seeded once by init.sh, committed, never clobbered by a subtree upgrade);
+# `import?` keeps a missing/empty registry from erroring. `mod?` lines in it
+# register each group (`just template new <name>` appends them,).
+import? 'script/local/justfile.local'
+
+# Default: list available recipes (replaces `make help`).
+default:
+    @just --list

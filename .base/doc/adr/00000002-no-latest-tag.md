@@ -1,5 +1,8 @@
 # No `latest` tag for `base`; resolve newest semver dynamically
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- immutable version pinning of the propagation refs; mechanism.
+
 - **Date:** 2026-05-29
 - **Status:** Accepted
 

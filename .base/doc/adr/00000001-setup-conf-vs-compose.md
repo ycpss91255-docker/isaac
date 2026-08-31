@@ -1,5 +1,8 @@
 # Responsibility split between setup.conf and compose-native mechanisms
 
+> Serves: mechanism -- the config-resolution boundary (setup.conf vs
+> compose-native); serves the one-source-render goal, no invariant.
+
 - **Date:** 2026-05-28
 - **Status:** Accepted
 
@@ -99,3 +102,16 @@ to N>=2 -> setup.conf. Only one repo -> escape hatch.
 - Downstream repos can still write `compose.override.yaml` for
   local ad-hoc tweaks (compose auto-loads it); no need to detour
   through setup.conf.
+
+**Amendment (#600 / #881, 2026-08-17): the per-instance overlay named
+above is historical, not a mechanism to reach for.** `--instance`,
+`INSTANCE_SUFFIX` and `config/instances/<name>.{yaml,env}` were removed
+by #600; base is **single-instance** -- one fixed-name container /
+project per repo, and multi-instance orchestration belongs to the
+compose layer. The decision recorded here is unchanged, and this is not
+a reversal of it: per-instance isolation was the single-repo case the
+generality rule was argued over, and its removal is that rule applied.
+Running two *checkouts* of the same repo side by side is a different
+problem, and it **is** answered inside setup.conf, by `[project] name`
+in `.setup.conf.local` (#893, ADR-00000025) -- read that ADR rather
+than the Context paragraph above for a mechanism that exists today.

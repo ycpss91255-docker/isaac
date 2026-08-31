@@ -5,7 +5,8 @@
 #
 # Everything here is GPU-free and side-effect-free (reads a Kit log, calls
 # the `smoke_alive` hook, sleeps). That is deliberate: the GPU path stays
-# nightly-only, but the assertions it makes are unit-tested on every build.
+# nightly-only, but the assertions it makes are unit-tested on every build
+# (test/bats/smoke/stream_smoke_lib_spec.bats).
 #
 # Why it exists: before #233 the smoke asserted only "Streaming server
 # started." -- a liveness probe. "Port is listening" and "streaming
@@ -40,7 +41,8 @@ fi
 # Liveness hook. Fail-closed on purpose: a caller that forgets to bind a
 # real probe must make the smoke FAIL, never silently assume the container
 # is up -- a silent pass on a dead Kit is the bug #233 fixes.
-# stream_smoke.sh overrides this with a `docker ps` check; specs stub it.
+# stream_smoke.sh overrides this with a `docker inspect ${cid}` running-state
+# check (the container is resolved by compose project id); specs stub it.
 smoke_alive() {
   echo "[smoke] smoke_alive: no liveness probe bound (caller must override)" >&2
   return 1

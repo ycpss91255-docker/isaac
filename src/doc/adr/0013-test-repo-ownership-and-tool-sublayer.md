@@ -64,3 +64,13 @@ GPU) living in this repo is therefore a **continuation** of this ADR's reasoning
 violation of it. The `test/<category>/<tool>/` sublayer decision is untouched and remains the
 layout for the converged repo. See ADR-0017 ("Amendment: ADR-0013") for the successor
 contract this re-derivation feeds.
+
+## Update (2026-08-26) -- superseded in part by ADR-0022 (bats smoke layer)
+
+The base v0.42.0 subtree upgrade (isaac#246) adopts base's canonical tool-first layout for the
+layer base ships + archives: repo-local bats smoke specs move `test/smoke/bats/` ->
+`test/bats/smoke/`. That reverses this ADR's Layout-B (category-first) choice **for the bats
+smoke layer only**. The pytest unit / integration layers keep Layout B (base ships no pytest
+tests, so this ADR's category-first ergonomics stand where base is silent). See ADR-0022 for
+the governing principle ("conform to upstream where it ships/owns the layer; keep the local
+convention where it does not").

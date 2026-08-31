@@ -12,12 +12,16 @@
 #
 # Naming: the Isaac container is ${USER_NAME}-${IMAGE_NAME}-stream and the
 # viewer is the symmetric ${USER_NAME}-${IMAGE_NAME}-owv, so two isolated
-# stacks on one host no longer share a viewer name (#237). Both now carry
-# ${INSTANCE_SUFFIX} to finish isaac#238: run.sh exports INSTANCE_SUFFIX via
-# _compute_project_name before firing this hook, and compose.yaml's
-# container_name already suffixes the stream container, so the viewer name
-# and the docker cp target follow the instance too. The suffix is empty for
-# the default (no --instance) run, reproducing today's exact names.
+# stacks on one host no longer share a viewer name (#237). base v0.42.0
+# removed the --instance primitive / INSTANCE_SUFFIX (base#666); isolation is
+# now the resolved PROJECT_NAME. The viewer carries an isaac-owned suffix
+# derived from PROJECT_NAME (empty for the default project
+# ${DOCKER_HUB_USER}-${IMAGE_NAME}, reproducing today's exact name; a per-
+# project tag otherwise) so co-hosted stacks get distinct viewer names. The
+# Isaac stream container is base-fixed by compose.yaml (container_name, no
+# suffix), so the docker cp/exec target is that fixed name -- the residual
+# co-host collision on it is filed upstream as base#920 (fail-loud, not a
+# silent reap: project-scoped teardown still cannot cross projects).
 #
 # It does NOT launch Isaac Sim: that stays an explicit `exec` step
 # (driver or runheadless), matching the documented stream flow and
@@ -54,8 +58,21 @@ USER_NAME=""; IMAGE_NAME="isaac"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
-isaac_container="${USER_NAME}-${IMAGE_NAME}-stream${INSTANCE_SUFFIX:-}"
-wv_container="${USER_NAME}-${IMAGE_NAME}-owv${INSTANCE_SUFFIX:-}"
+# Viewer suffix derived from the resolved compose project (replaces base's
+# removed INSTANCE_SUFFIX, base#666): empty when PROJECT_NAME is the default
+# ${DOCKER_HUB_USER}-${IMAGE_NAME} (byte-identical to today's names) or unset,
+# "-<remainder>" for any distinct project so co-hosted stacks get distinct
+# viewer names.
+_default_project="${DOCKER_HUB_USER:-local}-${IMAGE_NAME}"
+if [ -n "${PROJECT_NAME:-}" ] && [ "${PROJECT_NAME}" != "${_default_project}" ]; then
+  _viewer_suffix="-${PROJECT_NAME#"${_default_project}-"}"
+else
+  _viewer_suffix=""
+fi
+# Isaac stream container: base-fixed name (compose.yaml container_name, no
+# suffix). Viewer: isaac-owned, per-project.
+isaac_container="${USER_NAME}-${IMAGE_NAME}-stream"
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv${_viewer_suffix}"
 wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"
 

@@ -1,0 +1,9 @@
+# Repo-local command group `__NAME__` (scaffolded by `just template new`).
+# Invoked as `just __NAME__ <recipe>`. Recipes run with cwd = this dir
+# (script/local/__NAME__), so call sibling scripts as `./__NAME__.sh`.
+# This file is committed by your repo and is never clobbered by a base
+# subtree upgrade -- edit it freely.
+
+# Example recipe -- replace with your own.
+hello:
+    @./__NAME__.sh

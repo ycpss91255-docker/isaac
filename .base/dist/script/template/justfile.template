@@ -1,0 +1,32 @@
+# `just template ...` -- scaffold + manage repo-local command groups
+# (ADR-00000010). The `template` namespace, reached via the consumer entry's
+# `mod? template`.
+
+# Default: bare `just template` prints help (the `default` recipe must come
+# first -- a module otherwise treats the first recipe, `new`, as default and
+# errors because it needs an argument). `default` delegates to `help` so the
+# usage text has a single source.
+default: help
+
+# `help` is a named twin of `default` reachable as `just template help` (and
+# `just template h`), since the dashed `just template --help` cannot be a just
+# recipe/alias -- with a `help` recipe present just then hints "Did you mean
+# 'help'?" instead of a bare error. Bare `just template` prints the same via
+# `default`.
+alias h := help
+
+# just template help (or `just template h`) -> language-aware recipe listing:
+# translated one-line summaries via the shared `_msg help` i18n renderer
+# (honours $LANG / --lang). Bare `just template` prints the same via `default`.
+help *args:
+    @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" template {{args}}
+
+# Scaffold a new repo-local command group: create script/local/<name>/ from
+# the skeleton and register it in script/local/justfile.local.
+#
+# `cd {{justfile_directory}}` lands at the repo root (the entry's dir,
+# reliable whether reached via `--working-directory` or a bare invocation;
+# `[no-cd]` / `invocation_directory` are not, so the scaffolder runs from
+# a known-good cwd) before running new.sh, which writes to ./script/local/.
+new name:
+    @cd {{justfile_directory()}} && script/template/new.sh {{name}}

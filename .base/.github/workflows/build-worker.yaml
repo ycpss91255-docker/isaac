@@ -41,8 +41,7 @@ on:
         description: |
           Comma-separated target platforms. Each runs as a parallel job on
           its own native runner (linux/amd64 → ubuntu-latest, linux/arm64
-          → ubuntu-24.04-arm), so arm64 builds avoid QEMU emulation
-          (which would take 30-60 min per run on an amd64 host) and stay
+          → ubuntu-24.04-arm), so arm64 builds run natively and stay
           in the 5-15 min range.
 
           Each matrix shard runs the full pipeline (test-tools build,
@@ -205,8 +204,116 @@ on:
             with:
               image_name: omniverse_web_viewer
               submodules: recursive
+      cache_backend:
+        required: false
+        type: string
+        default: "gha"
+        description: |
+          Where the buildx layer cache is stored: `gha` (default) or
+          `registry`. Any value other than `registry` is treated as `gha`.
+
+          `gha` uses GitHub Actions cache (`type=gha`) -- the historical
+          behaviour, with a hard 10 GB per-repo ceiling. Source-heavy repos
+          exceed that ceiling, so GHA evicts entries (LRU) while they are
+          still being written and the next run recompiles cold. Adding cache
+          scopes (`cache_variant`) makes it worse, not better: it is a
+          capacity problem, not a scope problem (#801).
+
+          `registry` stores the cache in the GHCR registry
+          (`type=registry,ref=ghcr.io/<owner>/<repo>/buildcache:<scope>`),
+          which has no 10 GB ceiling, so the second run genuinely hits and
+          does not recompile. Selecting `registry` requires the calling job
+          to grant `packages: write` -- verified up front by the preflight
+          (#800), which does a real write-scope probe (not just a login) so
+          a caller that forgot the permission fails within seconds with the
+          fix instead of 403-ing deep in a 20-minute build. The registry
+          backend also adds a GHCR `docker/login-action` login step.
+
+          Default `gha` keeps every existing caller unchanged (backward
+          compatible) and needs no extra permission. Closes #801.
+
+          Example (opt in on a source-heavy repo):
+            with:
+              image_name: ros1_bridge
+              cache_backend: registry
+            permissions:
+              contents: read
+              packages: write
 
 jobs:
+  # ────────────────────────────────────────────────────────────────
+  # #800 — caller-contract preflight. Runs before any build compute so a
+  # downstream main.yaml that forgot a required input or a needed
+  # permission fails within seconds with a plain-language fix, instead of
+  # 403-ing or silently skipping deep in a 20-minute build.
+  #
+  # The declared requirement list lives in
+  # script/ci/preflight/build.manifest and is validated by the pure-shell
+  # script/ci/preflight.sh — both fetched from base at the SAME ref as
+  # this workflow (github.job_workflow_sha) so the validator can never
+  # drift from the worker it guards. Adding a future requirement is one
+  # line in that manifest; the preflight follows automatically. The logic
+  # is unit- + integration-tested under `just test`; this job is the thin
+  # wiring that feeds it the real inputs / permission probes.
+  # ────────────────────────────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .preflight-base
+      - name: Probe GHCR packages write (registry cache backend, #801)
+        # Only the registry cache backend needs packages: write. The default
+        # gha backend stores the buildx cache in GHA cache and pulls
+        # test-tools anonymously, so report granted -- the manifest's
+        # packages requirement is guarded on cache_backend == registry and
+        # is not enforced for gha callers (backward compatible).
+        #
+        # For registry, verify a REAL packages: write capability, not just
+        # that login works: a read-only token can still `docker login`, so
+        # login alone is no proof. Request a push-scoped GHCR token and open
+        # a blob upload against the repo's buildcache namespace -- HTTP 202
+        # means write is granted, 401/403 means the caller did not grant
+        # packages: write, so the preflight fails early with the fix instead
+        # of 403-ing deep in a 20-minute build.
+        id: ghcr
+        env:
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          if [ "${CACHE_BACKEND}" != "registry" ]; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" \
+            --password-stdin >/dev/null 2>&1 || true
+          repo_lc="$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')"
+          token="$(curl -fsSL -u "${GHCR_ACTOR}:${GHCR_TOKEN}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo_lc}/buildcache:pull,push" \
+            | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${token}" \
+            "https://ghcr.io/v2/${repo_lc}/buildcache/blobs/uploads/")"
+          if [ "${code}" = "202" ]; then
+            echo "packages=granted" >> "${GITHUB_OUTPUT}"
+          else
+            echo "packages=missing" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Validate caller contract (preflight)
+        env:
+          PREFLIGHT_INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}
+          PREFLIGHT_PERM_PACKAGES: ${{ steps.ghcr.outputs.packages }}
+        run: bash .preflight-base/script/ci/preflight.sh .preflight-base/script/ci/preflight/build.manifest
+
   # ────────────────────────────────────────────────────────────────
   # #273 — doc-only PR fast-pass.
   #
@@ -236,7 +343,7 @@ jobs:
       code_changed: ${{ steps.classify.outputs.code_changed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # `git diff --name-only base...head` needs both refs reachable;
           # PR events checkout only the merge ref by default.
@@ -292,47 +399,38 @@ jobs:
     needs: path-filter
     if: needs.path-filter.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
+      # The platform -> matrix logic is pushed down into a pure-shell,
+      # host-testable script (script/ci/build_worker/compute_matrix.sh,
+      # #802) so the "a matrix condition that produces no jobs" semantic
+      # break is caught by `just test` bats, not only in production. The
+      # script is fetched from base at the SAME ref as this workflow
+      # (github.job_workflow_sha) so the resolver can never drift from the
+      # worker it feeds -- the exact version-match pattern the #800
+      # preflight uses. The step keeps only the thin GITHUB_OUTPUT plumbing.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
       - id: set
         env:
           PLATFORMS: ${{ inputs.platforms }}
         run: |
-          items=""
-          IFS=',' read -ra plats <<< "${PLATFORMS}"
-          for p in "${plats[@]}"; do
-            p="$(echo "${p}" | tr -d '[:space:]')"
-            case "${p}" in
-              linux/amd64)
-                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"x86_64"},'
-                ;;
-              linux/arm64)
-                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"aarch64"},'
-                ;;
-              "")
-                continue
-                ;;
-              *)
-                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
-                exit 1
-                ;;
-            esac
-          done
-          if [ -z "${items}" ]; then
-            echo "::error::No valid platforms found in '${PLATFORMS}'"
-            exit 1
-          fi
-          json="{\"include\":[${items%,}]}"
-          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+          matrix="$(bash .worker-base/script/ci/build_worker/compute_matrix.sh)"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
 
   # ────────────────────────────────────────────────────────────────
-  # Per-platform build. Each shard runs on its native runner so
-  # arm64 doesn't pay QEMU emulation cost. Full test + devel +
-  # runtime pipeline runs per platform.
+  # Per-platform build. Each shard runs on its native runner.
+  # Full test + devel + runtime pipeline runs per platform.
   # ────────────────────────────────────────────────────────────────
   build:
-    needs: [path-filter, compute-matrix]
+    needs: [path-filter, compute-matrix, preflight]
     if: needs.path-filter.outputs.code_changed == 'true'
     strategy:
       fail-fast: false
@@ -340,9 +438,21 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: ${{ inputs.submodules }}
+
+      # #802 -- base-owned worker logic (the cache-scope resolver) is fetched
+      # at the worker's own ref (github.job_workflow_sha) into a dedicated
+      # path so it can never drift from the worker, and never collides with
+      # the caller checkout above. Same version-match pattern as the #800
+      # preflight job.
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
 
       # #470 — Opt-in pre-build cleanup for large BASE_IMAGE repos. Runs
       # before Set up Docker Buildx so buildx's overlayfs snapshot dir
@@ -382,6 +492,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # #801 -- the registry cache backend reads/writes the buildx cache
+      # under ghcr.io/<repo>/buildcache, which needs an authenticated buildx
+      # session for cache-to. Gated on cache_backend so the default gha path
+      # adds no login; packages: write is verified up front by the preflight.
+      - name: Log in to GHCR (registry cache backend)
+        if: ${{ inputs.cache_backend == 'registry' }}
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Compute cache scope
         # #272 — derive a per-(repo, variant, arch) cache scope base.
         # ${image_name}[-${cache_variant}]-${matrix.hardware}.
@@ -405,15 +527,31 @@ jobs:
         # cold-restart (sequentially, the 4 build steps within one job
         # share layers in the buildx local store so it's not 4x time).
         # After that, every PR enjoys isolated per-target caches.
+        # #802 -- the base-key derivation is pushed down into a pure-shell,
+        # host-testable script (script/ci/build_worker/cache_scope.sh),
+        # fetched from base at the worker's own ref (github.job_workflow_sha,
+        # checked out below into .worker-base) so it can never drift from the
+        # worker it feeds. This step keeps only the GITHUB_OUTPUT plumbing;
+        # the per-target suffix (-devel-cache, ...) is still appended at each
+        # build-push use site.
         id: cache
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          CACHE_VARIANT: ${{ inputs.cache_variant }}
+          HARDWARE: ${{ matrix.hardware }}
         run: |
-          base="${{ inputs.image_name }}"
-          if [ -n "${{ inputs.cache_variant }}" ]; then
-            base="${base}-${{ inputs.cache_variant }}"
-          fi
-          echo "key=${base}-${{ matrix.hardware }}" >> "${GITHUB_OUTPUT}"
+          key="$(bash .worker-base/script/ci/build_worker/cache_scope.sh)"
+          echo "key=${key}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate .env
+        # WS_PATH is keyed to the run for the same reason every name
+        # self-test.yaml creates is: `runs-on: ${{ matrix.runner }}` is
+        # exactly the knob a self-hosted migration turns, and the moment
+        # two jobs share a machine a fixed /tmp/workspace is the SAME
+        # directory in both. Nothing mounts it today (the worker builds
+        # with `push: false` and no `tags:`, so it creates no named docker
+        # artifact at all) -- which is precisely why keying it now costs
+        # nothing and cannot be forgotten later.
         run: |
           cat > .env << EOF
           USER_NAME=ci
@@ -424,9 +562,9 @@ jobs:
           DOCKER_HUB_USER=ci
           GPU_ENABLED=false
           IMAGE_NAME=${{ inputs.image_name }}
-          WS_PATH=/tmp/workspace
+          WS_PATH=/tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
           EOF
-          mkdir -p /tmp/workspace
+          mkdir -p /tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build devel-test stage (includes lint + bats smoke)
         # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
@@ -458,8 +596,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-test-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -478,8 +616,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-devel-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-devel-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -512,13 +650,14 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-test-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-test-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
+            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
@@ -531,8 +670,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max
+          cache-from: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache', steps.cache.outputs.key) }}
+          cache-to: ${{ inputs.cache_backend == 'registry' && format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-runtime-cache,mode=max', github.repository, steps.cache.outputs.key) || format('type=gha,scope={0}-runtime-cache,mode=max', steps.cache.outputs.key) }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -559,6 +698,8 @@ jobs:
         env:
           EXTRA_STAGES: ${{ inputs.extra_stages }}
           CACHE_KEY: ${{ steps.cache.outputs.key }}
+          CACHE_BACKEND: ${{ inputs.cache_backend }}
+          REPO: ${{ github.repository }}
           CONTEXT_PATH: ${{ inputs.context_path }}
           DOCKERFILE: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
           BUILD_CONTEXTS_INPUT: ${{ inputs.build_contexts }}
@@ -568,6 +709,31 @@ jobs:
           TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"
         run: |
           set -euo pipefail
+
+          # #801 -- honor cache_backend for extra stages too, so a caller
+          # using cache_backend: registry does not silently gha-cache these
+          # stages (the exact 10 GB ceiling this feature escapes). Same
+          # selection as the four standard build-push steps: registry ->
+          # type=registry,ref=ghcr.io/<repo>/buildcache:<scope> (mode=max on
+          # cache-to), gha -> byte-for-byte the original type=gha,scope form.
+          # The registry backend's buildx login is already established by the
+          # job-level "Log in to GHCR" step (gated on the same input).
+          cache_from_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s' "${scope}"
+            fi
+          }
+          cache_to_for() {
+            local scope="$1"
+            if [[ "${CACHE_BACKEND}" == "registry" ]]; then
+              printf 'type=registry,ref=ghcr.io/%s/buildcache:%s,mode=max' "${REPO}" "${scope}"
+            else
+              printf 'type=gha,scope=%s,mode=max' "${scope}"
+            fi
+          }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
 
@@ -615,8 +781,8 @@ jobs:
                 --file "${DOCKERFILE}" \
                 --target "${test_stage}" \
                 --platform "${PLATFORM}" \
-                --cache-from "type=gha,scope=${CACHE_KEY}-${test_stage}-cache" \
-                --cache-to "type=gha,scope=${CACHE_KEY}-${test_stage}-cache,mode=max" \
+                --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
+                --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
                 "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
                 "${CONTEXT_PATH}"
               echo "::endgroup::"
@@ -627,12 +793,35 @@ jobs:
               --file "${DOCKERFILE}" \
               --target "${stage}" \
               --platform "${PLATFORM}" \
-              --cache-from "type=gha,scope=${CACHE_KEY}-${stage}-cache" \
-              --cache-to "type=gha,scope=${CACHE_KEY}-${stage}-cache,mode=max" \
+              --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
+              --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
               "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
               "${CONTEXT_PATH}"
             echo "::endgroup::"
           done
+
+      # ── Reclaim ──────────────────────────────────────────────────
+      # The downstream half of the same rule. This job creates no named
+      # docker artifact of its own (`push: false`, no `tags:`, no
+      # compose), so `--run` normally finds nothing -- what matters here
+      # is `--stale`: a downstream self-hosted host is shared with every
+      # other repo in the org, and its buildx cache and dangling build
+      # residue accumulate whether or not this workflow named anything.
+      #
+      # Reached through the SAME `.worker-base` checkout the cache-scope
+      # script uses, so the collector is version-matched to the worker
+      # rather than copied into every caller repo -- callers pin the
+      # worker by ref, and the ref carries this file with it.
+      #
+      # 12h for the reason self-test.yaml uses it: the window has to sit
+      # above the longest a job may run, or the sweep deletes a sibling
+      # job's work in flight.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: |
+          bash .worker-base/script/ci/reclaim.sh \
+            --run "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --stale 12h
 
   # ────────────────────────────────────────────────────────────────
   # Stable-name aggregator so downstream branch-protection rules

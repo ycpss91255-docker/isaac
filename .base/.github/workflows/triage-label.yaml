@@ -1,0 +1,33 @@
+name: Triage label
+
+# Safety net for externally-filed, unlabeled issues. The maintainer and
+# the to-issues flow already set real area/type labels at issue creation,
+# so the only issues reaching this workflow with zero labels are ones
+# opened without any label at all. For those, apply `triage` so a later
+# maintainer sweep can replace it with the right label. Issues that
+# already carry a label are left untouched.
+#
+# Zero ongoing maintenance: no keyword/path ruleset to keep current.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    # Only act when the issue was opened without any label.
+    if: github.event.issue.labels[0] == null
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['triage'],
+            })

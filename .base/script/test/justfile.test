@@ -1,0 +1,244 @@
+# Base / template self-test gate (just). Invoked as `just test` (bare =
+# run the whole self-test) and `just test <recipe>` for sub-actions
+# (`lint` / `coverage` / `system` / ...), via base's own root
+# `justfile`, which `mod?`s this file as the `test` namespace. `just` does
+# not auto-discover this file, so it never collides with the auto-discovered
+# container-ops `justfile` (dist/script/justfile, symlinked into
+# downstream roots).
+#
+# ADR-00000005: `just` is the single runner. ADR-00000010/00000011: base's
+# own dev/CI entry is the `test` namespace (was `ci`); this file lives under
+# script/test/, the base-own tooling tree, distinct from the shipped
+# dist/ tree. Per the min->max principle (ADR-00000011 §3) bare
+# `just test` runs everything; options/sub-recipes narrow.
+
+# Recipes run from the repo root (relative `./script`, `docker compose`
+# reading the root compose.yaml, etc.), regardless of whether they are
+# reached via the `test` module or a direct `just -f` (both default cwd to
+# this file's dir otherwise). `../..` is relative to this file's location
+# (script/test), i.e. the repo root.
+set working-directory := '../..'
+
+# just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
+default:
+    ./script/test/test.sh
+
+# just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
+# lint + ADR-numbering lint + stale setup.conf path lint + localized README
+# sync lint + doc/test count drift gate + hardcoded home path lint +
+# derived-figure lint) via the test-tools container (hadolint has no host binary; the alpine ci image
+# bakes it in).
+# Narrow with
+# `just test lint --shellcheck` / `just test lint --hadolint`
+# / `just test lint --issueref` / `just test lint --adr-numbering`
+# / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
+# / `just test lint --doc-counts` / `just test lint --home-literal`
+# / `just test lint --derived-figures`
+# (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
+# the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
+# `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
+# the lint-static matrix), which run the same drivers with no compose.
+# script/test/test.sh's _LINT_TOOLS table is the list of tools this phase
+# runs, and self_test_yaml_spec asserts every entry of it has a CI job.
+lint *args:
+    ./script/test/test.sh --lint {{args}}
+
+# just test coverage -> full Kcov coverage (slow; local / release check).
+# just test coverage 1/4 -> kcov one matrix shard only, the same
+# slice the CI coverage matrix runs; handy to prove the sharded path
+# locally without the full ~8-12min serial kcov run.
+coverage shard='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n '{{shard}}' ]]; then
+      ./script/test/test.sh --coverage-shard '{{shard}}'
+    else
+      ./script/test/test.sh --coverage
+    fi
+
+# just test coverage-path <spec> -> run ONE spec under kcov instrumentation.
+#
+# The inner loop for the failure class whose entire evidence is "this spec is
+# red under kcov and green without it". `just test coverage` and
+# `just test coverage <n>/<total>` are the only other instrumented entries and
+# both cost 8-12 minutes, so every red-green iteration on such a bug used to
+# cost a full suite -- which is why the last four diagnoses of that class
+# reached past `just` to a hand-rolled `docker run` + kcov.
+#
+# It reports NO coverage figure and writes nothing into coverage/. That is
+# deliberate: one spec's covered lines over the whole tree's denominator is not
+# a project rate, and the report the coverage-gate merges must never be handed
+# one. The kcov report goes to a throwaway directory inside the container and
+# is deleted; what you get back is the RUN.
+#
+# The spec you name is the spec that runs -- no shard partition is consulted.
+# That matters locally: without test/bats/.shard-weights (CI restores it from
+# cache, a fresh checkout has none) the greedy-LPT partition differs from CI's,
+# so `just test coverage 1/8` here and shard 1/8 there are different spec sets.
+# This recipe means the same thing in both places.
+#
+# The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
+# must name the missing spec, not silently kcov the whole suite. Extra flags
+# pass through, so `--filter <regex>` narrows to a single test.
+#
+#   just test coverage-path test/bats/unit/lib_spec.bats
+#   just test coverage-path test/bats/unit/lib_spec.bats --filter 'nounset'
+coverage-path spec *args:
+    ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
+
+# just test system -> system runtime-test specs (opt-in; host docker.sock)
+# Builds the test-tools image through the docker namespace base self-uses
+# (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
+#
+# The local tooling tag is a content hash of dockerfile/Dockerfile.test-tools
+# (test.sh --test-tools-image), not the fixed literal it used to be: a
+# sibling checkout building different tooling inputs writes a DIFFERENT tag
+# instead of displacing the image this run is about to use, while identical
+# inputs resolve to the same tag and hit the build cache. Resolving it once
+# and exporting it is what keeps the build-only `test-tools` service and the
+# `ci-system` consumer on the same image. A caller-pinned TEST_TOOLS_IMAGE
+# (CI) still wins.
+#
+# The compose project is named explicitly for the same reason test.sh names
+# it: with neither `-p` nor COMPOSE_PROJECT_NAME, compose falls back to the
+# checkout directory's BASENAME, so two checkouts named alike share one set
+# of containers and one network. Exporting the name here is what reaches the
+# bare `docker compose run` below.
+#
+# HOST_UID / HOST_GID are exported for the same reason: this recipe is the
+# one `just test` path that drives compose directly instead of through
+# test.sh's _run_via_compose, and the ci-system service takes the ids with
+# no default (they decide who owns what the suite writes into the mounted
+# checkout). Both compose calls below need them -- `just docker build`
+# parses the whole file too.
+system:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
+    export COMPOSE_PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    just docker build --target test-tools
+    docker compose run --rm ci-system
+
+# just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
+# the way a downstream Dockerfile `-test` stage runs them: root-owned
+# COPYs into /lint + /smoke_test, a non-root user, and `RUN bats` at build
+# time. Forwards flags to the build (`just test smoke --no-cache`).
+#
+# Why there is a recipe at all: those specs are build-time assertions of a
+# stage base itself has no Dockerfile for, so verifying one used to mean
+# hand-reproducing the stage with raw docker -- which interrupts for a
+# permission decision on every invocation and leaves nothing reusable.
+#
+# Why BUILDING is the whole test: dockerfile/Dockerfile.smoke ends in
+# `RUN bats /smoke_test/`, exactly as the stage does. There is no
+# `compose run` step, so a failing spec fails a build rather than being
+# reported by something that could stop reporting.
+#
+# Scope: the devel-test spec set (smoke/shared/ + smoke/devel-test/), which
+# is every shipped smoke spec today. No stage argument: runtime-test ships
+# none, and its real base is the MINIMAL runtime image, so running the
+# shared baseline against this devel-shaped harness and labelling the
+# result `runtime-test` would be a false green. The unit spec fails the day
+# runtime-test gains a spec, which is when that decision is due.
+#
+# NOT part of the default `just test`. That gate is the fast self-test --
+# no daemon, no image build -- and these are a different level (a stage's
+# build-time assertions, excluded from the self-test grand total in
+# doc/test/TEST.md for the same reason). Their CI coverage is the
+# acceptance job, which builds a real consumer's `-test` stage.
+#
+# The tooling tag and the compose project are resolved exactly as `system`
+# resolves them, and for the same reasons (see its comment above): a
+# content-hash tag so a sibling checkout cannot displace this run's image,
+# an explicit project name so two checkouts do not share one, and
+# HOST_UID / HOST_GID because compose interpolates the whole file whatever
+# service is named.
+#
+# PROJECT_NAME is seeded from the SAME resolved value, and it is not
+# redundant with COMPOSE_PROJECT_NAME: the build goes through the wrapper,
+# which passes `docker compose -p "${PROJECT_NAME}"` explicitly, so
+# COMPOSE_PROJECT_NAME never reaches it. That `-p` is what compose names
+# the built image after, and with nothing set the wrapper derives it from
+# the checkout DIRECTORY BASENAME -- two same-named checkouts (or two CI
+# runs) then write one image tag. Setting it takes the documented
+# already-resolved path through _compute_project_name rather than letting
+# it fall back.
+#
+# BUILDKIT_PROGRESS=plain because the bats output IS the result here --
+# the collapsed default progress hides a passing run's output entirely.
+smoke *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
+    export COMPOSE_PROJECT_NAME
+    PROJECT_NAME="${COMPOSE_PROJECT_NAME}"
+    export PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    export BUILDKIT_PROGRESS=plain
+    just docker build --target test-tools
+    just docker build {{args}} --target smoke
+
+# just test clean -> remove coverage reports
+clean:
+    rm -rf coverage/
+
+# Base-management recipes (init / upgrade / upgrade-check) were removed:
+# ADR-00000011 §8 relocated init.sh / upgrade.sh to dist/script/base/ and
+# the `base` namespace supersedes them -- use `just base init`,
+# `just base upgrade [vX.Y.Z]`, `just base update` (the apt-style check).
+
+# just test sync-docs -> regenerate doc/test/*.md count figures from the specs
+# (grep -c '^@test'), so the per-spec headings + per-type/grand totals stop
+# being hand-edited. Idempotent; check_test_md_drift.sh remains the validator.
+sync-docs:
+    ./script/test/sync-doc-counts.sh
+
+# just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
+# (the read-only twin of sync-docs, and the same gate the default `just test`
+# lint phase runs). Non-zero exit on drift, printing the unified diff of what
+# regeneration would change. Three entry points share this one rule: this
+# recipe (on demand), the lint phase (blocking, local + CI), and the harness
+# repo's advisory PostToolUse hook (fast interactive signal, never blocks).
+sync-docs-check:
+    ./script/test/test.sh --lint --doc-counts
+
+# just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
+# command: collapse the markers, regenerate the figures from the merged spec
+# tree, verify, and stage. Replaces the hand-retyped
+# awk-collapse + sync-docs + sync-docs-check recipe. It refuses (loudly,
+# staging nothing) rather than pick a side whenever the two sides disagree
+# about something regeneration cannot justify -- notably a catalog row that
+# both sides describe differently.
+resolve-docs:
+    ./script/test/resolve-doc-counts.sh
+
+# just test sync-readme -> re-stamp each doc/readme/README.*.md section with
+# the hash of the README.md section it was translated against AND of the
+# translated section itself. Run this AFTER updating a translation; never
+# hand-edit a hash. Idempotent; it also reports the English sections a
+# translation still accounts for neither way (no `<!-- sync: <id> -->`
+# marker, no `<!-- sync-skip: <id> -- <why> -->`).
+#
+# It is NOT a way to make the lint stop complaining: a section whose English
+# hash moved while its translation stood still is refused, by name, and the
+# run exits non-zero. `just test sync-readme --accept <id>[,<id>...]` is the
+# explicit "I read the English change and the translation is still correct"
+# -- the case an English typo fix creates, kept to one command.
+sync-readme *args:
+    ./script/test/sync-readme-hashes.sh {{args}}
+
+# just test sync-readme-check -> validate the translation markers WITHOUT
+# writing (the read-only twin of sync-readme, and the same lint the default
+# `just test` lint phase runs). Non-zero exit naming the FILE and the SECTION
+# that drifted.
+sync-readme-check:
+    ./script/test/test.sh --lint --readme-sync

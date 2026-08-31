@@ -1,7 +1,7 @@
 name: Release test-tools image to GHCR
 
 # Multi-arch (linux/amd64 + linux/arm64) build of
-# .base/dockerfile/Dockerfile.test-tools, pushed to
+# dockerfile/Dockerfile.test-tools, pushed to
 # ghcr.io/ycpss91255-docker/test-tools tagged with the release version
 # and :latest. Downstream repo Dockerfiles consume this via
 # `ARG TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<ver>`,
@@ -16,11 +16,21 @@ name: Release test-tools image to GHCR
 #
 # Why the paths filter on main push: every non-doc PR merge triggers
 # a push to main, but most don't touch Dockerfile.test-tools. Without
-# the filter, every merge would burn ~3-5 min of multi-arch buildx
-# republishing the same image content under a new manifest digest.
-# Restrict the main trigger to commits that actually change the
-# test-tools recipe; tag-push trigger stays unfiltered because tag
-# pushes are explicit publish intents.
+# the filter, every merge would burn build minutes republishing the same
+# image content under a new manifest digest. Restrict the main trigger to
+# commits that actually change the test-tools recipe; tag-push trigger
+# stays unfiltered because tag pushes are explicit publish intents.
+#
+# Multi-arch build model (#587): each architecture builds on its NATIVE
+# runner (linux/amd64 -> ubuntu-latest, linux/arm64 -> ubuntu-24.04-arm),
+# consistent with build-worker / publish-worker. Because the
+# arches build on separate runners, each shard pushes its single-arch
+# image BY DIGEST (no tag), then a `merge` job assembles the tagged
+# multi-arch manifest list from the digests via
+# `docker buildx imagetools create`. This is deliberate: having each
+# shard push the SAME tag would leave a last-shard-wins single-arch tag
+# (the latent failure mode), which would break the downstream
+# `FROM ${TEST_TOOLS_IMAGE}` consumers on the losing arch.
 #
 # Needs packages: write to push to GHCR under the org namespace.
 
@@ -38,12 +48,126 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/ycpss91255-docker/test-tools
+
 jobs:
-  release-test-tools:
+  # Parse the target platforms into a native-runner matrix, mirroring
+  # build-worker.yaml / publish-worker.yaml's compute-matrix convention.
+  # The platform list is fixed here (this is a fixed multi-arch
+  # publisher with no `platforms` input); factoring the parser into a
+  # single source shared across all three workflows is a follow-up.
+  compute-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          PLATFORMS: "linux/amd64,linux/arm64"
+        run: |
+          set -euo pipefail
+          items=""
+          IFS=',' read -ra plats <<< "${PLATFORMS}"
+          for p in "${plats[@]}"; do
+            p="${p//[[:space:]]/}"
+            case "${p}" in
+              linux/amd64)
+                items+='{"platform":"linux/amd64","runner":"ubuntu-latest","hardware":"amd64"},'
+                ;;
+              linux/arm64)
+                items+='{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","hardware":"arm64"},'
+                ;;
+              "")
+                continue
+                ;;
+              *)
+                echo "::error::Unsupported platform '${p}'. Supported: linux/amd64, linux/arm64"
+                exit 1
+                ;;
+            esac
+          done
+          if [ -z "${items}" ]; then
+            echo "::error::No valid platforms found in '${PLATFORMS}'"
+            exit 1
+          fi
+          echo "matrix={\"include\":[${items%,}]}" >> "${GITHUB_OUTPUT}"
+
+  # Per-platform build on the native runner. Each shard pushes its
+  # single-arch image BY DIGEST (no tag); the merge job assembles the
+  # tagged manifest list from the digests.
+  build:
+    needs: compute-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest (${{ matrix.platform }})
+        id: build
+        # This workflow runs inside the template repo, not a downstream
+        # consumer, so the Dockerfile lives at `dockerfile/...`, not
+        # `.base/dockerfile/...` (the latter is only the subtree path
+        # downstream repos see).
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          platforms: ${{ matrix.platform }}
+          # Push by digest only (no tag); the merge job applies the tags
+          # to a manifest list assembled from every arch's digest.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.hardware }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Assemble the tagged multi-arch manifest from the per-arch digests,
+  # then smoke-test the published tag.
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve tags
         id: tags
@@ -56,53 +180,44 @@ jobs:
           set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ver="${GITHUB_REF##refs/tags/}"
-            tags="ghcr.io/ycpss91255-docker/test-tools:${ver},ghcr.io/ycpss91255-docker/test-tools:latest"
-            smoke="ghcr.io/ycpss91255-docker/test-tools:${ver}"
+            tags="${IMAGE}:${ver},${IMAGE}:latest"
+            smoke="${IMAGE}:${ver}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            tags="ghcr.io/ycpss91255-docker/test-tools:main"
-            smoke="ghcr.io/ycpss91255-docker/test-tools:main"
+            tags="${IMAGE}:main"
+            smoke="${IMAGE}:main"
           else
-            tags="ghcr.io/ycpss91255-docker/test-tools:latest"
-            smoke="ghcr.io/ycpss91255-docker/test-tools:latest"
+            tags="${IMAGE}:latest"
+            smoke="${IMAGE}:latest"
           fi
           printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
           printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
+          echo "Computed tags: ${tags}"
 
-      - name: Set up QEMU
-        # Needed for the arm64 leg; amd64 alone could skip it, but the
-        # QEMU setup is a no-op on native arch so we keep the workflow
-        # simple with a single builder.
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push multi-arch test-tools image
-        # This workflow runs inside the template repo, not a downstream
-        # consumer, so the Dockerfile lives at `dockerfile/...`, not
-        # `.base/dockerfile/...` (the latter is only the subtree path
-        # downstream repos see and is what build-worker.yaml uses since
-        # that workflow executes in the downstream's checkout).
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: dockerfile/Dockerfile.test-tools
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.tags }}
-          push: true
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        shell: bash
+        # Build `-t <tag>` flags from the comma-separated tag list and
+        # source refs from each per-arch digest filename, then create the
+        # manifest list. This is what makes the published tag a true
+        # multi-arch image instead of a last-shard-wins single arch.
+        run: |
+          set -euo pipefail
+          tag_args=()
+          IFS=',' read -ra _tags <<< "${{ steps.tags.outputs.tags }}"
+          for _t in "${_tags[@]}"; do
+            tag_args+=("-t" "${_t}")
+          done
+          src=()
+          for _d in *; do
+            src+=("${IMAGE}@sha256:${_d}")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
 
       - name: Smoke test pushed image
         # Regression guard for the v0.12.1 publish (issue #165): the alpine
         # final stage shipped without bash and without /usr/local/bin/bats,
         # so the image had bats-* files on disk but `bats` was unrunnable.
-        # Pull the just-pushed amd64 leg and exercise each tool end-to-end
+        # Pull the just-pushed manifest and exercise each tool end-to-end
         # so a similar break never reaches downstream consumers silently.
         # The smoke target tracks `steps.tags.outputs.smoke` so we always
         # verify the image the current trigger produced (incl. :main on
@@ -117,9 +232,9 @@ jobs:
           docker run --rm "${image}" hadolint --version
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
-          docker run --rm "${image}" make --version
           # just (#546): the justfile entry point replaces the Makefile;
-          # downstream + CI run `just <verb>`, so the image must carry it.
+          # downstream + CI run `just <verb>` (the single runner, make is
+          # retired), so the image must carry it.
           docker run --rm "${image}" just --version
           # `git subtree --help` would invoke `man git-subtree`, but alpine
           # ships no man viewer in the test-tools image (and we don't want
@@ -128,9 +243,27 @@ jobs:
           # value, no man dependency.
           docker run --rm "${image}" sh -c 'test -f "$(git --exec-path)/git-subtree"'
           # docker-cli + docker-cli-buildx (#249): consumed by the
-          # behavioural test suite (test/behavioural/*.bats) when run
-          # via the ci-behavioural compose service. Smoke-check both
+          # system test suite (test/bats/system/*.bats) when run
+          # via the ci-system compose service. Smoke-check both
           # by version. buildx is exposed as `docker buildx version`,
           # not a standalone binary.
           docker run --rm "${image}" docker --version
           docker run --rm "${image}" docker buildx version
+          # docker-cli-compose + xz: the field-deploy system test runs the
+          # generated deploy.sh (real `docker compose up -d`) and unxz's the
+          # bundled image.tar.xz; the generator xz-compresses the saved image.
+          docker run --rm "${image}" docker compose version
+          docker run --rm "${image}" xz --version
+          # mawk + gawk (#576): added alongside busybox awk so the issueref
+          # awk program's portability unit test exercises all three engines
+          # in the alpine `just test` loop (closes the kcov debian/mawk
+          # blind spot). mawk reports its version on stderr and exits non-
+          # zero for -W version, so probe presence via the binary path.
+          docker run --rm "${image}" sh -c 'command -v mawk'
+          docker run --rm "${image}" gawk --version
+          # kcov (#686): source-built into the image (not in any alpine
+          # repo) so the coverage matrix runs on this one shared image
+          # instead of the old debian kcov/kcov + per-shard apt-install.
+          # Smoke-check the binary loads (its runtime shared libs are
+          # apk-installed in the final stage); --version exits 0.
+          docker run --rm "${image}" kcov --version

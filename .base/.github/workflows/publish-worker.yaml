@@ -101,8 +101,7 @@ on:
           MVP supports linux/amd64 + linux/arm64 (publishes a multi-arch
           manifest list). When upstream base images are amd64-only,
           callers should leave this at the default; multi-arch base
-          images publish to linux/arm64 via native arm64 runners (no
-          QEMU emulation).
+          images publish to linux/arm64 via native arm64 runners.
       context_path:
         required: false
         type: string
@@ -179,15 +178,16 @@ jobs:
           echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
 
   # ────────────────────────────────────────────────────────────────
-  # Build + push per-platform image. Each platform's image gets the
-  # full set of computed tags; docker/build-push-action with multiple
-  # tags on a single push call writes one manifest containing all of
-  # them.
+  # Per-platform build on the native runner. Each shard pushes its
+  # single-arch image BY DIGEST (no tag); the `merge` job below
+  # assembles the tagged multi-arch manifest list from the per-arch
+  # digests via `docker buildx imagetools create`.
   #
-  # When the caller's matrix has multiple platforms, the per-platform
-  # outputs end up in separate "tag-platform" image entries on the
-  # registry; the manifest-list aggregation step below stitches them
-  # into a single multi-arch manifest under each final tag.
+  # This is deliberate (#602, mirroring #587 release-test-tools):
+  # having each shard push the SAME tag would leave a last-shard-wins
+  # single-arch tag (the latent failure mode), which would break the
+  # downstream `FROM ${registry}/${owner}/<image>` consumers on the
+  # losing arch.
   # ────────────────────────────────────────────────────────────────
   publish:
     needs: compute-matrix
@@ -200,42 +200,17 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to ${{ inputs.registry }}
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.5.2
         with:
           registry: ${{ inputs.registry }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute image tags
-        id: tags
-        env:
-          REGISTRY: ${{ inputs.registry }}
-          OWNER: ${{ github.repository_owner }}
-          IMAGE: ${{ inputs.image_name }}
-          REF: ${{ github.ref_name }}
-          SUFFIX: ${{ inputs.tag_suffix }}
-          IS_LATEST: ${{ inputs.is_latest }}
-        run: |
-          base="${REGISTRY}/${OWNER}/${IMAGE}"
-          version_tag="${base}:${REF}${SUFFIX}"
-          tags="${version_tag}"
-          if [ "${IS_LATEST}" = "true" ]; then
-            tags="${tags}"$'\n'"${base}:latest${SUFFIX}"
-          fi
-          # Multiline output via heredoc form
-          {
-            echo "tags<<TAGS_EOF"
-            printf '%s\n' "${tags}"
-            echo "TAGS_EOF"
-          } >> "${GITHUB_OUTPUT}"
-          echo "Computed tags:"
-          printf '  %s\n' "${tags}"
 
       - name: Generate .env
         run: |
@@ -252,7 +227,7 @@ jobs:
           EOF
           mkdir -p /tmp/workspace
 
-      - name: Build and push (${{ matrix.platform }})
+      - name: Build and push by digest (${{ matrix.platform }})
         id: push
         uses: docker/build-push-action@v7
         with:
@@ -261,9 +236,10 @@ jobs:
           build-contexts: ${{ inputs.build_contexts }}
           target: ${{ inputs.target }}
           platforms: ${{ matrix.platform }}
-          push: true
-          provenance: false
-          tags: ${{ steps.tags.outputs.tags }}
+          # Push by digest only (no tag); the merge job applies the tags
+          # to a manifest list assembled from every arch's digest. Tagging
+          # per shard here would leave a last-shard-wins single-arch tag.
+          outputs: type=image,name=${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -272,3 +248,101 @@ jobs:
             HARDWARE=${{ matrix.hardware }}
             TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
             ${{ inputs.build_args }}
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.hardware }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────
+  # Assemble the tagged multi-arch manifest list from the per-arch
+  # digests. Tags are resolved + applied exactly once here (#602), so
+  # the published tag is a true multi-arch image rather than a
+  # last-shard-wins single arch.
+  # ────────────────────────────────────────────────────────────────
+  merge:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v4.5.2
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tags
+        id: tags
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image_name }}
+          REF: ${{ github.ref_name }}
+          SUFFIX: ${{ inputs.tag_suffix }}
+          IS_LATEST: ${{ inputs.is_latest }}
+        run: |
+          set -euo pipefail
+          base="${REGISTRY}/${OWNER}/${IMAGE}"
+          tags="${base}:${REF}${SUFFIX}"
+          if [ "${IS_LATEST}" = "true" ]; then
+            tags="${tags},${base}:latest${SUFFIX}"
+          fi
+          printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
+          echo "Computed tags: ${tags}"
+
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image_name }}
+        run: |
+          set -euo pipefail
+          base="${REGISTRY}/${OWNER}/${IMAGE}"
+          tag_args=()
+          IFS=',' read -ra _tags <<< "${{ steps.tags.outputs.tags }}"
+          for _t in "${_tags[@]}"; do
+            tag_args+=("-t" "${_t}")
+          done
+          src=()
+          for _d in *; do
+            src+=("${base}@sha256:${_d}")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
+
+      - name: Verify multi-arch manifest
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image_name }}
+          REF: ${{ github.ref_name }}
+          SUFFIX: ${{ inputs.tag_suffix }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${REGISTRY}/${OWNER}/${IMAGE}:${REF}${SUFFIX}"

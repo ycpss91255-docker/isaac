@@ -8,7 +8,7 @@
 # never against base's own root. So nothing the root-context build
 # needs is excluded below.
 #
-# We still KEEP the source/template trees (script/, test/, config/,
+# We still KEEP the source/template trees (script/, test/, dist/config/,
 # .base/, dockerfile/, Dockerfile, .hadolint.yaml, entrypoints) so this
 # stays forward-safe: Dockerfile.example's lint/smoke stages COPY those
 # paths, and the file doubles as the downstream template.
@@ -32,11 +32,12 @@ LICENSE
 .env.bak
 runtime.env
 compose.yaml
-setup.conf.bak
-setup.conf.local
+.setup.conf.bak
+.setup.conf.local
 coverage/
 .Dockerfile.generated
 .docker.xauth
+log/
 
 # ── Editor / OS / backup cruft ───────────────────────────────────────
 *.bak

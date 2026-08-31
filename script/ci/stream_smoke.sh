@@ -31,7 +31,7 @@
 # "server up, waiting for a client" event and is scoped to our log.
 #
 # The pass/fail decision logic lives in stream_smoke_lib.sh so it is unit
-# tested on every image build (test/smoke/bats/stream_smoke_lib_spec.bats)
+# tested on every image build (test/bats/smoke/stream_smoke_lib_spec.bats)
 # even though this GPU path only runs nightly.
 #
 # Env knobs:
@@ -93,20 +93,46 @@ WS_PATH=""
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
-# Compose-project isolation (owv#55). The nightly smoke brings its stack up
-# under a DEDICATED instance and tears it down by the instance-scoped names,
-# so it can never reap a co-hosted manually-run DEFAULT stream stack
-# (`./script/run.sh -t stream -d`) on a shared GPU host, nor no-op on the
-# stale pre-isaac#238 literal `owv` viewer name. `--instance ${instance}`
-# makes run.sh export INSTANCE_SUFFIX=-${instance}; compose.yaml suffixes the
-# stream container and post/run.sh suffixes the viewer to match, so the
-# names below are exactly what this run creates. Default `smoke`; override
-# SMOKE_COMPOSE_INSTANCE (e.g. the CI run id) for a per-run-unique project.
-instance="${SMOKE_COMPOSE_INSTANCE:-smoke}"
-container="${USER_NAME}-${IMAGE_NAME}-stream-${instance}"
-viewer="${USER_NAME}-${IMAGE_NAME}-owv-${instance}"
+# Compose-project isolation (owv#55). base v0.42.0 removed --instance
+# (base#666); isolation is now a DISTINCT resolved PROJECT_NAME. The nightly
+# smoke pins one (default `<derived>-smoke`, override SMOKE_PROJECT for a
+# per-run-unique value e.g. the CI run id) into the derived .env.generated
+# cache run.sh reads, brings the stack up with a plain `run.sh -t stream -d`
+# under that project, resolves its stream container BY PROJECT, and tears the
+# whole project down. A distinct project fully contains run.sh's project-wide
+# EXIT-trap teardown, so the smoke can never reap a co-hosted manually-run
+# DEFAULT stream stack (`./script/run.sh -t stream -d`) on a shared GPU host,
+# nor no-op on the stale pre-isaac#238 literal `owv` viewer name.
+#
+# We pin via a surgical sed of the PROJECT_NAME= line (the same post-apply sed
+# the CI WS_PATH pin uses) rather than `setup.sh apply` with a .setup.conf.local
+# override, because a second apply here would re-run detection and clobber the
+# CI WS_PATH pin the prior apply step wrote.
+_default_project="${DOCKER_HUB_USER:-local}-${IMAGE_NAME}"
+smoke_project="${SMOKE_PROJECT:-${PROJECT_NAME:-${_default_project}}-smoke}"
+if [ -f "${repo_root}/.env.generated" ]; then
+  sed -i "s|^PROJECT_NAME=.*|PROJECT_NAME=${smoke_project}|" \
+    "${repo_root}/.env.generated"
+fi
+# Isaac-owned viewer suffix, derived from the smoke project the same way
+# post/run.sh derives it, so the name below matches what the hook creates.
+if [ "${smoke_project}" != "${_default_project}" ]; then
+  _viewer_suffix="-${smoke_project#"${_default_project}-"}"
+else
+  _viewer_suffix=""
+fi
+viewer="${USER_NAME}-${IMAGE_NAME}-owv${_viewer_suffix}"
 smoke_log="${WS_PATH:-${repo_root}}/isaac-sim/kit/logs/stream-smoke.log"
+cid=""
 client_pid=""
+
+# Project-scoped compose invocation (the -p / --env-file / -f the wrappers
+# use), so `ps -q` / `down` address THIS run's project and nothing else.
+compose_smoke() {
+  docker compose -p "${smoke_project}" \
+    --env-file "${repo_root}/.env.generated" \
+    -f "${repo_root}/compose.yaml" "$@"
+}
 
 # Signal port the client attaches to. Resolve it the same way the post-run
 # hook does (#231): config/host.yaml `livestream.ports.signal` wins, then an
@@ -118,17 +144,24 @@ signal_port="$(resolve_port "${repo_root}/config/host.yaml" signal)" || exit 1
 signal_port="${signal_port:-${ISAAC_SIGNAL_PORT:-49100}}"
 
 cleanup() {
-  echo "[smoke] teardown: removing ${container} + ${viewer}"
+  echo "[smoke] teardown: down project ${smoke_project} + remove viewer ${viewer}"
   if [[ -n "${client_pid}" ]]; then
     kill "${client_pid}" 2>/dev/null || true
   fi
-  docker rm -f "${container}" "${viewer}" >/dev/null 2>&1 || true
+  # Project-scoped: cannot touch a globally-named manual/default stack.
+  compose_smoke down -t 0 --remove-orphans >/dev/null 2>&1 || true
+  # The viewer runs out-of-compose (post/run.sh `docker run --name`), so the
+  # project `down` above does not see it -- remove it by its isaac-owned name.
+  docker rm -f "${viewer}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-# Bind the library's fail-closed liveness hook to this run's container.
+# Bind the library's fail-closed liveness hook to this run's container,
+# resolved by the compose project id (base v0.42.0 base-fixed the stream
+# container name, so address it by the resolved id, never a global name).
 smoke_alive() {
-  docker ps --format '{{.Names}}' | grep -qx "${container}"
+  [ -n "${cid}" ] || return 1
+  [ "$(docker inspect -f '{{.State.Running}}' "${cid}" 2>/dev/null)" = "true" ]
 }
 
 fail() {
@@ -137,22 +170,30 @@ fail() {
   exit 1
 }
 
-# Start clean: drop any stale container/viewer from a prior run so we never
-# mistake a leftover for this run's Isaac, and so the kit log is fresh.
-echo "[smoke] pre-clean stale ${container} + ${viewer}"
-docker rm -f "${container}" "${viewer}" >/dev/null 2>&1 || true
+# Start clean: tear down any stale stack in this project + drop a stale viewer
+# from a prior run so we never mistake a leftover for this run's Isaac, and so
+# the kit log is fresh.
+echo "[smoke] pre-clean stale project ${smoke_project} + viewer ${viewer}"
+compose_smoke down -t 0 --remove-orphans >/dev/null 2>&1 || true
+docker rm -f "${viewer}" >/dev/null 2>&1 || true
 rm -f "${smoke_log}" 2>/dev/null || true
 
 echo "[smoke] bring up stream stage (idle container + viewer)"
 # Direct wrapper call (matches the repo's own CI convention; no `just`
-# dependency on the runner). The justfile `run` recipe is a 1:1 forward to this.
-( cd "${repo_root}" && ./script/run.sh -t stream -d --instance "${instance}" )
+# dependency on the runner). The justfile `run` recipe is a 1:1 forward to
+# this. run.sh reads the pinned PROJECT_NAME from .env.generated, so the whole
+# stack lands in ${smoke_project}.
+( cd "${repo_root}" && ./script/run.sh -t stream -d )
 
-echo "[smoke] launch Isaac (detached) in ${container}"
+# Resolve the stream container BY PROJECT (base v0.42.0 base-fixed its name;
+# address the compose-resolved id so a co-hosted stack is never touched).
+cid="$(compose_smoke ps -q stream 2>/dev/null | head -1)"
+
+echo "[smoke] launch Isaac (detached) in ${cid:-<unresolved>}"
 # Source the per-host livestream port env the post-run hook copied in when
 # host.yaml pins any port (#231); absent => no-op, runheadless-host-config.sh
 # (unchanged) falls back to its ISAAC_*_PORT-from-env defaults.
-docker exec -d "${container}" \
+docker exec -d "${cid}" \
   sh -c 'set -a; [ -f /etc/isaac/livestream-ports.env ] && . /etc/isaac/livestream-ports.env; set +a; /usr/local/bin/runheadless-host-config.sh > /isaac-sim/kit/logs/stream-smoke.log 2>&1'
 
 echo "[smoke] wait up to ${timeout_s}s for: ${ready_marker}"
@@ -161,14 +202,14 @@ smoke_wait_for "${smoke_log}" "${timeout_s}" "${poll_s}" \
   "${ready_marker}" || rc=$?
 case "${rc}" in
   0) echo "[smoke] OK: Isaac WebRTC streaming server started" ;;
-  2) fail "container ${container} is no longer running" ;;
+  2) fail "stream container (${cid:-<unresolved>}) is no longer running" ;;
   *) fail "streaming server did not start within ${timeout_s}s" ;;
 esac
 
 # Hold the client for the whole assertion window plus margin, so it cannot
 # time out on its own and make the dwell look like a stream drop.
 client_hold_s=$(( connect_timeout_s + dwell_s + 30 ))
-default_client_cmd="docker exec -d ${container} sh -c \"curl -sS -N --http1.1 \
+default_client_cmd="docker exec -d ${cid} sh -c \"curl -sS -N --http1.1 \
 --max-time ${client_hold_s} \
 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
 -H 'Sec-WebSocket-Version: 13' \

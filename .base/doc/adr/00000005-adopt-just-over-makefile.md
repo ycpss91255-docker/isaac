@@ -1,7 +1,32 @@
 # Adopt `just` over the Makefile wrapper
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- `just` as the single user-facing entry; mechanism.
+
 - **Date:** 2026-06-08
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-06-12)
+
+## Amendment (2026-06-12, #573): `Makefile.ci` also retired
+
+The original decision (below) scoped `Makefile.ci` **out** (per #475):
+the base-only CI lint/test wrapper would stay on make because its argv
+surface does not hit make's restrictions. That left the repo carrying
+**two runners** (make for the CI gate, just for everything else) doing
+work at the same level -- redundant tooling whose only effect was a
+second dependency to install and keep in sync.
+
+This amendment reverses that scope. `Makefile.ci` is retired for a
+base-local `justfile.ci`, invoked as `just ci <recipe>`
+(`just` does not auto-discover a `justfile.ci`, so it never collides
+with the auto-discovered container-ops `justfile`). The two files stay
+deliberately separate -- `justfile.ci` is the template dev / self-test
+entry, `script/docker/justfile` is the consumer entry -- because they
+assume different repo layouts. make is removed from `ci.sh` and the
+test-tools image (the integration tests had already moved to
+`just upgrade-check` in #546, so the make install was dead weight).
+
+The "Open questions" and "Consequences" entries for `Makefile.ci` below
+are superseded by this amendment.
 
 ## Context
 
@@ -103,7 +128,9 @@ acceptable cost against make's structural argv mismatch.
   grep-and-update sweep and re-pointed at `just`.
 - **`Makefile.ci`?** Out of scope (per #475). It is a dev-loop / CI
   lint+test wrapper, not a user-facing container-ops wrapper, and its
-  argv surface does not hit the same make restrictions.
+  argv surface does not hit the same make restrictions. *(Superseded by
+  the 2026-06-12 amendment above: `Makefile.ci` is retired for
+  `justfile.ci`.)*
 
 ## Alternatives
 
@@ -150,5 +177,6 @@ acceptable cost against make's structural argv mismatch.
 - Doc churn: README + `README.zh-TW.md` + CHANGELOG across `base` and
   downstream, plus user muscle memory (`make X` -> `just X`).
 - `Makefile.ci` is unaffected (out of scope); the CI lint/test entry
-  stays on make.
+  stays on make. *(Superseded by the 2026-06-12 amendment: retired for
+  `justfile.ci`; make is fully removed.)*
 

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+  "ycpss91255_wrapper_transcript": {
+    "title": "ycpss91255-docker wrapper transcript",
+    "description": "Plain-text wrapper transcript lines (#606/#609): `<ISO ts> [service] LEVEL: msg`. Coexists with log.lnav-format.json (JSON, *.jsonl); docker raw output lines fall through as body.",
+    "regex": {
+      "std": {
+        "pattern": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z?) \\[(?<service>[^\\]]+)\\] (?<level>DEBUG|INFO|WARN|ERROR|FATAL)\\s*: (?<body>.*)$"
+      }
+    },
+    "file-pattern": ".*/log/[^/]+/.*\\.log$",
+    "timestamp-field": "timestamp",
+    "level-field": "level",
+    "level": {
+      "debug": "DEBUG",
+      "info": "INFO",
+      "warning": "WARN",
+      "error": "ERROR",
+      "fatal": "FATAL"
+    },
+    "body-field": "body",
+    "value": {
+      "service": {
+        "kind": "string",
+        "identifier": true,
+        "description": "Short script / verb identifier (the wrapper verb)"
+      }
+    },
+    "sample": [
+      {
+        "line": "2026-06-18T10:11:12.123456Z [build] INFO : transcript_started verb=build trace_id=0123456789abcdef0123456789abcdef"
+      },
+      {
+        "line": "2026-06-18T10:11:45.654321Z [build] INFO : transcript_complete exit_code=0 duration=33s"
+      }
+    ]
+  }
+}
