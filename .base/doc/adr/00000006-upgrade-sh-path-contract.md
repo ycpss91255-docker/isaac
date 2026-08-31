@@ -1,7 +1,44 @@
 # upgrade.sh hard-coded paths are a protocol-stable contract
 
+> Serves: PRD invariant 6 (base is a subtree; downstream a thin caller)
+> -- the upgrade.sh frozen-path contract; mechanism.
+
 - **Date:** 2026-06-08
 - **Status:** Accepted
+- **Amended:** 2026-06-24 by #654 / ADR-00000011 §8 -- Region A's frozen
+  `.base/init.sh` root path is superseded. `init.sh` and `upgrade.sh` now
+  live deep at `.base/dist/script/base/` and self-locate the subtree
+  root via a walk-up (see the Region A note below); the lockstep discipline
+  this ADR mandates is what governed that move.
+- **Amended:** 2026-06-26 by #714 -- the shipped-tree directory was renamed
+  `downstream/` -> `dist/`, so every frozen interior path moves from
+  `.base/downstream/...` to `.base/dist/...` (this supersedes the
+  `.base/downstream/` contract introduced by #625 / #654). The rename was a
+  lockstep change exactly as this ADR mandates: `upgrade.sh` /
+  `init.sh`'s subtree-root marker check, the Region B config-drift paths
+  (`${TEMPLATE_REL}/dist/config[/docker/setup.conf]`), the Region A Step-3
+  `init.sh` call, and the Region C `dockerfile_migrate` lib all moved in the
+  same change. **Consumer migration:** an existing consumer on
+  `.base/downstream/` that upgrades gets `.base/dist/` after the subtree
+  pull, leaving its repo-level wrapper symlinks
+  (`script/build.sh -> .base/downstream/...`) dangling; the upgrade->init
+  resync heals them because `init.sh`'s `_symlink` helper `rm -f`s the stale
+  link and re-`ln -sf`s it at `.base/dist/...` (so stale `.base/downstream/`
+  symlinks are dropped and re-pointed). `dockerfile_migrate` migration 4 was
+  widened to match `(downstream/|dist/)?` so a consumer Dockerfile on either
+  historical path heals to the `dist/` target.
+- **Amended:** 2026-07-15 by #831 -- `setup.conf` is `just setup`-managed,
+  not hand-edited, so it left the hand-editable `config/` surface: the
+  per-repo override moved from `<repo>/config/docker/setup.conf` to the
+  repo-root dotfile `<repo>/.setup.conf`, and the template default from
+  `${TEMPLATE_REL}/dist/config/docker/setup.conf` to
+  `${TEMPLATE_REL}/dist/.setup.conf`. Per this ADR's discipline the move
+  was lockstep: Region B's `_warn_setup_conf_drift` blob-hash path
+  re-points to `dist/.setup.conf`, and a new `_migrate_legacy_setup_conf`
+  step `git mv`s a legacy override to the root and warns loudly (never
+  silently drops it). See the re-pointed frozen-path list note below.
+  This reverses #262, which had nested setup.conf under `config/docker/`
+  for layout uniformity.
 
 ## Context
 
@@ -31,6 +68,22 @@ reorg that touches its paths:
   (the rollback path only fires from `_verify_subtree_intact` in Step 2).
   The repo is left half-upgraded: subtree pulled, but symlinks /
   `main.yaml` `@tag` / `.gitignore` not resynced.
+
+  > **Amended 2026-06-24 (#654, ADR-00000011 §8).** `init.sh` was
+  > relocated out of the subtree root to
+  > `.base/dist/script/base/init.sh` (with `upgrade.sh` alongside).
+  > Per this ADR's lockstep discipline the move was done in one slice that
+  > also updated Step 3's call to
+  > `"./${TEMPLATE_REL}/dist/script/base/init.sh"` (both the resync
+  > and `--gen-conf` invocations). Critically, `upgrade.sh` no longer
+  > derives `TEMPLATE_REL` from its own directory's basename (which is now
+  > `base`, the wrong prefix): it **walks up** from its location to the
+  > subtree root -- the dir carrying the `.version` + `dist/` markers
+  > -- and `basename`s THAT (`.base`), so the `git subtree pull --prefix=`
+  > flag and every interior path stay correct regardless of nesting depth.
+  > The new self-location walk-up IS the contract that replaces the frozen
+  > `.base/init.sh` root path; an integration test asserts the resolved
+  > `--prefix` is the subtree basename, not `base`.
 
 - **Region B -- `config/` drift detection.** The pre-pull snapshot
   (`HEAD:${TEMPLATE_REL}/config` and
@@ -67,9 +120,16 @@ are part of the contract `upgrade.sh` depends on, and **must not be moved
 or renamed without updating `upgrade.sh` in the same change** (and
 re-checking #492's trigger checklist):
 
-- `.base/init.sh` -- invoked directly by Region A.
+- `.base/init.sh` -- invoked directly by Region A. *(Superseded
+  2026-06-24 by #654: now `.base/dist/script/base/init.sh`, located
+  via `upgrade.sh`'s walk-up to the subtree root rather than frozen at the
+  root; see the Region A amendment above.)*
 - `.base/config/` and `.base/config/docker/setup.conf` -- hashed by
-  Region B's drift detection.
+  Region B's drift detection. *(Re-pointed 2026-07-15 by #831: the
+  setup.conf blob is now `.base/dist/.setup.conf` (template default) with
+  the downstream override at the repo-root `<repo>/.setup.conf`; the
+  `.base/dist/config/` tree hash still guards the hand-editable shell
+  config. #714 first moved these under `dist/`.)*
 - `.base/script/docker/lib/` and the `.base/script/docker/*.sh` umbrella
   loaders -- targeted by Region C's Dockerfile auto-patch.
 

@@ -8,6 +8,41 @@ on:
   pull_request:
   workflow_dispatch:
 
+# ── Run identity: the one value every name this workflow creates is keyed
+# to ─────────────────────────────────────────────────────────────────────
+#
+# Nothing below collides TODAY only because `runs-on: ubuntu-latest` hands
+# every job a fresh single-tenant VM. The moment two jobs share a machine
+# -- the self-hosted direction ADR-00000008's amendment and the
+# coverage-gate job already describe -- a run-agnostic test-tools tag and
+# a checkout-path-derived compose project are the SAME name in both jobs,
+# and the loser silently runs the winner's image.
+#
+# `github.run_id` is unique per run and `github.run_attempt` separates a
+# re-run from the attempt that preceded it. Neither a timestamp (two jobs
+# starting in the same second collide, and it cannot be traced back to a
+# run) nor `github.sha` (shared by every job of a run AND identical across
+# a re-run -- exactly when a stale leftover would be reused) has both
+# properties. Both appear in the Actions UI, so a leftover artifact names
+# the run that created it.
+#
+# Applied UNCONDITIONALLY, not gated on "is this runner shared": there is
+# no signal for that until the migration lands, and a conditional cannot
+# be forgotten at migration time only if someone remembers to flip it.
+# The cost is a longer tag in the logs; the value is in the UI either way.
+#
+# ONE source, three surfaces. `TEST_TOOLS_IMAGE` and
+# `COMPOSE_PROJECT_NAME` are honoured verbatim by script/test/test.sh
+# (#893 / #896), and `CI_RUN_KEY` keys the acceptance scaffold's directory
+# name plus the ownership label on the loaded test-tools image. The
+# `github` expression is spelled once per name rather than once per job
+# because a workflow-level `env:` block cannot read the `env` context --
+# GitHub resolves the whole block against `github` only.
+env:
+  CI_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+  TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}
+  COMPOSE_PROJECT_NAME: base-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
 jobs:
   actionlint:
     # Catch GHA workflow-validator semantic regressions (the
@@ -17,28 +52,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run actionlint via Docker
         run: |
           set -euo pipefail
+          # `-ignore` suppresses a known false positive: `github.job_workflow_sha`
+          # is a valid GitHub Actions context property (the commit SHA of a
+          # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
+          # to pin the preflight checkout to the worker's own version. actionlint
+          # 1.7.7 is missing this property from its github-context type and wrongly
+          # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
+          # regex matched against the error message. Remove this once actionlint
+          # ships the property in its type.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
             rhysd/actionlint:1.7.7 \
-            -color
+            -color \
+            -ignore 'property "job_workflow_sha" is not defined'
 
   classify:
     # Per-PR diff classifier (pure shell, no third-party GHA action — same
     # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
     # outputs for downstream jobs:
-    #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE
-    #   behavioural_relevant — false if the PR does NOT touch any path in the
-    #                          behavioural block-list (script/entrypoint.sh,
+    #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE + CONTEXT.md
+    #   system_relevant — false if the PR does NOT touch any path in the
+    #                          system block-list (script/entrypoint.sh,
     #                          compose.yaml, Dockerfile.example,
     #                          Dockerfile.test-tools, build/run/exec/stop.sh,
-    #                          init.sh, upgrade.sh, test/behavioural/**,
-    #                          .github/workflows/**)
+    #                          dist/script/base/{init,upgrade}.sh,
+    #                          test/bats/system/**, .github/workflows/**)
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
     # See issue #317 for the full design and path-list rationale.
@@ -46,9 +90,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code_changed: ${{ steps.diff.outputs.code_changed }}
-      behavioural_relevant: ${{ steps.diff.outputs.behavioural_relevant }}
+      system_relevant: ${{ steps.diff.outputs.system_relevant }}
+      testtools_changed: ${{ steps.diff.outputs.testtools_changed }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -68,8 +113,13 @@ jobs:
           set -uo pipefail
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
             # push to main / tag push / workflow_dispatch — full suite.
-            echo "code_changed=true" >> "${GITHUB_OUTPUT}"
-            echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
+            # testtools_changed=false: the image jobs pull :main and self-heal
+            # via the tool probe, so a non-PR build needs no forced rebuild.
+            {
+              echo "code_changed=true"
+              echo "system_relevant=true"
+              echo "testtools_changed=false"
+            } >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           # Fork PRs (and some squash-merged histories) reach this step
@@ -85,35 +135,55 @@ jobs:
           BASE="origin/${BASE_REF}"
           # code_changed: anything outside the doc-only allow-list.
           if git diff --quiet "${BASE}"...HEAD \
-               -- ':!doc/**' ':!README.md' ':!LICENSE'; then
+               -- ':!doc/**' ':!README.md' ':!LICENSE' ':!CONTEXT.md'; then
             echo "code_changed=false" >> "${GITHUB_OUTPUT}"
           else
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           fi
-          # behavioural_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
+          # system_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
           # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
           # of these affects .env / compose.yaml generation or wrapper
-          # behaviour that the behavioural docker.sock-mounted compose
-          # service exercises end-to-end).
+          # behaviour that the system docker.sock-mounted compose
+          # service exercises end-to-end). The build_worker script dir +
+          # the build-worker self-test fixture are also here: the worker-
+          # selftest job consumes those scripts (its YAML plumbing / output
+          # contract) and builds that fixture, so a PR touching ONLY them --
+          # without any .github/workflows/** change -- must still re-run the
+          # System self-test instead of skipping it.
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
-                  'dockerfile/Dockerfile.example' \
+                  'dist/dockerfile/Dockerfile' \
                   'dockerfile/Dockerfile.test-tools' \
-                  'script/docker/wrapper/build.sh' \
-                  'script/docker/wrapper/run.sh' \
-                  'script/docker/wrapper/exec.sh' \
-                  'script/docker/wrapper/stop.sh' \
-                  'script/docker/wrapper/prune.sh' \
-                  'script/docker/wrapper/setup.sh' \
-                  'script/docker/lib/i18n.sh' \
-                  'script/docker/lib/**' \
-                  'test/behavioural/**' \
-                  'init.sh' 'upgrade.sh' \
+                  'dist/script/docker/wrapper/build.sh' \
+                  'dist/script/docker/wrapper/run.sh' \
+                  'dist/script/docker/wrapper/exec.sh' \
+                  'dist/script/docker/wrapper/stop.sh' \
+                  'dist/script/docker/wrapper/prune.sh' \
+                  'dist/script/docker/wrapper/setup.sh' \
+                  'dist/script/docker/lib/i18n.sh' \
+                  'dist/script/docker/lib/**' \
+                  'test/bats/system/**' \
+                  'script/ci/build_worker/**' \
+                  'test/fixtures/build-worker/**' \
+                  'dist/script/base/init.sh' \
+                  'dist/script/base/upgrade.sh' \
                   '.github/workflows/**'; then
-            echo "behavioural_relevant=false" >> "${GITHUB_OUTPUT}"
+            echo "system_relevant=false" >> "${GITHUB_OUTPUT}"
           else
-            echo "behavioural_relevant=true" >> "${GITHUB_OUTPUT}"
+            echo "system_relevant=true" >> "${GITHUB_OUTPUT}"
+          fi
+          # testtools_changed: does THIS PR modify the test-tools Dockerfile?
+          # The image jobs rebuild from source when it does (:main is stale for
+          # the PR). Computed here, where the checkout is fetch-depth: 0, so the
+          # three-dot merge-base resolves; the image jobs use a shallow
+          # (fetch-depth: 1) checkout where that diff misfires and reports every
+          # file as changed -> a spurious rebuild on every PR.
+          if git diff --quiet "${BASE}"...HEAD \
+               -- 'dockerfile/Dockerfile.test-tools'; then
+            echo "testtools_changed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "testtools_changed=true" >> "${GITHUB_OUTPUT}"
           fi
 
   shellcheck:
@@ -122,74 +192,272 @@ jobs:
     # A 30s shellcheck regression now surfaces in ~45s wall time instead
     # of waiting for the full bats suite inside the `test` job. The
     # `test` job passes --bats-only so the shellcheck phase doesn't run
-    # twice; local `make test` keeps the full pipeline.
+    # twice; local `just test` keeps the full pipeline.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run ShellCheck
-        run: ./script/ci/ci.sh --shellcheck-only
+        run: ./script/test/test.sh --shellcheck-only
 
-  hadolint:
-    # Dedicated Hadolint job (#376). Statically lints the two
-    # template-owned Dockerfiles. Hadolint historically only ran in
-    # downstream repos' Dockerfile `test` stages during their own
-    # builds; this job adds a lint pass for template's own
-    # Dockerfile.example + Dockerfile.test-tools so a regression to
-    # either surfaces here before downstream CI fans out.
+  doc-counts:
+    # Dedicated doc/test count drift gate (#864). doc/test/*.md figures and
+    # catalogue rows are GENERATED from the specs; this fails the PR when a
+    # branch adds or removes a @test without running `just test sync-docs`.
+    #
+    # Why a job of its own rather than a step in an existing one: the gate
+    # lives in the `just test` lint phase, but NO CI job runs that phase --
+    # the two lint jobs narrow to one tool (--shellcheck-only,
+    # --lint --hadolint) and every bats job sets BATS_ONLY=1, which skips
+    # it. So the local gate and the CI gate needed an explicit join, and
+    # this is it, calling the same driver the lint phase calls.
+    #
+    # Ungated on purpose (no `if: code_changed`): the catalogue can also be
+    # broken by editing doc/test/*.md by hand, which is not a code change.
+    # It is pure bash + diff on a plain runner, so it costs seconds and
+    # needs no buildx / test-tools image.
     needs: [actionlint, classify]
-    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Hadolint — Dockerfile.example
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: dockerfile/Dockerfile.example
-          config: .hadolint.yaml
+      - name: Run the doc/test count drift gate
+        run: ./script/test/test.sh --doc-counts-only
 
-      - name: Hadolint — Dockerfile.test-tools
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: dockerfile/Dockerfile.test-tools
-          config: .hadolint.yaml
-
-  bats-unit:
-    # Matrix shard of the unit suite (#377). Replaces the previous
-    # monolithic `test` job's unit phase. Round-robin partition over
-    # `find test/unit -name '*_spec.bats' | sort` keeps each shard's
-    # file count balanced enough at the current ~30 spec scale; weight
-    # by test count per spec is deferred (#377 out-of-scope).
+  lint-static:
+    # The rest of the `just test` lint phase (#866). doc-counts (#864) gave
+    # ONE lint of that phase a CI job; these are the others, which had
+    # none either and so gated nothing on a PR:
     #
-    # Shards run in parallel — the wall-time gain comes from cutting
-    # the pre-#376 5min `test` job (which serialised 1308 unit + 64
-    # integration + shellcheck) into 4 parallel jobs each ~1-2min.
-    # ci-rollup folds each matrix shard's result into a single
-    # `needs.bats-unit.result` so branch-protection sees one signal.
+    #   issueref          no transient #NNN in code comments (ADR-00000013)
+    #   adr-numbering     doc/adr/ duplicate-free + well-formed
+    #   stale-setup-conf  no legacy config/docker/setup.conf under dist/
+    #   readme-sync       localized READMEs still match README.md
+    #   home-literal      no concrete username in a home path under dist/ or
+    #                     dockerfile/ (ADR-00000024) -- joined the matrix on
+    #                     the day it was written, the point of the guard
+    #                     below
+    #   bash-source-guard no undefaulted BASH_SOURCE self-location read
+    #                     under dist/ or script/ -- likewise joined here on
+    #                     the day it was written
+    #   early-close-reader no `| head` / `| grep -q` under dist/ or script/
+    #                     -- a reader that stops reading turns a SUCCESSFUL
+    #                     match into the pipeline's failure under pipefail,
+    #                     and the answer is inverted rather than lost
+    #   derived-figures   the baseline stage set and the setup.conf section
+    #                     list, as documents repeat them, still match the
+    #                     code that defines them
+    #   i18n-orphan       no identifier-shaped token in a translation's code
+    #                     spans that README.md never names -- the inverse of
+    #                     readme-sync, which can only compare an English
+    #                     section against its translation and so cannot see
+    #                     a mechanism documented ONLY in a translation
+    #
+    # A matrix rather than one lint-static job running the whole phase:
+    # each entry is its own check ("lint-static (readme-sync)"), so the
+    # checks list says WHICH lint failed without opening a log, and
+    # fail-fast: false means one failure does not cancel the siblings and
+    # hide the rest. The cost of the split is one ~20s plain runner each --
+    # every driver here is pure bash over the checkout, so no buildx, no
+    # test-tools image, no compose. hadolint is NOT in this matrix: its
+    # binary lives only in the test-tools image, so it keeps its own job.
+    #
+    # Ungated on purpose (no `if: code_changed`), like doc-counts: the
+    # ADR-numbering lint reads doc/adr/ filenames and the README sync lint
+    # reads README.md + doc/readme/**, both of which classify scores as a
+    # doc-only change, so a code_changed gate would skip them on exactly
+    # the PR they exist to catch. A matrix shares one job-level `if:`, so
+    # the choice is all-or-nothing anyway.
+    #
+    # Adding a lint to the phase without adding it here fails the
+    # completeness guard in test/bats/unit/self_test_yaml_spec.bats, which
+    # reads test.sh's _LINT_TOOLS table -- that is what keeps the next
+    # lint from landing local-only the way these four did.
     needs: [actionlint, classify]
-    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/2', '2/2']
+        lint:
+          - issueref
+          - adr-numbering
+          - stale-setup-conf
+          - readme-sync
+          - home-literal
+          - bash-source-guard
+          - early-close-reader
+          - derived-figures
+          - i18n-orphan
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Run the ${{ matrix.lint }} lint
+        env:
+          LINT: ${{ matrix.lint }}
+        run: ./script/test/test.sh "--${LINT}-only"
+
+  hadolint:
+    # Dedicated Hadolint job (#376). Lints the two template-owned
+    # Dockerfiles (dist/dockerfile/Dockerfile +
+    # dockerfile/Dockerfile.test-tools) with dist/.hadolint.yaml.
+    # #650 / ADR-00000011: this job now runs the SAME driver
+    # (script/test/drivers/hadolint.sh, via `test.sh --hadolint-only`)
+    # that `just test` runs locally, instead of the hadolint-action. The
+    # driver is the single source of truth for the Dockerfile list +
+    # config, so local `just test` and this CI job can never drift. The
+    # driver needs the `hadolint` binary, which the test-tools image bakes
+    # in, so this job obtains that image (mirroring the bats jobs' #317 P2
+    # 3-layer fallback) and runs the driver inside it via the ci service.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        run: |
+          set -uo pipefail
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            # classify (fetch-depth: 0) already determined this PR changes
+            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
+            # source. Computing it here on the shallow (fetch-depth: 1)
+            # checkout misfired (no reachable merge-base) and rebuilt on every
+            # PR.
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
+            # Probe the pulled :main for the tools this run needs. The
+            # release-test-tools workflow republishes :main on a
+            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
+            # freshly-baked tool (e.g. kcov, baked in by the change behind
+            # release tag history) can be ABSENT from the :main we just
+            # pulled. On any missing tool, fall back to building locally
+            # from dockerfile/Dockerfile.test-tools (the same build the
+            # layer-1 / layer-3 path uses) -> self-correcting against a
+            # stale / racing / old :main regardless of cause. Extend
+            # REQUIRED_TOOLS as the image gains new required tools.
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            read -ra _required <<< "${REQUIRED_TOOLS}"
+            probe_ok=true
+            for _tool in "${_required[@]}"; do
+              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
+                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
+                echo "::warning::test-tools:main is missing '${_tool}'" \
+                     "(stale / racing republish); rebuilding from source"
+                probe_ok=false
+                break
+              fi
+            done
+            if [[ "${probe_ok}" == "true" ]]; then
+              echo "build_local=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          # Ownership stamp: cleanup has to ask "whose is this?" about an
+          # image compose does not track, and a tag alone answers only
+          # "what is it called". The GHA cache scope is deliberately NOT
+          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
+          # not by the image tag, so a per-run tag costs no cache.
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Run Hadolint via the driver (single source of truth)
+        run: ./script/test/test.sh --lint --hadolint
+
+      # ── Reclaim ──────────────────────────────────────────────────
+      # A unique name per run means the leftovers no longer die with the
+      # VM: a long-lived self-hosted host keeps them. Two layers cover
+      # each other -- this step removes exactly what THIS run created
+      # (`--run`), and sweeps CI-owned leftovers no teardown ever reached
+      # (`--stale`), which is the killed-runner case this step cannot
+      # cover for itself.
+      #
+      # `if: always()` because a job that FAILED halfway is the job most
+      # likely to have left something behind.
+      #
+      # Both layers are ownership-scoped. A blanket `docker system prune
+      # -a` here would destroy a concurrent job's in-flight build cache
+      # and images -- the naive fix for the leftover problem breaking the
+      # very thing the unique naming protects.
+      #
+      # 12h, not prune.sh's local defaults (networks 10m, images 24h):
+      # an artifact belonging to a LIVE run can be as old as the longest
+      # a job may run, and GitHub's per-job ceiling is 6h. The window has
+      # to sit ABOVE that ceiling or the sweep deletes work in flight;
+      # 12h is 2x it, and still collects the same day's garbage rather
+      # than letting it sit for a full day. 10m applied to a run-scoped
+      # image would delete a sibling job's tooling 11 minutes in.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  bats-fragile:
+    # The kcov-fragile unit specs, run in PLAIN mode (no COVERAGE), as a
+    # SINGLE job (#677). After #686 unified the coverage job onto the same
+    # alpine test-tools image, the old 4-shard `bats-unit` matrix and the
+    # 4-shard `coverage` matrix ran the SAME ~1991 unit specs twice per PR
+    # (8 parallel jobs), differing only by COVERAGE=1. The coverage matrix
+    # is now the PRIMARY unit gate (kcov over every non-fragile test); the
+    # only delta it cannot cover is the handful of tests it SKIPS via
+    # `[ "${COVERAGE:-0}" = 1 ] && skip` because kcov's ptrace wrapper
+    # perturbs them. This job runs exactly those fragile specs in plain
+    # mode, so the delta is preserved with ZERO double-run: every unit test
+    # runs SOMEWHERE (non-fragile under coverage/kcov, fragile here).
+    #
+    # The fragile set is computed at RUNTIME (test.sh --bats-fragile ->
+    # _fragile_unit_files greps for the skip guard), so a new fragile-skip
+    # in a 10th file is picked up automatically (a ci_spec guard asserts the
+    # current set). Same Obtain (probe-and-rebuild) pattern as the other
+    # jobs; ci-rollup folds the result into needs.bats-fragile.result.
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
         # Layer 1: PR touched Dockerfile.test-tools -> must rebuild from
         # source (the :main rolling tag still reflects the pre-PR state).
         # Layer 2: try pulling the rolling :main tag and re-tag locally;
@@ -200,42 +468,79 @@ jobs:
         # below take over with GHA cache.
         run: |
           set -uo pipefail
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            git fetch origin \
-              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
-              --depth=200 >/dev/null 2>&1 || true
-            if ! git diff --quiet \
-                 "origin/${BASE_REF}"...HEAD \
-                 -- dockerfile/Dockerfile.test-tools; then
-              echo "build_local=true" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            # classify (fetch-depth: 0) already determined this PR changes
+            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
+            # source. Computing it here on the shallow (fetch-depth: 1)
+            # checkout misfired (no reachable merge-base) and rebuilt on every
+            # PR.
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
           if docker pull --platform linux/amd64 \
                ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            docker tag \
-              ghcr.io/ycpss91255-docker/test-tools:main \
-              test-tools:local
-            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
+            # Probe the pulled :main for the tools this run needs. The
+            # release-test-tools workflow republishes :main on a
+            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
+            # freshly-baked tool (e.g. kcov, baked in by the change behind
+            # release tag history) can be ABSENT from the :main we just
+            # pulled. On any missing tool, fall back to building locally
+            # from dockerfile/Dockerfile.test-tools (the same build the
+            # layer-1 / layer-3 path uses) -> self-correcting against a
+            # stale / racing / old :main regardless of cause. Extend
+            # REQUIRED_TOOLS as the image gains new required tools.
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            read -ra _required <<< "${REQUIRED_TOOLS}"
+            probe_ok=true
+            for _tool in "${_required[@]}"; do
+              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
+                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
+                echo "::warning::test-tools:main is missing '${_tool}'" \
+                     "(stale / racing republish); rebuilding from source"
+                probe_ok=false
+                break
+              fi
+            done
+            if [[ "${probe_ok}" == "true" ]]; then
+              echo "build_local=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           echo "build_local=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Build test-tools:local (with GHA cache)
+      - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
-          tags: test-tools:local
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          # Ownership stamp: cleanup has to ask "whose is this?" about an
+          # image compose does not track, and a tag alone answers only
+          # "what is it called". The GHA cache scope is deliberately NOT
+          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
+          # not by the image tag, so a per-run tag costs no cache.
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run Bats unit shard ${{ matrix.shard }}
-        env:
-          TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh --bats-unit-shard ${{ matrix.shard }}
+      - name: Run Bats kcov-fragile specs (plain mode)
+        run: ./script/test/test.sh --bats-fragile
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-integration:
     # Dedicated job for the 64 integration specs (#377). Pre-#377 these
@@ -247,94 +552,395 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
         run: |
           set -uo pipefail
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            git fetch origin \
-              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
-              --depth=200 >/dev/null 2>&1 || true
-            if ! git diff --quiet \
-                 "origin/${BASE_REF}"...HEAD \
-                 -- dockerfile/Dockerfile.test-tools; then
-              echo "build_local=true" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            # classify (fetch-depth: 0) already determined this PR changes
+            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
+            # source. Computing it here on the shallow (fetch-depth: 1)
+            # checkout misfired (no reachable merge-base) and rebuilt on every
+            # PR.
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
           if docker pull --platform linux/amd64 \
                ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            docker tag \
-              ghcr.io/ycpss91255-docker/test-tools:main \
-              test-tools:local
-            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
+            # Probe the pulled :main for the tools this run needs. The
+            # release-test-tools workflow republishes :main on a
+            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
+            # freshly-baked tool (e.g. kcov, baked in by the change behind
+            # release tag history) can be ABSENT from the :main we just
+            # pulled. On any missing tool, fall back to building locally
+            # from dockerfile/Dockerfile.test-tools (the same build the
+            # layer-1 / layer-3 path uses) -> self-correcting against a
+            # stale / racing / old :main regardless of cause. Extend
+            # REQUIRED_TOOLS as the image gains new required tools.
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            read -ra _required <<< "${REQUIRED_TOOLS}"
+            probe_ok=true
+            for _tool in "${_required[@]}"; do
+              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
+                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
+                echo "::warning::test-tools:main is missing '${_tool}'" \
+                     "(stale / racing republish); rebuilding from source"
+                probe_ok=false
+                break
+              fi
+            done
+            if [[ "${probe_ok}" == "true" ]]; then
+              echo "build_local=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           echo "build_local=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Build test-tools:local (with GHA cache)
+      - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
-          tags: test-tools:local
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          # Ownership stamp: cleanup has to ask "whose is this?" about an
+          # image compose does not track, and a tag alone answers only
+          # "what is it called". The GHA cache scope is deliberately NOT
+          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
+          # not by the image tag, so a per-run tag costs no cache.
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
       - name: Run Bats integration suite
+        run: ./script/test/test.sh --bats-integration
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  compute-shards:
+    # Dynamic coverage shard COUNT (#725). The total is `vars.CI_SHARDS`
+    # (default 8 when unset/non-numeric), clamped to [1, 12] -- a backstop so
+    # an over-large value cannot push the matrix far past the concurrent-job
+    # budget (excess shards just queue, wasting per-shard image-pull + kcov
+    # startup ~30-60s fixed overhead). Emits a JSON array `["1/N",...,"N/N"]`
+    # the coverage matrix consumes via fromJSON. A repo variable lets the
+    # count be tuned per environment (e.g. set to a runner fleet size if base
+    # moves to self-hosted) WITHOUT editing this workflow; "shard to runner
+    # count" is not runtime-detectable on GitHub-hosted, so a config var is
+    # the source of truth.
+    needs: actionlint
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.gen.outputs.shards }}
+    steps:
+      - id: gen
         env:
-          TEST_TOOLS_IMAGE: test-tools:local
-        run: ./script/ci/ci.sh --bats-integration
+          CI_SHARDS: ${{ vars.CI_SHARDS }}
+        run: |
+          set -euo pipefail
+          n="${CI_SHARDS:-8}"
+          [[ "${n}" =~ ^[0-9]+$ ]] || n=8
+          (( n < 1 )) && n=1
+          (( n > 12 )) && n=12
+          shards="$(seq 1 "${n}" | sed "s|.*|\"&/${n}\"|" | paste -sd, -)"
+          echo "shards=[${shards}]" >> "${GITHUB_OUTPUT}"
+          echo "coverage shard count = ${n}: [${shards}]"
 
   coverage:
-    # Kcov coverage now main-push-only (#377). Pre-#377 the test job
-    # always ran the Codecov upload step but never with COVERAGE=1 on
-    # PRs (kcov 2-5x slowdown was too expensive), so PR runs produced
-    # no coverage data and the badge only updated post-merge via the
-    # main-push self-test run. This makes that implicit policy explicit:
-    # coverage runs ONLY on push to main (not on PRs, not on tags),
-    # and is NOT in ci-rollup's `needs:` so a coverage hiccup never
-    # blocks a PR merge.
-    needs: [actionlint, classify]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Sharded kcov coverage -- the PRIMARY unit gate and an ENFORCED PR gate
+    # (#615, ADR-00000008; amends #377). #377 left this path fully serial
+    # (~8-12 min single kcov job) and sidestepped the cost by making it
+    # main-push-only + non-gating. #615 reverses that: the kcov run is split
+    # into a matrix of shards via _shard_unit_files. #677 makes it the
+    # primary unit gate (the old 4-shard bats-unit matrix that double-ran
+    # the same specs is replaced by a single plain bats-fragile job), and
+    # the partition is now greedy weight-balanced by per-spec @test count so
+    # the slowest shard approaches total/N instead of the round-robin floor.
+    # It runs on PRs, and joins ci-rollup's `needs:` so a kcov failure
+    # blocks merge. Each shard uploads its kcov report (HTML + cobertura)
+    # as a CI artifact; the dedicated coverage-gate job downloads every
+    # shard artifact and merges them locally into one line-weighted
+    # project rate (self-hosted, no external SaaS -- ADR-00000008). The
+    # matrix rollup folds every shard's result into needs.coverage.result,
+    # so ci-rollup sees one signal.
+    #
+    # #686: kcov is now source-built into the shared alpine test-tools
+    # image, so each shard obtains that one image (same 3-layer fallback as
+    # bats-unit) instead of the old debian kcov/kcov image that apt-
+    # installed ~24 packages every shard every PR. The per-shard apt
+    # rebuild (and its APT_MIRROR_DEBIAN fragility) is gone.
+    needs: [actionlint, classify, compute-shards]
+    if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Dynamic shard total from compute-shards (vars.CI_SHARDS, default 8),
+        # replacing the hardcoded 4 (#725). _shard_unit_files / test.sh
+        # --coverage-shard accept any total T.
+        shard: ${{ fromJSON(needs.compute-shards.outputs.shards) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Run CI with Kcov coverage
-        run: ./script/ci/ci.sh --coverage
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Upload coverage to Codecov
-        if: ${{ always() }}
-        uses: codecov/codecov-action@v6
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # #686: the coverage service now runs on the SAME pre-baked alpine
+        # test-tools image as bats-unit (kcov is source-built into it), so
+        # this job obtains it via the identical 3-layer fallback the
+        # bats-unit / bats-integration jobs use — no more debian kcov/kcov
+        # image, no per-shard apt-install, no APT_MIRROR_DEBIAN. Layer 1:
+        # PR touched Dockerfile.test-tools -> rebuild from source. Layer 2:
+        # pull the rolling :main tag and re-tag locally (hot path). Layer
+        # 3: pull failed -> build below with GHA cache.
+        run: |
+          set -uo pipefail
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            # classify (fetch-depth: 0) already determined this PR changes
+            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
+            # source. Computing it here on the shallow (fetch-depth: 1)
+            # checkout misfired (no reachable merge-base) and rebuilt on every
+            # PR.
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if docker pull --platform linux/amd64 \
+               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
+            # Probe the pulled :main for the tools this run needs. The
+            # release-test-tools workflow republishes :main on a
+            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
+            # freshly-baked tool (e.g. kcov, baked in by the change behind
+            # release tag history) can be ABSENT from the :main we just
+            # pulled. On any missing tool, fall back to building locally
+            # from dockerfile/Dockerfile.test-tools (the same build the
+            # layer-1 / layer-3 path uses) -> self-correcting against a
+            # stale / racing / old :main regardless of cause. Extend
+            # REQUIRED_TOOLS as the image gains new required tools.
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            read -ra _required <<< "${REQUIRED_TOOLS}"
+            probe_ok=true
+            for _tool in "${_required[@]}"; do
+              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
+                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
+                echo "::warning::test-tools:main is missing '${_tool}'" \
+                     "(stale / racing republish); rebuilding from source"
+                probe_ok=false
+                break
+              fi
+            done
+            if [[ "${probe_ok}" == "true" ]]; then
+              echo "build_local=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v6
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./coverage
-          fail_ci_if_error: false
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          # Ownership stamp: cleanup has to ask "whose is this?" about an
+          # image compose does not track, and a tag alone answers only
+          # "what is it called". The GHA cache scope is deliberately NOT
+          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
+          # not by the image tag, so a per-run tag costs no cache.
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
 
-  integration-e2e:
-    name: Integration E2E (init.sh → build → run → exec → stop)
-    needs: [actionlint, classify]
+      - name: Restore shard-weights cache (time-balanced partition)
+        # The greedy-LPT partition (_shard_unit_files / _spec_weight) weights
+        # specs by recorded kcov seconds. Restore the cached weights to the
+        # in-repo path _spec_weight reads by default, so the in-container
+        # coverage run (the repo is mounted at /source) picks them up with no
+        # -e plumbing and every shard computes the identical exhaustive +
+        # disjoint partition. A miss leaves no file -> @test-count fallback.
+        # Read-only here; coverage-gate refreshes it on main pushes.
+        uses: actions/cache/restore@v6
+        with:
+          path: test/bats/.shard-weights
+          key: shard-weights-${{ github.run_id }}
+          restore-keys: |
+            shard-weights-
+
+      - name: Run kcov coverage shard ${{ matrix.shard }}
+        run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
+
+      - name: Upload shard coverage artifact
+        # Self-hosted, no-SaaS merge (ADR-00000008, self-hosted amendment):
+        # instead of pushing the shard's report to an external coverage
+        # SaaS, publish kcov's
+        # output dir (HTML + cobertura.xml) as a CI artifact. The
+        # coverage-gate job downloads every shard's artifact and merges
+        # them locally into one line-weighted project rate -- no coverage
+        # data leaves CI. strategy.job-index keys the per-shard name.
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-shard-${{ strategy.job-index }}
+          path: ./coverage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  coverage-gate:
+    # Self-hosted coverage-floor gate (ADR-00000008, self-hosted
+    # amendment; supersedes the old external-SaaS merge+status gate).
+    # Downloads
+    # every coverage shard's artifact, merges the per-shard kcov cobertura
+    # reports into ONE line-weighted project rate, and fails when it is
+    # below COVERAGE_MIN. CI-agnostic: the script reads cobertura files and
+    # sets an exit code, so the SAME script gates under GitHub Actions and
+    # (after the move) GitLab CI. Joins ci-rollup's needs:, so a coverage
+    # drop below the floor blocks merge -- no branch-protection change.
+    needs: [classify, coverage]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Download all coverage shard artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-shard-*
+          path: ./coverage-shards
+
+      - name: Coverage floor gate
+        # COVERAGE_MIN defaults inside the script (just under the current
+        # measured rate so it does not false-fail today; ratchets up).
+        # download-artifact lays each shard out under its own
+        # ./coverage-shards/coverage-shard-<idx>/ subdir. kcov can write
+        # BOTH a per-run AND a kcov-merged cobertura.xml inside one run's
+        # output, so pick EXACTLY ONE report per shard subdir (the merged
+        # one if present, else the first found) -- passing both to the gate
+        # would double-count that shard. The script then sums covered/valid
+        # across the one-per-shard set and emits the merged % to
+        # $GITHUB_STEP_SUMMARY.
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          reports=()
+          for shard_dir in ./coverage-shards/*/; do
+            merged="${shard_dir}kcov-merged/cobertura.xml"
+            if [[ -f "${merged}" ]]; then
+              reports+=("${merged}")
+              continue
+            fi
+            for xml in "${shard_dir}"**/cobertura.xml; do
+              reports+=("${xml}")
+              break
+            done
+          done
+          if [[ ${#reports[@]} -eq 0 ]]; then
+            echo "no cobertura.xml found under ./coverage-shards" >&2
+            exit 1
+          fi
+          printf 'coverage report: %s\n' "${reports[@]}"
+          bash ./script/test/drivers/coverage_gate.sh "${reports[@]}"
+
+      - name: Merge shard timings into the weights file
+        # Each shard's artifact carries a timings.tsv (per-spec kcov seconds
+        # from _junit_to_timings). Merge them all into one weights file so the
+        # NEXT run's partition is time-balanced. Harmless on a first run with
+        # no timings.tsv yet (yields an empty file -> @test-count fallback).
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bash ./script/test/drivers/coverage_gate.sh --merge-timings \
+            test/bats/.shard-weights ./coverage-shards/*/timings.tsv
+          echo "merged $(grep -c . test/bats/.shard-weights || true) spec timings"
+
+      - name: Save shard-weights cache (main-push only)
+        # Only authoritative main-branch pushes refresh the shared weights;
+        # PR runs stay read-only so PR-runner noise never poisons them. The
+        # run-id key always creates a fresh entry; the coverage restore step's
+        # `shard-weights-` restore-keys prefix then picks the most recent.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: test/bats/.shard-weights
+          key: shard-weights-${{ github.run_id }}
+
+  acceptance:
+    name: Acceptance (${{ matrix.platform }})
+    needs: [actionlint, classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    # Acceptance level (ISTQB, ADR-00000018): verify what the downstream
+    # CONSUMER receives -- scaffold a synthesized downstream repo via
+    # init.sh, then drive the delivered framework + its UX (`just docker`
+    # / `just base` / `just template` verbs, help, completion, generated
+    # layout) from the consumer's chair (UAT + OAT). This is distinct from
+    # the `system` job, which exercises base's OWN image lifecycle +
+    # build-gate (System level). See doc/test/acceptance.md.
+    #
+    # A2 (#603): verify the init.sh -> build -> run -> exec -> stop
+    # runnability contract on BOTH arches via native runners.
+    # Static 2-entry matrix mirroring the platform->runner convention in
+    # build-worker / publish-worker / release-test-tools (#587); a shared
+    # platform->runner single-source is a follow-up in that umbrella.
+    # ci-rollup aggregates the matrixed job through
+    # needs.acceptance.result (all shards must succeed), so no
+    # rollup change is needed.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            hardware: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            hardware: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        # Use the docker driver (not docker-container) so test-tools:local
-        # lives in the host docker daemon's image store. The subsequent
+        # Use the docker driver (not docker-container) so the run-scoped
+        # test-tools image lives in the host docker daemon's image store. The subsequent
         # `./build.sh test` invokes `docker compose build`, whose
         # `FROM ${TEST_TOOLS_IMAGE}` lookup hits the host daemon — with
         # docker-container, buildx would have its own isolated store and
@@ -348,54 +954,67 @@ jobs:
         with:
           driver: docker
 
-      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
         # Inline rebuild on layers 1 + 3 because the docker driver above
         # cannot use docker/build-push-action's GHA cache. Plain
         # `docker build` matches the pre-P2 behaviour in this job; the
         # net effect of P2 here is the hot path (layer 2) skipping the
-        # rebuild entirely.
+        # rebuild entirely. The PR-changed-Dockerfile decision comes from
+        # classify (fetch-depth: 0) -- this job's shallow checkout cannot
+        # compute it without misfiring.
         run: |
           set -uo pipefail
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            git fetch origin \
-              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
-              --depth=200 >/dev/null 2>&1 || true
-            if ! git diff --quiet \
-                 "origin/${BASE_REF}"...HEAD \
-                 -- dockerfile/Dockerfile.test-tools; then
-              docker build \
-                -t test-tools:local \
-                -f dockerfile/Dockerfile.test-tools .
-              exit 0
-            fi
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            docker build \
+              --label "base.ci.run=${CI_RUN_KEY}" \
+              -t "${TEST_TOOLS_IMAGE}" \
+              -f dockerfile/Dockerfile.test-tools .
+            exit 0
           fi
-          if docker pull --platform linux/amd64 \
+          if docker pull --platform ${{ matrix.platform }} \
                ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            docker tag \
-              ghcr.io/ycpss91255-docker/test-tools:main \
-              test-tools:local
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
             exit 0
           fi
           docker build \
-            -t test-tools:local \
+            --label "base.ci.run=${CI_RUN_KEY}" \
+            -t "${TEST_TOOLS_IMAGE}" \
             -f dockerfile/Dockerfile.test-tools .
 
       - name: Create temp repo and run init.sh
         run: |
           set -euo pipefail
           TMP_ROOT="$(mktemp -d)"
-          REPO_NAME="e2e_test"
+          # The scaffolded directory's BASENAME becomes IMAGE_NAME (the
+          # [image] @basename rule), and IMAGE_NAME is what the image tag
+          # (${DOCKER_HUB_USER}/${IMAGE_NAME}:<stage>), the container name
+          # (${USER_NAME}-${IMAGE_NAME}) and the compose project are all
+          # built from -- so keying this ONE name to the run makes all
+          # three unique. mktemp -d alone does not: it randomises the
+          # PARENT, which no docker name is derived from.
+          REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"
           REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
           mkdir -p "${REPO_DIR}/.base"
 
-          # Mirror current template into the synthetic repo
+          # Mirror current template into the synthetic repo. A real vendored
+          # subtree never carries `.git` (the consumer's `.git` lives at the
+          # repo root, outside the subtree); `cp -a` of the checkout copies
+          # its `.git`, which the self-run guard (ADR-00000011 sec.8) reads as
+          # "this is the base source". Strip it so `.base/` is a genuine
+          # subtree and init.sh runs.
           cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/.base/"
+          rm -rf "${REPO_DIR}/.base/.git"
 
           cd "${REPO_DIR}"
-          bash .base/init.sh
+          bash .base/dist/script/base/init.sh
 
           # Sanity: verify symlinks resolve and core files exist.
           # Post-#330: wrappers live under script/; #546: the root user
@@ -404,107 +1023,489 @@ jobs:
             && test -L script/exec.sh && test -L script/stop.sh
           test -L script/setup_tui.sh
           test -L justfile
-          test -f Dockerfile && test -f compose.yaml && test -f config/docker/setup.conf
+          test -f Dockerfile && test -f compose.yaml && test -f .setup.conf
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
+          echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
-      - name: Build test stage (script/build.sh test)
+      - name: Install just (container-ops entry point)
+        # The e2e job drives the runnability contract through the SAME
+        # `just` verbs downstream users invoke (post-#573 the documented
+        # entry is `just`), so a broken script/docker/justfile is caught
+        # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
+        # call ./script/test/test.sh directly and need no just. (The official
+        # `just.systems/install.sh` returns 403 from GHA runners, so use
+        # the maintained setup action instead.)
+        uses: extractions/setup-just@v4
+
+      - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
-        env:
-          # build.sh skips its internal test-tools:local build when this
-          # env is set (#317 P2). The pre-built image from the Obtain
-          # step above is already loaded into the host's docker daemon,
-          # so `docker compose build`'s Dockerfile.example `FROM
-          # ${TEST_TOOLS_IMAGE}` resolves locally without re-running
-          # the dockerfile/Dockerfile.test-tools build.
-          TEST_TOOLS_IMAGE: test-tools:local
+        # build.sh skips its internal test-tools build when TEST_TOOLS_IMAGE
+        # is set (#317 P2), and the workflow-level env sets it for every job.
+        # The pre-built image from the Obtain step above is already loaded
+        # into the host's docker daemon, so `docker compose build`'s
+        # Dockerfile.example `FROM ${TEST_TOOLS_IMAGE}` resolves locally
+        # without re-running the dockerfile/Dockerfile.test-tools build.
         run: |
-          ./script/build.sh test
+          just docker build test
 
-      - name: Build devel stage
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          ./script/build.sh
-
-      - name: Run container in detach mode and exec into it
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          ./script/run.sh -d
-          # Verify the container is up and reachable via exec.sh
-          ./script/exec.sh echo "exec.sh OK from CI"
-          ./script/exec.sh whoami
-
-      - name: Stop and verify cleanup
+      - name: Build devel stage (just docker build)
         working-directory: ${{ env.REPO_DIR }}
         run: |
-          ./script/stop.sh
-          # No project containers should remain
-          if docker ps --format '{{.Names}}' | grep -q '^e2e_test$'; then
-            echo "ERROR: container still running after stop.sh"
-            docker ps
+          just docker build
+
+      - name: Run container detached and assert the runnability contract
+        working-directory: ${{ env.REPO_DIR }}
+        # A1 (#579): assert results, don't just run steps. The v0.41.0
+        # user-args bug made `whoami` print `initial` yet the job stayed
+        # green because nothing checked the output.
+        run: |
+          set -euo pipefail
+          # The configured user is host-detected by setup.sh and cached in
+          # .env.generated; read it rather than hardcoding the runner's.
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?USER_NAME missing from .env.generated}"
+          echo "configured USER_NAME=${USER_NAME}"
+
+          just docker run -d
+          just docker exec echo "just docker exec OK from CI"
+
+          # Derive the container name at runtime (compose names it
+          # ${USER_NAME}-${IMAGE_NAME}-<svc>; IMAGE_NAME is the scaffolded
+          # repo dir). Filtering by the run-scoped repo name avoids
+          # reconstructing the full host-detected name -- and, unlike the
+          # bare `e2e_test` it replaces, cannot read a CONCURRENT run's
+          # container as this run's.
+          cname="$(docker ps --filter "name=${REPO_NAME}" --filter 'status=running' \
+                     --format '{{.Names}}' | head -n1)"
+
+          # (2) container did NOT insta-exit (the entrypoint set -u class).
+          if [[ -z "${cname}" ]]; then
+            echo "ERROR: no running ${REPO_NAME} container after just docker run -d"
+            docker ps -a
             exit 1
           fi
 
-  behavioural:
-    name: Behavioural Test (runtime-test smoke gate, #249)
+          # (1) the in-container user is the configured one, not the
+          # v0.41.0 'initial' bug nor 'root'.
+          who="$(just docker exec id -un | tr -d '\r' | tail -n1)"
+          echo "id -un inside container: ${who}"
+          if [[ "${who}" != "${USER_NAME}" ]]; then
+            echo "ERROR: container user '${who}' != configured '${USER_NAME}'"
+            exit 1
+          fi
+
+          # (3) the ENTRYPOINT actually ran -- the wired entrypoint is
+          # /entrypoint.sh (Dockerfile ENTRYPOINT ["/entrypoint.sh"]).
+          path="$(docker inspect -f '{{.Path}}' "${cname}")"
+          echo "container Path: ${path}"
+          if [[ "${path}" != "/entrypoint.sh" ]]; then
+            echo "ERROR: container entrypoint '${path}' != /entrypoint.sh"
+            exit 1
+          fi
+
+          # (4) the ~/work workspace mount is present and writable inside.
+          # Use simple per-call argv (not `just docker exec bash -c '<compound>'`,
+          # whose quoting does not survive just's `{{args}}` splitting) and
+          # an absolute path (the mount lands at /home/${USER_NAME}/work).
+          work="/home/${USER_NAME}/work"
+          just docker exec test -d "${work}"
+          just docker exec touch "${work}/.e2e_probe"
+          just docker exec rm -f "${work}/.e2e_probe"
+
+      - name: Stop and assert full teardown (container + network gone)
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euo pipefail
+          just docker stop
+          # (5a) no project container remains.
+          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
+            echo "ERROR: a ${REPO_NAME} container remains after just docker stop"
+            docker ps -a
+            exit 1
+          fi
+          # (5b) the compose project's default network is gone. `compose
+          # up` creates ${DOCKER_HUB_USER}-${REPO_NAME}_default even under
+          # network_mode: host; `compose down` (run by stop.sh) removes it.
+          if docker network ls --format '{{.Name}}' | grep -q "${REPO_NAME}_default"; then
+            echo "ERROR: a ${REPO_NAME} project network remains after just docker stop"
+            docker network ls
+            exit 1
+          fi
+
+      # The steps below (#769) extend the runnability contract beyond the
+      # build / run -d / exec / stop core: each remaining downstream `just`
+      # verb is driven with REAL execution (not --dry-run) and asserted on a
+      # real effect (in-container output / regenerated artifact / removed
+      # resource / verdict line). setup-tui (the interactive TUI) is
+      # intentionally NOT exercised here -- driving it for real needs a
+      # pseudo-TTY; it stays covered by the unit tui_spec.
+      - name: Run foreground command variant and assert auto-cleanup (#386 / #769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just docker run <cmd>` (no -d) is the foreground command variant:
+        # it brings the devel service up, execs the CMD, then the #386
+        # auto-down tears the project down on exit. Assert BOTH the real
+        # in-container effect (the CMD ran as the configured user) AND that
+        # the foreground auto-cleanup removed the container + project network.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?USER_NAME missing from .env.generated}"
+
+          # QUIET=1 mutes the pre-run config summary so the captured stdout is
+          # the in-container `id -un` output. </dev/null guards against any
+          # stdin read.
+          who="$(QUIET=1 just docker run id -un </dev/null 2>/dev/null \
+                   | tr -d '\r' | tail -n1)"
+          echo "foreground run id -un: ${who}"
+          if [[ "${who}" != "${USER_NAME}" ]]; then
+            echo "ERROR: foreground run ran as '${who}', expected '${USER_NAME}'"
+            exit 1
+          fi
+
+          # #386 foreground auto-down: no container + no project network survive.
+          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
+            echo "ERROR: foreground run left a ${REPO_NAME} container behind"
+            docker ps -a
+            exit 1
+          fi
+          if docker network ls --format '{{.Name}}' | grep -q "${REPO_NAME}_default"; then
+            echo "ERROR: foreground run left a ${REPO_NAME} project network behind"
+            docker network ls
+            exit 1
+          fi
+
+      - name: Build + run in one step via `just docker start` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just docker start` is build (cached here) + a foreground `run` in
+        # one step (the recipe forwards no CMD, so the devel service comes up,
+        # the attached shell reads EOF from the non-interactive stdin and
+        # exits, then #386 auto-down cleans up). NOTE: the recipe is
+        # build-then-run, not a docker-native `start` of a stopped container.
+        # Assert the composite real effect: the devel image is present (build
+        # half ran) and nothing leaks (foreground run half cleaned up).
+        run: |
+          set -euo pipefail
+          just docker start </dev/null
+          if ! docker images --format '{{.Repository}}:{{.Tag}}' \
+               | grep -q "${REPO_NAME}"; then
+            echo "ERROR: just docker start did not leave a built ${REPO_NAME} image"
+            docker images
+            exit 1
+          fi
+          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
+            echo "ERROR: just docker start left a container behind (auto-down failed)"
+            docker ps -a
+            exit 1
+          fi
+
+      - name: Regenerate derived artifacts via `just docker setup apply` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # Explicit setup re-run: delete the two derived artifacts
+        # (.env.generated + compose.yaml) and assert `setup apply` regenerates
+        # them from setup.conf + host detection.
+        run: |
+          set -euo pipefail
+          test -f .env.generated && test -f compose.yaml
+          rm -f .env.generated compose.yaml
+          just docker setup apply
+          if [[ ! -f .env.generated || ! -f compose.yaml ]]; then
+            echo "ERROR: setup apply did not regenerate .env.generated + compose.yaml"
+            ls -la
+            exit 1
+          fi
+          grep -q 'services:' compose.yaml
+          # shellcheck disable=SC1091
+          source ./.env.generated
+          : "${USER_NAME:?regenerated .env.generated missing USER_NAME}"
+
+      - name: Real prune via `just docker prune` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # Exercise a REAL prune (not --dry-run): create an unused throwaway
+        # network, then `just docker prune --networks` with a tiny `until`
+        # window and assert the wrapper's real `docker network prune`
+        # removed it.
+        #
+        # The probe's NAME is run-scoped because two concurrent runs
+        # creating one fixed name is a hard failure ("network with name
+        # ... already exists"), not a silent share. The prune itself stays
+        # daemon-wide, and that is deliberate: `docker network prune`
+        # removes only networks with NO container attached at all (a
+        # STOPPED container still counts as a user), so the worst it can do
+        # to a sibling is delete an idle project network that compose
+        # recreates on its next invocation. That bounded blast radius is
+        # what separates it from an image / system prune, which must never
+        # run unscoped here.
+        run: |
+          set -euo pipefail
+          probe="e2e_prune_probe-ci-${CI_RUN_KEY}"
+          docker network create "${probe}" >/dev/null
+          # until=1s prunes networks created more than 1s ago; sleep so the
+          # probe qualifies deterministically.
+          sleep 2
+          just docker prune --networks --until 1s
+          if docker network ls --format '{{.Name}}' | grep -qx "${probe}"; then
+            echo "ERROR: just docker prune --networks did not remove the probe network"
+            docker network ls
+            exit 1
+          fi
+
+      - name: Check for base updates via `just base update` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        # `just base update` runs upgrade.sh --check against the published base
+        # tags (needs network). The recipe masks the apt-style "update
+        # available" exit 1 to 0, so assert a real verdict line appears rather
+        # than just trusting exit 0.
+        run: |
+          set -euo pipefail
+          out="$(just base update 2>&1)"
+          echo "${out}"
+          if ! echo "${out}" \
+               | grep -Eq 'Already up to date|Update available|Local is ahead'; then
+            echo "ERROR: just base update produced no version verdict"
+            exit 1
+          fi
+
+      - name: Install shell completions via `just base completions` (#769)
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          # Isolate the completion target dir so the assertion is hermetic and
+          # the installer never touches the runner's real HOME.
+          XDG_DATA_HOME: ${{ env.REPO_DIR }}/.xdg-data
+        run: |
+          set -euo pipefail
+          target="${XDG_DATA_HOME}/bash-completion/completions/just"
+          just base completions install --shell bash
+          if [[ ! -s "${target}" ]]; then
+            echo "ERROR: completions install wrote no (or empty) loader at ${target}"
+            exit 1
+          fi
+          grep -q 'JUST_COMPLETE' "${target}"
+          # The dynamic completer the loader invokes must itself emit non-empty
+          # completion output against the layered justfile.
+          comp="$(JUST_COMPLETE=bash just 2>/dev/null || true)"
+          if [[ -z "${comp}" ]]; then
+            echo "ERROR: 'just' produced no completion output"
+            exit 1
+          fi
+          # Round-trip: uninstall removes the loader.
+          just base completions uninstall --shell bash
+          if [[ -e "${target}" ]]; then
+            echo "ERROR: completions uninstall did not remove ${target}"
+            exit 1
+          fi
+
+      - name: Scaffold a repo-local command group via `just template new` (#785)
+        working-directory: ${{ env.REPO_DIR }}
+        # Acceptance coverage (#785 / QA item 10): `new.sh` is unit-tested in
+        # isolation, but the `just template new <name>` RECIPE -- the
+        # `template` namespace wiring and the consumer symlink chain that
+        # resolves it -- is exercised nowhere. Drive the REAL recipe in the
+        # scaffolded consumer and assert the produced consumer artifact: the
+        # scaffolded group dir + files, the registry entry, and that the new
+        # group is actually dispatchable through `just` afterwards (UAT).
+        run: |
+          set -euo pipefail
+          name="deploy"
+          # Guard against a false green: the group must not pre-exist.
+          if [[ -e "script/local/${name}" ]]; then
+            echo "ERROR: script/local/${name} already exists before scaffolding"
+            exit 1
+          fi
+
+          just template new "${name}"
+
+          # (1) the scaffolded group dir + its two files exist, and the
+          # command script is executable.
+          if [[ ! -f "script/local/${name}/justfile.${name}" \
+                || ! -x "script/local/${name}/${name}.sh" ]]; then
+            echo "ERROR: just template new did not scaffold script/local/${name}/"
+            ls -la "script/local/${name}" || true
+            exit 1
+          fi
+          # (2) __NAME__ placeholders were substituted (no leftover token).
+          if grep -RqF '__NAME__' "script/local/${name}/"; then
+            echo "ERROR: scaffolded files still contain the __NAME__ placeholder"
+            exit 1
+          fi
+          # (3) the group is registered in the repo-owned registry.
+          if ! grep -qF "mod? ${name} '${name}/justfile.${name}'" \
+               script/local/justfile.local; then
+            echo "ERROR: group '${name}' not registered in script/local/justfile.local"
+            cat script/local/justfile.local || true
+            exit 1
+          fi
+          # (4) the freshly-registered group resolves through the consumer
+          # entry: `just --list ${name}` lists the scaffolded module's
+          # example `hello` recipe (proves the module + registry wiring, no
+          # side effect).
+          if ! just --list "${name}" | grep -qw 'hello'; then
+            echo "ERROR: 'just --list ${name}' does not resolve the scaffolded module"
+            just --list "${name}" || true
+            just --list || true
+            exit 1
+          fi
+          # (5) the strongest consumer-chair assertion: actually RUN the
+          # scaffolded example recipe end-to-end -- it cd's into the module
+          # dir and execs the generated ./${name}.sh, whose __NAME__ was
+          # substituted, so the greeting must name the group.
+          out="$(just "${name}" hello)"
+          echo "${out}"
+          if [[ "${out}" != *"hello from the ${name} group"* ]]; then
+            echo "ERROR: 'just ${name} hello' did not run the scaffolded recipe"
+            exit 1
+          fi
+
+      # The scaffolded consumer's image / container / network carry no
+      # ownership LABEL -- downstream tooling named them, base did not
+      # build them. The run key in their name is the proof instead, which
+      # is why the scaffold directory is keyed to the run at all.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  system:
+    name: System Regression Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify]
-    # P3 (#317): gate on the narrower `behavioural_relevant` output so
+    # P3 (#317): gate on the narrower `system_relevant` output so
     # PRs that change pure lint / unit-test / doc paths (already covered
     # by `test`) don't burn the docker.sock-mounted compose run. The
     # block-list driving this output is in the `classify` job above;
     # gotcha-5 extends it to setup.sh + lib/** + i18n.sh + prune.sh.
-    if: needs.classify.outputs.behavioural_relevant == 'true'
+    if: needs.classify.outputs.system_relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Obtain test-tools:local (#317 P2 3-layer fallback)
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
         run: |
           set -uo pipefail
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            git fetch origin \
-              "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
-              --depth=200 >/dev/null 2>&1 || true
-            if ! git diff --quiet \
-                 "origin/${BASE_REF}"...HEAD \
-                 -- dockerfile/Dockerfile.test-tools; then
-              echo "build_local=true" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
+          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
+            # classify (fetch-depth: 0) already determined this PR changes
+            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
+            # source. Computing it here on the shallow (fetch-depth: 1)
+            # checkout misfired (no reachable merge-base) and rebuilt on every
+            # PR.
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
           if docker pull --platform linux/amd64 \
                ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            docker tag \
-              ghcr.io/ycpss91255-docker/test-tools:main \
-              test-tools:local
-            echo "build_local=false" >> "${GITHUB_OUTPUT}"
+            # Re-tag under the run-scoped name AND stamp the ownership
+            # label in one metadata-only layer. `docker tag` cannot add a
+            # label, and an image the run pulled is still an image the run
+            # has to clean up.
+            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
+              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
+              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
+            # Probe the pulled :main for the tools this run needs. The
+            # release-test-tools workflow republishes :main on a
+            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
+            # freshly-baked tool (e.g. kcov, baked in by the change behind
+            # release tag history) can be ABSENT from the :main we just
+            # pulled. On any missing tool, fall back to building locally
+            # from dockerfile/Dockerfile.test-tools (the same build the
+            # layer-1 / layer-3 path uses) -> self-correcting against a
+            # stale / racing / old :main regardless of cause. Extend
+            # REQUIRED_TOOLS as the image gains new required tools.
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            read -ra _required <<< "${REQUIRED_TOOLS}"
+            probe_ok=true
+            for _tool in "${_required[@]}"; do
+              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
+                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
+                echo "::warning::test-tools:main is missing '${_tool}'" \
+                     "(stale / racing republish); rebuilding from source"
+                probe_ok=false
+                break
+              fi
+            done
+            if [[ "${probe_ok}" == "true" ]]; then
+              echo "build_local=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           echo "build_local=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Build test-tools:local (with GHA cache)
+      - name: Build the run-scoped test-tools image (with GHA cache)
         if: ${{ steps.obtain.outputs.build_local == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
-          tags: test-tools:local
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          # Ownership stamp: cleanup has to ask "whose is this?" about an
+          # image compose does not track, and a tag alone answers only
+          # "what is it called". The GHA cache scope is deliberately NOT
+          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
+          # not by the image tag, so a per-run tag costs no cache.
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run behavioural specs (docker.sock-mounted ci-behavioural service)
-        env:
-          TEST_TOOLS_IMAGE: test-tools:local
-        run: docker compose run --rm ci-behavioural
+      - name: Run system specs (docker.sock-mounted ci-system service)
+        # The ids come from `id`, not from a literal: this is the one job
+        # that drives compose directly instead of through test.sh, and the
+        # ci-system service takes HOST_UID / HOST_GID with no default
+        # (they own whatever the suite writes into the mounted checkout).
+        # TEST_TOOLS_IMAGE is NOT set here: it is workflow-level and
+        # run-keyed, and a spec asserts the old literal appears nowhere.
+        run: |
+          HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            docker compose run --rm ci-system
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  worker-selftest:
+    name: System build-worker self-test (#802)
+    needs: [actionlint, classify]
+    # System level (ADR-00000018): really invoke base's OWN shared build-gate
+    # (`build-worker.yaml`) end-to-end against a minimal fixture, so a
+    # SEMANTIC break in the worker -- an input that became required with no
+    # caller passing it, a broken cache change, a matrix condition that
+    # produces no jobs, a removed build step -- turns THIS job red, instead
+    # of surfacing only when some downstream runs the worker in production.
+    # actionlint / build_worker_yaml_spec.bats only check the worker
+    # statically; this is the one part (the build-gate mechanism itself) that
+    # was never actually run in base's own CI (#802).
+    #
+    # Distinct level from the #800 Acceptance-level preflight contract test
+    # (does the CONSUMER get told what to supply) and from the `system` job
+    # above (base's own image lifecycle): this asks "does the worker itself
+    # build". Gated on system_relevant so pure lint / unit-test / doc PRs
+    # skip it (`.github/workflows/**` is in the classify block-list, so any
+    # change to the worker or this job re-runs it); ci-rollup collapses
+    # SKIPPED into pass, and the `release` gate requires it before a tag.
+    #
+    # The pyramid is pushed down first: the worker's matrix + cache-scope
+    # logic is unit-tested by build_worker_compute_matrix_spec.bats /
+    # build_worker_cache_scope_spec.bats and the caller-contract preflight by
+    # ci_preflight_spec.bats -- so this residual System job only needs to
+    # prove the orchestration wires together and really builds. The fixture
+    # is a trivial alpine no-op (test/fixtures/build-worker/Dockerfile) that
+    # builds in seconds: we test the worker, not a real image.
+    if: needs.classify.outputs.system_relevant == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-worker.yaml
+    with:
+      image_name: worker-selftest
+      context_path: test/fixtures/build-worker
 
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
@@ -512,22 +1513,33 @@ jobs:
     # change to track new sub-jobs. Pattern mirrors ros1_bridge's
     # `ci-summary` and env/* `ci-passed`.
     #
-    # Hard-mandatory jobs (actionlint / classify) must succeed: SKIPPED
-    # there indicates a workflow bug, not an intentional gate. The
+    # Hard-mandatory jobs (actionlint / classify / doc-counts /
+    # lint-static) must succeed: SKIPPED there indicates a workflow bug,
+    # not an intentional gate. doc-counts is hard-mandatory because it
+    # carries no `if:` -- the generated doc/test catalogue can be broken by
+    # a doc-only edit, so gating it on code_changed would skip it on
+    # exactly that PR; lint-static is ungated for the same reason (#866),
+    # two of its matrix entries read doc/adr/ and the READMEs. The
     # post-#377 rollup has no remaining always-running test gate — bats
     # is now split into shard'd jobs that SKIP on doc-only PRs along
     # with everything else.
     #
-    # Conditionally-gated jobs (shellcheck / hadolint / bats-unit /
-    # bats-integration / integration-e2e / behavioural) carry job-level
-    # `if:` so they SKIP on doc-only / non-behavioural PRs (#317 P1/P3,
-    # #376, #377); the rollup collapses SKIPPED into pass for those,
-    # otherwise doc-only PRs cannot merge.
+    # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
+    # bats-integration / coverage / acceptance / system) carry
+    # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
+    # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
+    # for those, otherwise doc-only PRs cannot merge.
     #
-    # `coverage` is intentionally NOT in `needs:` — it's a metric job
-    # gated on push-to-main, not a PR gate; a coverage hiccup must not
-    # block PR merge.
-    needs: [actionlint, classify, shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
+    # `coverage` is IN `needs:` (#615, ADR-00000008): a sharded kcov PR
+    # gate -- a kcov test failure fails the matrix and this rollup. The
+    # matrix folds into needs.coverage.result, so the rollup sees one
+    # signal. `coverage-gate` is the self-hosted coverage-FLOOR gate
+    # (ADR-00000008, self-hosted amendment; replaces the removed
+    # external-SaaS project status): it merges the shard cobertura reports and
+    # fails when the project rate drops below COVERAGE_MIN. Joining it here
+    # enforces the floor through ci-rollup -- no branch-protection change,
+    # and no external SaaS.
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -536,41 +1548,59 @@ jobs:
           ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
+          LINT_STATIC_RESULT: ${{ needs.lint-static.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
-          BATS_UNIT_RESULT: ${{ needs.bats-unit.result }}
+          BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
-          INTEGRATION_RESULT: ${{ needs.integration-e2e.result }}
-          BEHAVIOURAL_RESULT: ${{ needs.behavioural.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
+          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+          SYSTEM_RESULT: ${{ needs.system.result }}
+          WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
           echo "classify:         ${CLASSIFY_RESULT}"
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
+          echo "doc-counts:       ${DOC_COUNTS_RESULT}"
+          echo "lint-static:      ${LINT_STATIC_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
-          echo "bats-unit:        ${BATS_UNIT_RESULT}"
+          echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
-          echo "integration-e2e:  ${INTEGRATION_RESULT}"
-          echo "behavioural:      ${BEHAVIOURAL_RESULT}"
+          echo "coverage:         ${COVERAGE_RESULT}"
+          echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
+          echo "acceptance:       ${ACCEPTANCE_RESULT}"
+          echo "system:           ${SYSTEM_RESULT}"
+          echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           fail=0
-          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}"; do
+          # doc-counts and lint-static carry no `if:` gate, so SKIPPED
+          # means a workflow bug, not an intentional skip -- they are
+          # hard-mandatory like actionlint / classify. lint-static is a
+          # matrix; its entries fold into one result, so a single failing
+          # lint fails the rollup.
+          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
+                   "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
-                   "${BATS_UNIT_RESULT}" "${BATS_INTEGRATION_RESULT}" \
-                   "${INTEGRATION_RESULT}" "${BEHAVIOURAL_RESULT}"; do
+                   "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
+                   "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
+                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
+                   "${WORKER_SELFTEST_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
 
   release:
-    needs: [shellcheck, hadolint, bats-unit, bats-integration, integration-e2e, behavioural]
+    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Create release archive
         run: |
@@ -578,9 +1608,10 @@ jobs:
           ARCHIVE_NAME="template-${VERSION}"
 
           mkdir -p "${ARCHIVE_NAME}"
-          cp -r init.sh upgrade.sh \
-                .hadolint.yaml Makefile.ci compose.yaml \
-                config/ dockerfile/ test/ script/ doc/ \
+          # init.sh / upgrade.sh now live under dist/script/base/
+          # (#654), already covered by the dist/ entry below.
+          cp -r justfile compose.yaml \
+                dist/ dockerfile/ test/ script/ doc/ \
                 README.md LICENSE \
                 "${ARCHIVE_NAME}/"
 

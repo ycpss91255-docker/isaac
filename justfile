@@ -1,1 +1,1 @@
-.base/script/docker/justfile
+script/justfile

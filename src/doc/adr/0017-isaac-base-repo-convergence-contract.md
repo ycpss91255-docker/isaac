@@ -362,6 +362,11 @@ Framework tests living in this repo is therefore a **continuation** of ADR-0013'
 not a violation of it. The `test/<category>/<tool>/` sublayer decision is untouched and
 remains the layout for the converged repo. Recorded as an Update section in ADR-0013.
 
+> **Narrowed (2026-08-26, ADR-0022).** "The sublayer decision is untouched" now holds for the
+> pytest layers only. The base v0.42.0 subtree (isaac#246) moves the bats smoke layer to base's
+> canonical `test/bats/smoke/` (tool-first); pytest unit / integration stay category-first. See
+> ADR-0022.
+
 ## Amendment: ADR-0012
 
 The research -> docker monorepo merge (#78) already undid the research/docker split for the
