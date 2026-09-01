@@ -548,6 +548,25 @@ CMD ["sleep", "infinity"]
 # inherited from the stream stage.
 FROM stream AS producer
 
+# What this image is, in the image, so nobody has to run an 18 GB container to
+# find out (isaac#252 aftermath). The version tag deliberately does NOT encode
+# the Isaac Sim version -- it just increments -- so the base image is recorded
+# here instead, where it cannot drift from what was actually built.
+#
+#   docker inspect <image> \
+#     --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}'
+#
+# script/ci/sync_producer_versions.py reads exactly this label, from the
+# registry and without pulling, to regenerate the READMEs' version table.
+# `org.opencontainers.image.*` are the OCI-specified keys; MAINTAINER is the
+# deprecated instruction these replaced.
+ARG BASE_IMAGE
+ARG GIT_SHA="unknown"
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.source="https://github.com/ycpss91255-docker/isaac"
+LABEL org.opencontainers.image.description="Deterministic WebRTC stream-source producer for downstream viewer e2e (isaac#223)"
+
 COPY --chmod=0644 src/script/stream_source_producer.py \
      /opt/isaac-producer/stream_source_producer.py
 
