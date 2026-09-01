@@ -73,6 +73,13 @@ jobs:
       # container and gates every PR. The script enforces all-green +
       # collected >= the committed baseline (ratchet) + framework
       # pure-surface coverage >= 80%. This is the M1 acceptance floor.
+      # The four READMEs' producer version table is generated, not written.
+      # They carried `:0.0.1` for as long as `:0.0.2` existed, which is what a
+      # hand-maintained table about "which Isaac Sim am I running" degrades
+      # into. This fails the build instead of letting a reader find out.
+      - name: Producer version table is current
+        run: python3 script/ci/sync_producer_versions.py --check
+
       - name: Hosted unit pytest + baseline + coverage gate
         run: ./test/assert_pytest_baseline.sh
 

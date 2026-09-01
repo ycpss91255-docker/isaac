@@ -136,7 +136,21 @@
 #   that would have stopped :0.0.2 -- the code tests would not have, because
 #   the driver was not where the defect was. Pure (file reads + a YAML
 #   parse, no docker/GPU). Live count is now 320 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 320
+#
+#   Producer version metadata (isaac#252 aftermath): adds 6 hosted unit tests
+#   (test_producer_versions.py). The four READMEs' "which Isaac Sim is in
+#   which image" table is GENERATED from each image's
+#   org.opencontainers.image.base.name label -- read from the registry
+#   without pulling an 18 GB image -- rather than hand-maintained, because the
+#   hand-maintained version carried `:0.0.1` for as long as `:0.0.2` existed.
+#   The specs pin: the script exists, all four READMEs carry the generated
+#   block (not just English), the rendered table names the label as the
+#   authority, a value that predates the label renders as `declared` rather
+#   than as if the image had said it, splice() is idempotent, and both
+#   --check and --write exist (--check is the CI gate). Pure -- file reads and
+#   a --help subprocess, no registry call in the tests. Live count is now
+#   326 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 326
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -265,7 +279,7 @@ GPU_INTEGRATION_BASELINE = 31
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55
 #   cross-container compose-project isolation + the isaac#223 producer the
-#   live aggregate is 351 (320 hosted-unit + 31 GPU-integration), well past the
+#   live aggregate is 357 (326 hosted-unit + 31 GPU-integration), well past the
 #   PRD's 126 floor. The aggregate is asserted at M2 where the GPU runner
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.

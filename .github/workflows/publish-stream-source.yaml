@@ -16,7 +16,7 @@ on:
       tag:
         description: 'Immutable image tag to publish (e.g. 0.0.1)'
         required: true
-        default: '0.0.1'
+        default: '0.0.3'
 
 permissions:
   contents: read
@@ -68,6 +68,10 @@ jobs:
           target: producer
           push: false
           load: true
+          # Recorded in the image so the version table (and anyone holding the
+          # image) can answer "which Isaac Sim / which commit" without pulling.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
 
       # THE GATE. Boots the image the way a consumer does and asserts it
