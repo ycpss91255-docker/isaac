@@ -71,6 +71,33 @@ ends; A=0.75 m/s^2, so peak per-tick displacement ~0.031 m/tick, inside the L2
       accel plateau, and residual in the settle window), vs the L2 clean-carry
       baseline (#217/#218: clean <=0.05 m/tick carried, launches at 0.2 m/tick).
 
+MODE = viz  (RENDER the push so a human WATCHES the back-off)
+------------------------------------------------------------
+The push modes above run headless (render=False) and only emit numbers. ``viz``
+re-runs the SAME push scene with render=True on the GPU and captures an ANNOTATED
+RTX frame sequence at TWO stiffnesses -- k=1e4 (soft: the ~6.8 mm back-off is
+visible to the eye) and k=1e6 (stiff: back-off ~0.035 mm, visually vanishes) --
+so a viewer literally SEES the back-off shrink as k rises. The RTX-headless
+frame-capture recipe (histogram/auto-exposure off, own acceptance camera, rgb
+annotator on a replicator render product, converge-then-read-back-as-numpy,
+non-black verification) is mirrored from ``exp_visual_metric_acceptance.py``
+(isaac#209). Additions for visual clarity, per k:
+
+  * a side/isometric CAMERA where the +X push motion is horizontal in the frame
+    (pusher + cube + ground all in view);
+  * a bright-green emissive COMMAND-REFERENCE MARKER (a thin tall bar) placed each
+    frame at the COMMANDED plate front face (cmd_x + plate_half_x). The blue
+    pusher plate's actual front face trails this marker by EXACTLY the back-off,
+    so the visible horizontal gap IS the finite-spring back-off;
+  * a per-frame text HUD (PIL) printing k, t, cmd_x, actual_x, back_off (mm),
+    cube_x, cube_speed for THAT exact frame (read from the sim at capture time,
+    never interpolated).
+
+Outputs (all MOUNTED): per-k annotated PNG sequence ``push_k1e4_NNN.png`` /
+``push_k1e6_NNN.png`` and an assembled GIF ``push_k1e4.gif`` / ``push_k1e6.gif``
+under ``--viz-dir`` (default ``<out-parent>/viz``), plus a per-frame JSON trace at
+``--out`` so the host can verify each overlay matches the numbers.
+
 Results are written as JSON to ``--out`` (a MOUNTED path) so the host reads them
 back; stdout through the docker run wrapper is not reliably captured. Teardown is
 an explicit ``os._exit`` (isaac#248 round 9): a cold headless 6.0.1 container's
@@ -83,6 +110,8 @@ CLI::
         --out /home/<user>/work/worktree/<wt>/test/.l25-dynamic-push.json
     /isaac-sim/python.sh exp_l25_dynamic_interaction.py --mode carry \\
         --out /home/<user>/work/worktree/<wt>/test/.l25-dynamic-carry.json
+    /isaac-sim/python.sh exp_l25_dynamic_interaction.py --mode viz \\
+        --out /home/<user>/work/worktree/<wt>/test/.l25-viz-trace.json
 """
 
 import argparse
@@ -121,6 +150,16 @@ _CARRY_PAYLOAD_SIZE = 0.2
 _CARRY_MU = 0.5                          # friction (static=dynamic) on both
 _CARRY_ACCEL = 0.75                      # m/s^2 constant accel then decel
 _CARRY_CARRIED_Z = 0.45                  # payload z above this => still on top
+
+# ----- MODE=viz (render the push at two stiffnesses to SEE back-off) --------
+_VIZ_STIFFNESS = [1e4, 1e6]              # soft (~6.8mm, visible) vs stiff (~0.035mm)
+_VIZ_N_FRAMES = 32                       # captured frames per k (smooth GIF)
+_VIZ_CAM_EYE = (-0.8, -7.0, 2.6)         # side/iso view; +X is horizontal in frame
+_VIZ_CAM_TARGET = (1.1, 0.0, 0.30)
+_VIZ_MARKER_DIMS = (0.02, 0.06, 1.00)    # thin in X/Y, tall in Z (a vertical bar)
+_VIZ_GIF_MS = 150                        # per-frame GIF duration (ms)
+_VIZ_WIDTH = 960
+_VIZ_HEIGHT = 540
 
 
 def _author_l25_actuator(stage, tag, x0, y0, z0, dims, mass, k):
@@ -594,6 +633,375 @@ def _run_carry(args, app):
     return result
 
 
+# ===========================================================================
+# MODE = viz  (render the push at two stiffnesses so a human SEES back-off)
+# ===========================================================================
+def _viz_klabel(k):
+    """Compact stiffness label for file names / HUD: 1e4 -> '1e4'."""
+    return "1e%d" % int(round(math.log10(k)))
+
+
+def _viz_look_at(eye, target, up=(0.0, 0.0, 1.0)):
+    """Row-major 4x4 (flat list of 16) camera-to-world (mirror #209 look-at).
+
+    USD cameras look down local -Z with +Y up, so camera +Z = normalize(eye-target);
+    basis vectors go in the ROWS, translation in the last row (Gf.Matrix4d row-major).
+    """
+    def sub(a, b):
+        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0])
+
+    def norm(a):
+        n = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+        return (a[0] / n, a[1] / n, a[2] / n) if n else a
+
+    z = norm(sub(eye, target))
+    x = norm(cross(up, z))
+    y = cross(z, x)
+    return [
+        x[0], x[1], x[2], 0.0,
+        y[0], y[1], y[2], 0.0,
+        z[0], z[1], z[2], 0.0,
+        eye[0], eye[1], eye[2], 1.0,
+    ]
+
+
+def _viz_material(stage, path, rgb, emissive=None, rough=0.6):
+    """UsdPreviewSurface material; optional emissiveColor for the marker glow."""
+    from pxr import Gf, Sdf, UsdShade
+
+    m = UsdShade.Material.Define(stage, path)
+    s = UsdShade.Shader.Define(stage, path + "/Shader")
+    s.CreateIdAttr("UsdPreviewSurface")
+    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(rough)
+    s.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+    if emissive is not None:
+        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(
+            Gf.Vec3f(*emissive)
+        )
+    m.CreateSurfaceOutput().ConnectToSource(s.ConnectableAPI(), "surface")
+    return m
+
+
+def _viz_bind(stage, prim_path, material):
+    from pxr import UsdShade
+
+    UsdShade.MaterialBindingAPI.Apply(stage.GetPrimAtPath(prim_path)).Bind(material)
+
+
+def _viz_font(size):
+    """A readable font for the HUD; fall back to PIL's default if none on disk."""
+    from PIL import ImageFont
+
+    for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(p, size)
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        return ImageFont.load_default(size)
+    except Exception:  # noqa: BLE001
+        return ImageFont.load_default()
+
+
+def _viz_text_w(font, draw, s):
+    try:
+        return draw.textlength(s, font=font)
+    except Exception:  # noqa: BLE001
+        b = font.getbbox(s)
+        return b[2] - b[0]
+
+
+def _viz_overlay(rgb, lines):
+    """Draw the per-frame HUD lines onto an HxWx3 uint8 frame; return a PIL Image."""
+    from PIL import Image, ImageDraw
+
+    img = Image.fromarray(rgb, mode="RGB").convert("RGB")
+    draw = ImageDraw.Draw(img)
+    font = _viz_font(20)
+    pad, lh = 8, 26
+    wmax = max(_viz_text_w(font, draw, ln) for ln in lines)
+    draw.rectangle(
+        [8, 8, 8 + int(wmax) + pad * 2, 8 + pad * 2 + lh * len(lines)],
+        fill=(0, 0, 0),
+    )
+    y = 8 + pad
+    for ln in lines:
+        draw.text((8 + pad, y), ln, fill=(240, 240, 60), font=font)
+        y += lh
+    return img
+
+
+def _run_viz(args, app):
+    import numpy as np
+    import carb
+    import omni.replicator.core as rep
+    import omni.usd
+    from isaacsim.core.api import World
+    from isaacsim.core.prims import SingleRigidPrim
+    from pxr import Gf, PhysxSchema, UsdGeom, UsdLux, UsdPhysics
+
+    viz_dir = args.viz_dir or str(Path(args.out).parent / "viz")
+    Path(viz_dir).mkdir(parents=True, exist_ok=True)
+
+    stiffnesses = [args.stiffness] if args.stiffness else list(_VIZ_STIFFNESS)
+    plate_half_x = _PUSH_PLATE_DIMS[0] * 0.5
+    total = args.warmup + args.steps + args.settle
+    cap_steps = sorted(set(
+        int(round(v)) for v in np.linspace(args.warmup, total - 1, _VIZ_N_FRAMES)
+    ))
+
+    result = {
+        "mode": "viz",
+        "issue": "isaac#201 (L2.5 push, rendered for human visual confirmation)",
+        "actuator": "L2.5 = dynamic slider on high-stiffness prismatic X drive",
+        "isaac_variant": "6.0.1",
+        "render": True,
+        "capture_recipe": (
+            "mirror exp_visual_metric_acceptance.py (#209): histogram/auto-exposure "
+            "off, own camera prim, omni.replicator.core rgb annotator on a render "
+            "product, converge via world.render() then read back as numpy, verify "
+            "non-black"
+        ),
+        "warmup_steps": args.warmup,
+        "sweep_steps": args.steps,
+        "settle_steps": args.settle,
+        "physics_dt": args.dt,
+        "width": args.width,
+        "height": args.height,
+        "stiffnesses": stiffnesses,
+        "n_frames_target": _VIZ_N_FRAMES,
+        "cam_eye": list(_VIZ_CAM_EYE),
+        "cam_target": list(_VIZ_CAM_TARGET),
+        "viz_dir": viz_dir,
+        "marker": (
+            "bright-green emissive vertical bar placed each frame at the COMMANDED "
+            "plate front face (cmd_x + plate_half_x); the blue plate front face "
+            "trails it by exactly the back-off, so the visible gap IS the back-off"
+        ),
+        "hud_fields": [
+            "k", "t_s", "cmd_x_m", "actual_x_m", "back_off_mm",
+            "cube_x_m", "cube_speed_mps",
+        ],
+        "per_k": {},
+        "error": None,
+    }
+
+    # RTX auto-exposure off (histogram) -- mirror #209 so brightness is stable.
+    carb.settings.get_settings().set("/rtx/post/histogram/enabled", False)
+
+    for k in stiffnesses:
+        tag = f"k{_viz_klabel(k)}"
+        World.clear_instance()
+
+        ctx = omni.usd.get_context()
+        ctx.new_stage()
+        stage = ctx.get_stage()
+        UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
+        UsdGeom.SetStageMetersPerUnit(stage, 1.0)
+        UsdGeom.Xform.Define(stage, "/World")
+
+        # Non-black lit stage (dome + distant key), mirror #209's discipline.
+        UsdLux.DomeLight.Define(stage, "/World/DomeLight").CreateIntensityAttr(250.0)
+        key = UsdLux.DistantLight.Define(stage, "/World/KeyLight")
+        key.CreateIntensityAttr(1200.0)
+        key.CreateAngleAttr(0.53)
+        UsdGeom.Xformable(key.GetPrim()).AddRotateXYZOp().Set(
+            Gf.Vec3f(-40.0, 20.0, 0.0)
+        )
+
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.50, 0.50, 0.52))
+        blue = _viz_material(stage, "/World/Looks/Blue", (0.10, 0.35, 0.85))
+        orange = _viz_material(stage, "/World/Looks/Orange", (0.95, 0.45, 0.10))
+        green = _viz_material(
+            stage, "/World/Looks/MarkerGreen", (0.10, 1.0, 0.10),
+            emissive=(0.10, 1.0, 0.10),
+        )
+
+        ground = UsdGeom.Cube.Define(stage, "/World/Ground")
+        ground.GetSizeAttr().Set(1.0)
+        ground.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
+            Gf.Vec3d(0.0, 0.0, -0.5)
+        )
+        ground.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
+            Gf.Vec3f(400.0, 400.0, 1.0)
+        )
+        UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+        _viz_bind(stage, "/World/Ground", gray)
+
+        _a, slider_path, joint_path, _damp = _author_l25_actuator(
+            stage, tag, _PUSH_PLATE_X0, 0.0, _PUSH_PLATE_Z,
+            _PUSH_PLATE_DIMS, _SLIDER_MASS, k,
+        )
+        _viz_bind(stage, slider_path, blue)
+
+        cube_path = f"/World/cube_{tag}"
+        cube = UsdGeom.Cube.Define(stage, cube_path)
+        cube.GetSizeAttr().Set(1.0)
+        cube.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
+            Gf.Vec3d(_PUSH_PLATE_X0 + _PUSH_CUBE_DX, 0.0, _PUSH_CUBE_Z)
+        )
+        cube.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
+            Gf.Vec3f(_PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE)
+        )
+        cprim = cube.GetPrim()
+        UsdPhysics.RigidBodyAPI.Apply(cprim)
+        UsdPhysics.CollisionAPI.Apply(cprim)
+        UsdPhysics.MassAPI.Apply(cprim).CreateMassAttr(1.0)
+        PhysxSchema.PhysxRigidBodyAPI.Apply(cprim).CreateLinearDampingAttr(0.2)
+        _viz_bind(stage, cube_path, orange)
+
+        # Visual-only command marker: NO RigidBodyAPI / NO CollisionAPI, so it
+        # never perturbs the physics -- we just re-place it each frame.
+        marker_path = "/World/cmd_marker"
+        marker = UsdGeom.Cube.Define(stage, marker_path)
+        marker.GetSizeAttr().Set(1.0)
+        marker_t = marker.AddXformOp(UsdGeom.XformOp.TypeTranslate)
+        marker_t.Set(Gf.Vec3d(_PUSH_PLATE_X0 + plate_half_x, 0.0, _PUSH_PLATE_Z))
+        marker.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
+            Gf.Vec3f(*_VIZ_MARKER_DIMS)
+        )
+        _viz_bind(stage, marker_path, green)
+
+        # Own acceptance camera (deterministic framing; +X horizontal in frame).
+        cam = UsdGeom.Camera.Define(stage, "/World/VizCam")
+        cam.CreateFocalLengthAttr(24.0)
+        cam.CreateHorizontalApertureAttr(36.0)
+        cam.CreateVerticalApertureAttr(20.25)
+        cam.CreateClippingRangeAttr(Gf.Vec2f(0.1, 100000.0))
+        UsdGeom.Xformable(cam.GetPrim()).AddTransformOp().Set(
+            Gf.Matrix4d(*_viz_look_at(_VIZ_CAM_EYE, _VIZ_CAM_TARGET))
+        )
+
+        world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
+                      rendering_dt=args.dt)
+        world.reset()
+
+        slider = SingleRigidPrim(slider_path)
+        cube_prim = SingleRigidPrim(cube_path)
+
+        rp = rep.create.render_product("/World/VizCam", (args.width, args.height))
+        annot = rep.AnnotatorRegistry.get_annotator("rgb")
+        annot.attach(rp)
+
+        # Let RTX load materials + converge before the first capture (render only,
+        # no physics -- world.render() does not advance the sim).
+        for _ in range(args.warmup):
+            world.render()
+
+        def _grab():
+            for _ in range(3):
+                world.render()
+            raw = np.asarray(annot.get_data())
+            if raw.size and raw.ndim >= 2 and raw.shape[0] == args.height:
+                px = raw[:, :, :3] if (raw.ndim == 3 and raw.shape[2] == 4) else raw
+                return np.ascontiguousarray(px.astype(np.uint8))
+            return None
+
+        frames_meta = []
+        pil_frames = []
+        cube_prev = None
+        for step_i in range(total):
+            if step_i < args.warmup:
+                target_q = 0.0
+            elif step_i < args.warmup + args.steps:
+                target_q = _PUSH_SWEEP_M * (
+                    (step_i - args.warmup) / float(args.steps)
+                )
+            else:
+                target_q = _PUSH_SWEEP_M
+
+            _set_drive_target(stage, joint_path, target_q)
+            cmd_x = _PUSH_PLATE_X0 + target_q
+            # Marker at the COMMANDED plate front face (set before the render).
+            marker_t.Set(Gf.Vec3d(cmd_x + plate_half_x, 0.0, _PUSH_PLATE_Z))
+            world.step(render=True)
+
+            spos, _ = slider.get_world_pose()
+            slider_x = float(np.asarray(spos, dtype=float).reshape(-1)[0])
+            cpos, _ = cube_prim.get_world_pose()
+            cpos = np.asarray(cpos, dtype=float).reshape(-1)
+            cube_x = float(cpos[0])
+            cube_speed = (
+                float(np.linalg.norm(cpos - cube_prev) / args.dt)
+                if cube_prev is not None else 0.0
+            )
+            cube_prev = cpos.copy()
+
+            if step_i in cap_steps:
+                rgb = None
+                for _try in range(4):
+                    rgb = _grab()
+                    if rgb is not None and float(rgb.mean()) > 1.0:
+                        break
+                idx = len(pil_frames)
+                t_s = step_i * args.dt
+                back_off_mm = abs(slider_x - cmd_x) * 1000.0
+                lines = [
+                    f"k = {_viz_klabel(k)} N/m",
+                    f"t = {t_s:6.3f} s",
+                    f"cmd_x    = {cmd_x:7.4f} m",
+                    f"actual_x = {slider_x:7.4f} m",
+                    f"back_off = {back_off_mm:7.3f} mm",
+                    f"cube_x   = {cube_x:7.4f} m",
+                    f"cube_v   = {cube_speed:6.3f} m/s",
+                ]
+                mean_px = float(rgb.mean()) if rgb is not None else 0.0
+                if rgb is None:
+                    rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+                r = rgb[:, :, 0].astype(float)
+                g = rgb[:, :, 1].astype(float)
+                b = rgb[:, :, 2].astype(float)
+                lum = float((0.2126 * r + 0.7152 * g + 0.0722 * b).mean())
+                png_name = f"push_{tag}_{idx:03d}.png"
+                img = _viz_overlay(rgb, lines)
+                img.save(str(Path(viz_dir) / png_name))
+                pil_frames.append(img)
+                frames_meta.append({
+                    "i": idx, "step": step_i, "t_s": t_s,
+                    "cmd_x_m": cmd_x, "actual_x_m": slider_x,
+                    "back_off_mm": back_off_mm, "cube_x_m": cube_x,
+                    "cube_speed_mps": cube_speed, "png": png_name,
+                    "frame_mean_pixel": mean_px, "frame_mean_luminance": lum,
+                    "nonblack": bool(mean_px > 1.0),
+                })
+
+        gif_name = f"push_{tag}.gif"
+        gif_path = str(Path(viz_dir) / gif_name)
+        if pil_frames:
+            pil_frames[0].save(
+                gif_path, save_all=True, append_images=pil_frames[1:],
+                duration=_VIZ_GIF_MS, loop=0, optimize=False,
+            )
+        nonblack_n = sum(1 for f in frames_meta if f["nonblack"])
+        result["per_k"][tag] = {
+            "stiffness": k,
+            "gif": gif_path,
+            "png_dir": viz_dir,
+            "png_pattern": f"push_{tag}_NNN.png",
+            "n_frames": len(frames_meta),
+            "n_nonblack": nonblack_n,
+            "max_back_off_mm": max(
+                (f["back_off_mm"] for f in frames_meta), default=0.0
+            ),
+            "frames": frames_meta,
+        }
+
+        try:
+            annot.detach()
+        except Exception:  # noqa: BLE001
+            pass
+        world.stop()
+
+    return result
+
+
 def run(args):
     from isaacsim import SimulationApp
 
@@ -605,6 +1013,8 @@ def run(args):
             result = _run_push(args, app)
         elif args.mode == "carry":
             result = _run_carry(args, app)
+        elif args.mode == "viz":
+            result = _run_viz(args, app)
         else:
             raise ValueError(f"unknown mode: {args.mode}")
     except Exception as exc:  # noqa: BLE001
@@ -622,9 +1032,21 @@ def run(args):
 
 def _parse_args():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--mode", required=True, choices=["push", "carry"],
-                   help="push (analog of #201) or carry (analog of #217/#218).")
-    p.add_argument("--out", required=True, help="JSON results path (mounted).")
+    p.add_argument("--mode", required=True, choices=["push", "carry", "viz"],
+                   help="push (analog of #201), carry (analog of #217/#218), or "
+                        "viz (render the push at two k so a human SEES back-off).")
+    p.add_argument("--out", required=True, help="JSON results path (mounted). For "
+                        "--mode viz this is the per-frame trace JSON.")
+    p.add_argument("--viz-dir", default=None,
+                   help="viz mode: dir for PNG sequence + GIF (mounted); default "
+                        "<out-parent>/viz.")
+    p.add_argument("--stiffness", type=float, default=None,
+                   help="viz mode: render only this single k (N/m); default renders "
+                        "both 1e4 and 1e6.")
+    p.add_argument("--width", type=int, default=_VIZ_WIDTH,
+                   help="viz mode: render width.")
+    p.add_argument("--height", type=int, default=_VIZ_HEIGHT,
+                   help="viz mode: render height.")
     p.add_argument("--warmup", type=int, default=60,
                    help="Warm-up steps (drive holds at start; scene settles).")
     p.add_argument("--steps", type=int, default=300,
