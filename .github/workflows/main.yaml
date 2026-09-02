@@ -35,15 +35,40 @@ jobs:
       # GHC tool-cache before buildx starts.
       free_disk_space: true
 
-  # Per ADR-0011 (ycpss91255/isaac): Python tests run on the
-  # self-hosted GPU runner because Isaac Sim Kit refuses to boot
-  # without an NVIDIA GPU runtime. This job runs in parallel with
-  # call-docker-build (which uses GHA hosted runner and covers
-  # Dockerfile build + bats smoke). Outside-collaborator PRs do NOT
-  # auto-trigger -- the org-level "Approval for outside collaborators"
-  # gate (All outside collaborators) holds them until maintainer
-  # approves.
-  python-tests:
+  # M1 hosted-unit gate (ADR-0017 section 7, isaac#130). The hosted unit
+  # suite needs no Isaac runtime and no GPU: assert_pytest_baseline.sh runs it
+  # in a plain slim-python container (docker run), so this gate lives on
+  # ubuntu-latest instead of the single self-hosted GPU runner. That frees the
+  # GPU box to do only GPU work (gpu-integration below) and lets the two run in
+  # parallel -- previously both were one serial job pinned to the GPU runner.
+  # Outside-collaborator PRs do NOT auto-trigger -- the org-level "Approval for
+  # outside collaborators" gate holds them until a maintainer approves.
+  hosted-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # The four READMEs' producer version table is generated, not written.
+      # They carried `:0.0.1` for as long as `:0.0.2` existed, which is what a
+      # hand-maintained table about "which Isaac Sim am I running" degrades
+      # into. This fails the build instead of letting a reader find out.
+      - name: Producer version table is current
+        run: python3 script/ci/sync_producer_versions.py --check
+
+      # Enforces all-green + collected >= the committed baseline (ratchet) +
+      # framework pure-surface coverage >= 80%. This is the M1 acceptance floor.
+      - name: Hosted unit pytest + baseline + coverage gate
+        run: ./test/assert_pytest_baseline.sh
+
+  # M2 GPU integration gate (PRD #4-int / isaac#132): boots headless Isaac for
+  # real on the self-hosted GPU runner (Kit refuses to boot without an NVIDIA
+  # GPU runtime). needs: hosted-unit so a fast M1 failure skips the expensive
+  # GPU run; it does NOT need call-docker-build (it builds its own devel-test
+  # image locally, warm-cached on the runner). The --gpu gate reads the
+  # HOSTED_UNIT baseline NUMBER (it does not re-run the hosted suite).
+  gpu-integration:
+    needs: hosted-unit
     runs-on: [self-hosted, gpu]
     timeout-minutes: 30
     steps:
@@ -67,21 +92,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
-
-      # M1 stage gate (ADR-0017 section 7, isaac#130): hosted unit pytest
-      # needs no Isaac runtime and no GPU, so it runs in a plain Python
-      # container and gates every PR. The script enforces all-green +
-      # collected >= the committed baseline (ratchet) + framework
-      # pure-surface coverage >= 80%. This is the M1 acceptance floor.
-      # The four READMEs' producer version table is generated, not written.
-      # They carried `:0.0.1` for as long as `:0.0.2` existed, which is what a
-      # hand-maintained table about "which Isaac Sim am I running" degrades
-      # into. This fails the build instead of letting a reader find out.
-      - name: Producer version table is current
-        run: python3 script/ci/sync_producer_versions.py --check
-
-      - name: Hosted unit pytest + baseline + coverage gate
-        run: ./test/assert_pytest_baseline.sh
 
       # base detect_ws_path mis-detects the self-CI _work/<repo>/<repo>
       # layout: none of its strategies (docker_* sibling, *_ws ancestor)
