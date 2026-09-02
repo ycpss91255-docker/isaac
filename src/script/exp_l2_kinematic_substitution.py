@@ -329,7 +329,7 @@ def run(args):
                 "mean_pos_err_m": mean_pos,
                 "max_ang_err_deg": a["max_ang_err_deg"],
                 "pusher_final_z_m": push_z_final,
-                "pusher_carried_frames": contact_frames[nm],
+                "pusher_carried_frames": a["contact_frames"],
                 "pusher_carried": bool(push_z_final > 0.3),
                 "zero_error": bool(
                     a["max_pos_err_m"] < 1e-4 and a["max_ang_err_deg"] < 1e-2
