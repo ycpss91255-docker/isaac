@@ -18,6 +18,15 @@ permissions:
 
 jobs:
   call-docker-build:
+    # packages: write for the registry cache backend below. For a reusable-
+    # workflow (`uses:`) job the grant must live on the CALLING job, not the
+    # workflow-level default -- base's build-worker preflight/build jobs declare
+    # `permissions: contents: read`, and a workflow-level packages: write does
+    # not reach them (verified: PR #258 attempt 1 gave preflight contents:read
+    # only). Setting it here is base#801's documented caller contract.
+    permissions:
+      contents: read
+      packages: write
     uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.42.0
     with:
       image_name: docker
@@ -34,6 +43,14 @@ jobs:
       # opt-in step from base#470 removes ~30 GB of Android SDK / .NET /
       # GHC tool-cache before buildx starts.
       free_disk_space: true
+      # The default gha cache backend is too small for the 18 GB Isaac
+      # image: base documents that the 10 GB GHA cache evicts before a full
+      # image cache is written, so every hosted build recompiled cold
+      # (~31 min). registry stores the buildx layer cache in GHCR
+      # (type=registry,ref=ghcr.io/<owner>/<repo>/buildcache), which persists
+      # across runs, so the unchanged Isaac-base + apt + torch layers reuse
+      # and only changed layers rebuild. Needs packages: write (granted above).
+      cache_backend: registry
 
   # Per ADR-0011 (ycpss91255/isaac): Python tests run on the
   # self-hosted GPU runner because Isaac Sim Kit refuses to boot
