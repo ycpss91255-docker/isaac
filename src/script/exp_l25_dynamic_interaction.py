@@ -644,6 +644,43 @@ def _run_carry(args, app):
         SingleGeometryPrim(ln["slider_path"]).apply_physics_material(mat)
         SingleGeometryPrim(ln["payload_path"]).apply_physics_material(mat)
 
+    render = bool(args.mp4)
+    annot = None
+    _pk_rgb = {1e4: (0.9, 0.3, 0.2), 1e5: (0.95, 0.6, 0.1),
+               1e6: (0.2, 0.8, 0.3), 1e7: (0.2, 0.5, 0.9)}
+    if render:
+        import carb
+        _s = carb.settings.get_settings()
+        _s.set("/rtx/post/histogram/enabled", False)
+        # Real-time raster-lit mode; the NGX/DLSS denoiser is unavailable in this
+        # headless container, so disable the stochastic effects that otherwise
+        # leave salt-and-pepper noise on flat surfaces (GI / AO / sampled
+        # lighting / reflections). Direct lighting is deterministic-clean.
+        _s.set("/rtx/rendermode", "RaytracedLighting")
+        _s.set("/rtx/indirectDiffuse/enabled", False)
+        _s.set("/rtx/ambientOcclusion/enabled", False)
+        _s.set("/rtx/reflections/enabled", False)
+        _s.set("/rtx/directLighting/sampledLighting/enabled", False)
+        # No DomeLight: image-based ambient is sampled stochastically and, with no
+        # denoiser, speckles flat surfaces. Two directional lights fill instead.
+        _fill = UsdLux.DistantLight.Define(stage, "/World/Fill")
+        _fill.CreateIntensityAttr(1500.0)
+        UsdGeom.Xformable(_fill.GetPrim()).AddRotateXYZOp().Set(
+            Gf.Vec3f(-30.0, 40.0, 0.0))
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.55, 0.55, 0.58))
+        _viz_bind(stage, "/World/Ground", gray)
+        for ln in lanes:
+            _viz_bind(stage, ln["slider_path"], gray)
+            pm = _viz_material(stage, f"/World/Looks/{ln['tag']}",
+                               _pk_rgb.get(ln["k"], (0.8, 0.8, 0.2)))
+            _viz_bind(stage, ln["payload_path"], pm)
+        cam = UsdGeom.Camera.Define(stage, "/World/CarryCam")
+        cam.CreateFocalLengthAttr(18.0)
+        cam.CreateClippingRangeAttr(Gf.Vec2f(0.1, 100000.0))
+        UsdGeom.Xformable(cam.GetPrim()).AddTransformOp().Set(
+            Gf.Matrix4d(*_viz_look_at((-5.5, -5.0, 5.0), (2.3, 6.0, 0.6)))
+        )
+
     world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                   rendering_dt=args.dt)
     world.reset()
@@ -651,7 +688,25 @@ def _run_carry(args, app):
     slider = {ln["tag"]: SingleRigidPrim(ln["slider_path"]) for ln in lanes}
     payload = {ln["tag"]: SingleRigidPrim(ln["payload_path"]) for ln in lanes}
 
+    if render:
+        import omni.replicator.core as rep
+        rp = rep.create.render_product("/World/CarryCam", (args.width, args.height))
+        annot = rep.AnnotatorRegistry.get_annotator("rgb")
+        annot.attach(rp)
+
+    def _grab():
+        for _ in range(16):  # accumulate so the frame converges (no NGX denoiser)
+            world.render()
+        raw = np.asarray(annot.get_data())
+        if raw.size and raw.ndim == 3:
+            px = raw[:, :, :3] if raw.shape[2] == 4 else raw
+            return np.ascontiguousarray(px.astype(np.uint8))
+        return None
+
     total = args.warmup + args.steps + args.settle
+    cap_steps = set(int(round(v)) for v in np.linspace(
+        args.warmup, total - 1, 48)) if render else set()
+    frames, nonblack = [], 0
     # Steady-accel plateau window: middle of the first accel half.
     plateau_lo = args.warmup + int(args.steps * 0.15)
     plateau_hi = args.warmup + int(args.steps * 0.40)
@@ -678,7 +733,7 @@ def _run_carry(args, app):
             target_v = 0.0
         for ln in lanes:
             _set_drive_target(stage, ln["joint_path"], target_q, target_v)
-        world.step(render=False)
+        world.step(render=render)
 
         for ln in lanes:
             tag = ln["tag"]
@@ -702,6 +757,25 @@ def _run_carry(args, app):
             if step_i >= args.warmup + args.steps:
                 a["settle_sum"] += err
                 a["settle_n"] += 1
+
+        if render and step_i in cap_steps:
+            lines = ["L2.5 carry: payload lag vs stiffness (delivery metric)"]
+            for ln in lanes:
+                a = acc[ln["tag"]]
+                sx = float(np.asarray(
+                    slider[ln["tag"]].get_world_pose()[0]).reshape(-1)[0])
+                px = float(np.asarray(
+                    payload[ln["tag"]].get_world_pose()[0]).reshape(-1)[0])
+                bs = a["slider_x_base"] or 0.0
+                bp = a["payload_x_base"] or 0.0
+                lag_mm = ((sx - bs) - (px - bp)) * 1000.0
+                lines.append(f"k={ln['k']:.0e}  payload_lag={lag_mm:7.1f} mm")
+            rgb = _grab()
+            if rgb is not None and float(rgb.mean()) > 1.0:
+                nonblack += 1
+            if rgb is None:
+                rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+            frames.append(np.asarray(_viz_overlay(rgb, lines)))
 
     for ln in lanes:
         tag = ln["tag"]
@@ -751,6 +825,18 @@ def _run_carry(args, app):
         "and can be tiny while the payload lags -- do not cite carrier lag as "
         "carry performance."
     )
+    if render and frames:
+        import imageio.v2 as imageio
+        Path(args.mp4).parent.mkdir(parents=True, exist_ok=True)
+        imageio.mimwrite(args.mp4, frames, fps=15, codec="libx264", quality=8)
+        result["mp4"] = args.mp4
+        result["mp4_frames"] = len(frames)
+        result["mp4_nonblack"] = nonblack
+    if annot is not None:
+        try:
+            annot.detach()
+        except Exception:  # noqa: BLE001
+            pass
     return result
 
 
@@ -1175,6 +1261,9 @@ def _parse_args():
     p.add_argument("--settle", type=int, default=120,
                    help="Settle steps (drive holds at end target).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="carry mode: RTX-render the run with a per-frame payload-"
+                        "lag HUD and encode an MP4 to this path (mounted).")
     p.add_argument("--no-feedforward", action="store_true",
                    help="Disable drive velocity feed-forward (reproduces the old "
                         "confounded behavior: target_vel=0 so the damping term "
