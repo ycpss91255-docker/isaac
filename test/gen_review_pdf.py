@@ -15,9 +15,10 @@ network, no extra deps beyond what Isaac ships.
 
 Run inside the devel container (matplotlib + Noto CJK present)::
 
-    W=/home/<user>/work/worktree/<wt>
+    W=/home/<user>/work/worktree/<wt>          # this worktree (logs live here)
+    # canonical output goes to the isaac_ws-level doc/ (container /home/<user>/work/doc):
     just exec -t devel /isaac-sim/python.sh $W/test/gen_review_pdf.py \\
-        --test-dir $W/test --out $W/doc/6.0.1_physics_revalidation_review.pdf
+        --test-dir $W/test --out /home/<user>/work/doc/6.0.1_physics_revalidation_review.pdf
 """
 
 import argparse
