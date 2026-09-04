@@ -280,12 +280,44 @@ def t_d2(d, d_fine):
     return cols, rows
 
 
+def t_colA(d):
+    cols = ["collider prim", "type", "解析box", "meshAPI", "approx", "world xyz"]
+    rows = []
+    for c in d.get("colliders", []):
+        rows.append([c["path"].split("/")[-1], c["type"],
+                     str(c["is_analytic_cube"]),
+                     str(c["has_mesh_collision_api"]), str(c["approximation"]),
+                     str(c.get("world_translate"))])
+    rows.append(["A1 三個都保留=%s  A2 全解析box無hull=%s  Scope分組=%s"
+                 % (d.get("A1_all_three_kept"),
+                    d.get("A2_all_analytic_boxes_no_hull"),
+                    d.get("colliders_grouped_under_scope")),
+                 "", "", "", "", ""])
+    return cols, rows
+
+
+def t_colB(d):
+    cols = ["lane", "approximation", "maxHulls", "探針最終z (m)", "進入口袋"]
+    rows = []
+    for ln in d.get("lanes", []):
+        rows.append([ln["lane"], ln["approximation"],
+                     str(ln["max_convex_hulls"]), f(ln["probe_final_z_m"]),
+                     str(ln["entered_pocket"])])
+    rows.append(["slot=%sm probe=%sm; entered if z<%s (wall_top=%s base=%s)"
+                 % (f(d.get("slot_width_m")), f(d.get("probe_width_m")),
+                    f(d.get("enter_z_threshold_m")), f(d.get("wall_top_z_m")),
+                    f(d.get("base_top_z_m"))), "", "", "", ""])
+    return cols, rows
+
+
 def build_registry(test_dir):
     d212 = _load(test_dir, ".prove-A-212-sag.json")
     d215 = _load(test_dir, ".prove-B-215-hold.json")
     d216 = _load(test_dir, ".prove-A-216-tracking.json")
     d219 = _load(test_dir, ".prove-A-219-limits.json")
     d218 = _load(test_dir, ".prove-B-218-carry.json")
+    dcolA = _load(test_dir, ".verify-collision-import.json")
+    dcolB = _load(test_dir, ".verify-decomp-pocket.json")
     d220 = _load(test_dir, ".prove-B-220-push.json")
     d221 = _load(test_dir, ".prove-C-221-seam.json")
     d227 = _load(test_dir, ".prove-A-227-multijoint.json")
@@ -419,6 +451,29 @@ def build_registry(test_dir):
                    "自然週期 2*pi*sqrt(m/k) 時發生。dt 細化即崩塌(k=1e5:154->19 mm;"
                    "k=1e6/1e7 要更細)。交付以 payload lag 判,不是載台 tracking err "
                    "(後者可 <0.05 mm 而貨物大幅落後)。L2.5 能載;dt 要配剛度。"),
+        dict(id="Collision A1/A2", title="多 box <collision> 匯入保真",
+             verdict="實測確認(真 UrdfConverter)",
+             log=".verify-collision-import.json",
+             cmd=f"{PY} {W}/src/script/../test/verify_collision_import.py "
+                 f"--out {W}/test/.verify-collision-import.json",
+             tbl=t_colA(dcolA),
+             concl="1-link URDF 帶 3 個 box <collision>(不同原點)匯入 6.0.1 → 3 個獨立 "
+                   "UsdGeom.Cube colliders 在正確原點、各只掛 CollisionAPI(無 "
+                   "MeshCollisionAPI/approximation = PxBoxGeometry)、直接在 link 下(無 "
+                   "colliders Scope)、無 ghost/duplicate。A1(全保留)+ A2(全解析 box、"
+                   "無 convexHull)實測成立 —— box-union 匯入地基乾淨。"),
+        dict(id="Collision decomp", title="convex_decomposition 對功能性口袋",
+             verdict="實測:tuning 問題非原理不能(反駁 §2.2)",
+             log=".verify-decomp-pocket.json",
+             cmd=f"{PY} {W}/src/script/../test/verify_decomp_pocket.py "
+                 f"--out {W}/test/.verify-decomp-pocket.json "
+                 f"[--mp4 {W}/viz/decomp_pocket.mp4]",
+             tbl=t_colB(dcolB),
+             concl="U-channel 口袋 + 掉落探針:convexHull 填滿口袋(探針卡頂 z=0.75);"
+                   "convexDecomposition maxHulls 8 與 64 都保住口袋(探針落底 z=0.4625,"
+                   "= base_top 0.3 + 半高 0.15)。所以 decomposition 能保住功能性口袋 —— "
+                   "對乾淨可 box 分解的矩形件(pallet/牙叉)可行,forklift_b 那種薄多零件 "
+                   "美術資產才 hull 數爆掉。文件 §2.2「disqualified」overstated。"),
         dict(id="限制①",
              title="articulation + kinematic maximal loop-joint SIGSEGV",
              verdict="MINOR (陳述正確;上游 bug)",
