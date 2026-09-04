@@ -142,12 +142,16 @@ def _look_at(eye, target, up=(0.0, 0.0, 1.0)):
 
 
 def _mat(stage, path, rgb):
+    # Emissive/unlit: the surface emits its own colour, bypassing the (per-pixel,
+    # denoiser-less -> grainy) lighting integral -> deterministic clean flat colour.
     from pxr import Gf, Sdf, UsdShade
     m = UsdShade.Material.Define(stage, path)
     s = UsdShade.Shader.Define(stage, path + "/S")
     s.CreateIdAttr("UsdPreviewSurface")
-    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
-    s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.5)
+    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0, 0, 0))
+    s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
+    s.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
     m.CreateSurfaceOutput().ConnectToSource(s.ConnectableAPI(), "surface")
     return m
 
@@ -235,9 +239,23 @@ def run(args):
         if render:
             import carb
             import omni.replicator.core as rep
-            from pxr import UsdGeom, UsdLux
-            carb.settings.get_settings().set("/rtx/post/histogram/enabled", False)
-            UsdLux.DomeLight.Define(stage, "/World/Dome").CreateIntensityAttr(250.0)
+            from pxr import Gf, UsdGeom, UsdLux
+            _s = carb.settings.get_settings()
+            _s.set("/rtx/post/histogram/enabled", False)
+            _s.set("/rtx/rendermode", "RaytracedLighting")
+            for _k in ("/rtx/indirectDiffuse/enabled",
+                       "/rtx/ambientOcclusion/enabled", "/rtx/reflections/enabled",
+                       "/rtx/directLighting/sampledLighting/enabled",
+                       "/rtx/shadows/enabled"):
+                _s.set(_k, False)
+            _key = UsdLux.DistantLight.Define(stage, "/World/VizKey")
+            _key.CreateIntensityAttr(3000.0)
+            UsdGeom.Xformable(_key.GetPrim()).AddRotateXYZOp().Set(
+                Gf.Vec3f(-45.0, 15.0, 0.0))
+            _fill = UsdLux.DistantLight.Define(stage, "/World/VizFill")
+            _fill.CreateIntensityAttr(1500.0)
+            UsdGeom.Xformable(_fill.GetPrim()).AddRotateXYZOp().Set(
+                Gf.Vec3f(-30.0, 40.0, 0.0))
             gray = _mat(stage, "/World/Looks/Gray", (0.55, 0.55, 0.58))
             _bind(stage, "/World/Ground", gray)
             for tag, (approx, mh) in ((c[0], (c[1], c[2])) for c in lanes_cfg):

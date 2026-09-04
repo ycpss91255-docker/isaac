@@ -661,18 +661,32 @@ def _run_carry(args, app):
         _s.set("/rtx/ambientOcclusion/enabled", False)
         _s.set("/rtx/reflections/enabled", False)
         _s.set("/rtx/directLighting/sampledLighting/enabled", False)
-        # No DomeLight: image-based ambient is sampled stochastically and, with no
-        # denoiser, speckles flat surfaces. Two directional lights fill instead.
+        _s.set("/rtx/shadows/enabled", False)
+        # Spatial FXAA instead of temporal AA: no per-frame sub-pixel jitter, so
+        # large flat surfaces (ground / platforms) stop speckling on a static grab.
+        _s.set("/rtx/post/aa/op", 2)
+        _s.set("/rtx/post/dlss/execMode", 0)
+        _s.set("/rtx/pathtracing/spp", 1)
+        # Materials are authored flat/unlit (see below) so lighting is irrelevant;
+        # the two directional lights remain harmless. Emissive flat colour is what
+        # removes the salt-and-pepper (the denoiser-less lighting integral is the
+        # noise source), not the light setup.
         _fill = UsdLux.DistantLight.Define(stage, "/World/Fill")
         _fill.CreateIntensityAttr(1500.0)
         UsdGeom.Xformable(_fill.GetPrim()).AddRotateXYZOp().Set(
             Gf.Vec3f(-30.0, 40.0, 0.0))
-        gray = _viz_material(stage, "/World/Looks/Gray", (0.55, 0.55, 0.58))
-        _viz_bind(stage, "/World/Ground", gray)
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.62, 0.62, 0.66),
+                             flat=True)
+        # Hide the huge 800x800 physics ground for the render: a plane that big
+        # aliases badly at grazing angles with no denoiser. Nothing rests on it in
+        # carry (platforms float, payload rides the platform), so hiding it just
+        # removes the noisy element -- clean background, colored platforms/payload.
+        UsdGeom.Imageable(
+            stage.GetPrimAtPath("/World/Ground")).MakeInvisible()
         for ln in lanes:
             _viz_bind(stage, ln["slider_path"], gray)
             pm = _viz_material(stage, f"/World/Looks/{ln['tag']}",
-                               _pk_rgb.get(ln["k"], (0.8, 0.8, 0.2)))
+                               _pk_rgb.get(ln["k"], (0.8, 0.8, 0.2)), flat=True)
             _viz_bind(stage, ln["payload_path"], pm)
         cam = UsdGeom.Camera.Define(stage, "/World/CarryCam")
         cam.CreateFocalLengthAttr(18.0)
@@ -877,20 +891,22 @@ def _viz_look_at(eye, target, up=(0.0, 0.0, 1.0)):
     ]
 
 
-def _viz_material(stage, path, rgb, emissive=None, rough=0.6):
-    """UsdPreviewSurface material; optional emissiveColor for the marker glow."""
+def _viz_material(stage, path, rgb, emissive=None, rough=0.6, flat=False):
+    """UsdPreviewSurface material. ``flat`` = unlit (diffuse 0 + emissive rgb):
+    the surface emits its own colour, bypassing the per-pixel denoiser-less
+    lighting integral -> deterministic clean flat colour (no salt-and-pepper)."""
     from pxr import Gf, Sdf, UsdShade
 
     m = UsdShade.Material.Define(stage, path)
     s = UsdShade.Shader.Define(stage, path + "/Shader")
     s.CreateIdAttr("UsdPreviewSurface")
-    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    diffuse = (0.0, 0.0, 0.0) if flat else rgb
+    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*diffuse))
     s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(rough)
     s.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
-    if emissive is not None:
-        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(
-            Gf.Vec3f(*emissive)
-        )
+    em = rgb if flat else emissive
+    if em is not None:
+        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*em))
     m.CreateSurfaceOutput().ConnectToSource(s.ConnectableAPI(), "surface")
     return m
 

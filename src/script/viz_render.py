@@ -27,6 +27,8 @@ def apply_clean_render_settings():
     s.set("/rtx/ambientOcclusion/enabled", False)
     s.set("/rtx/reflections/enabled", False)
     s.set("/rtx/directLighting/sampledLighting/enabled", False)
+    s.set("/rtx/shadows/enabled", False)
+    s.set("/rtx/post/aa/op", 2)   # spatial FXAA -> no per-frame temporal jitter
 
 
 def add_fill_lights(stage, root="/World"):
@@ -73,14 +75,22 @@ def make_camera(stage, path, eye, target, focal=20.0):
     return path
 
 
-def material(stage, path, rgb):
+def material(stage, path, rgb, flat=True):
+    """UsdPreviewSurface. flat/unlit (default) = diffuse 0 + emissive rgb: the
+    surface emits its own colour, bypassing the per-pixel denoiser-less lighting
+    integral -> deterministic clean flat colour (no salt-and-pepper). Also hide
+    any huge ground plane (grazing-angle aliasing) rather than lighting it."""
     from pxr import Gf, Sdf, UsdShade
 
     m = UsdShade.Material.Define(stage, path)
     s = UsdShade.Shader.Define(stage, path + "/S")
     s.CreateIdAttr("UsdPreviewSurface")
-    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
-    s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.5)
+    diffuse = (0.0, 0.0, 0.0) if flat else rgb
+    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*diffuse))
+    s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
+    s.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+    if flat:
+        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
     m.CreateSurfaceOutput().ConnectToSource(s.ConnectableAPI(), "surface")
     return m
 
