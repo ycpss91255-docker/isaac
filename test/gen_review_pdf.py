@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the consolidated 6.0.1 physics re-validation review PDF.
+"""Generate the consolidated 6.0.1 physics re-validation review PDF (zh-TW).
 
 One multi-page PDF holding, for EVERY reviewed experiment, a quantitative data
 TABLE (not a single number) that is:
@@ -9,10 +9,11 @@ TABLE (not a single number) that is:
                                 2026-09 adversarial physics-validity audit and
                                 the subsequent driver fixes / re-runs.
 
-Reads the committed / re-run JSON logs under ``<repo>/test/`` and renders with
-matplotlib (PdfPages) -- no network, no extra deps beyond what Isaac ships.
+Body text is zh-TW (this is cyc's acceptance doc, not a git artifact). Rendered
+with matplotlib (PdfPages) using the container's Noto Sans CJK font -- no
+network, no extra deps beyond what Isaac ships.
 
-Run inside the devel container (matplotlib present)::
+Run inside the devel container (matplotlib + Noto CJK present)::
 
     W=/home/<user>/work/worktree/<wt>
     just exec -t devel /isaac-sim/python.sh $W/test/gen_review_pdf.py \\
@@ -22,20 +23,50 @@ Run inside the devel container (matplotlib present)::
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib import font_manager
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-# Treat text literally: reproduce commands contain '$', '_', '--' which must not
-# be parsed as TeX math / subscripts / minus signs.
+# Treat text literally: reproduce commands contain '$', '_', '--'.
 matplotlib.rcParams["text.parse_math"] = False
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# Container workspace placeholder shown in reproduce commands.
+# Register a CJK font so zh-TW renders (not tofu). The Isaac container ships NO
+# CJK font, so the font is loaded by PATH: --font, else a copy vendored next to
+# this script (test/.notocjk.ttc), else the host Noto paths (present only if the
+# container has them). The committed PDF embeds a subset, so it renders CJK
+# without the font; regenerating needs the font present.
+_CJK_NAME = "DejaVu Sans"
+
+
+def _init_cjk_font(font_arg, test_dir):
+    global _CJK_NAME
+    cands = []
+    if font_arg:
+        cands.append(font_arg)
+    cands += [
+        str(Path(test_dir) / ".notocjk.ttc"),
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    ]
+    for fp in cands:
+        if not Path(fp).is_file():
+            continue
+        try:
+            font_manager.fontManager.addfont(fp)
+            _CJK_NAME = font_manager.FontProperties(fname=fp).get_name()
+            break
+        except Exception:  # noqa: BLE001
+            continue
+    matplotlib.rcParams["font.family"] = "sans-serif"
+    matplotlib.rcParams["font.sans-serif"] = [_CJK_NAME, "DejaVu Sans"]
+    # Monospace text (reproduce commands) may carry CJK notes -> glyph fallback.
+    matplotlib.rcParams["font.monospace"] = ["DejaVu Sans Mono", _CJK_NAME]
+
 W = "$W"  # = /home/<user>/work/worktree/<wt> ; see the methodology page.
 PY = f"just exec -t devel env PYTHONPATH={W}/framework /isaac-sim/python.sh"
 
@@ -43,7 +74,7 @@ PY = f"just exec -t devel env PYTHONPATH={W}/framework /isaac-sim/python.sh"
 def _sha256(path):
     try:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "MISSING"
 
 
@@ -56,7 +87,6 @@ def _load(test_dir, name):
 
 
 def f(x, nd=4):
-    """Format a number compactly; pass through non-numbers."""
     if isinstance(x, bool):
         return str(x)
     if isinstance(x, (int, float)):
@@ -68,10 +98,11 @@ def f(x, nd=4):
 
 
 # ---------------------------------------------------------------------------
-# Per-experiment table extractors: each returns (columns, rows).
+# Per-experiment table extractors: each returns (columns, rows). Numbers only;
+# note rows carry short zh-TW labels.
 # ---------------------------------------------------------------------------
 def t_212(d):
-    cols = ["k (N/m)", "droop (mm)", "mg/k pred (mm)", "k_eff/k", "drift (mm)"]
+    cols = ["k (N/m)", "下垂 (mm)", "mg/k 預測 (mm)", "k_eff/k", "drift (mm)"]
     rows = []
     for p in d.get("points", []):
         dr = p["droop_mm"]
@@ -79,21 +110,21 @@ def t_212(d):
         rows.append([f(p["stiffness"]), f(dr), f(p["predicted_mm"]),
                      f(ratio, 3), f(p["drift_mm"])])
     dc = d.get("damping_control", {})
-    rows.append(["--- damping control @ k=%s (pred mg/k=%s mm) ---"
+    rows.append(["--- 阻尼對照 @ k=%s (mg/k=%s mm) ---"
                  % (f(dc.get("fixed_stiffness")), f(dc.get("predicted_mm"))),
                  "", "", "", ""])
     for p in dc.get("points", []):
         rows.append([f"factor {f(p['damping_factor'],2)} (d={f(p['damping'],1)})",
                      f(p["droop_mm"]), f(dc.get("predicted_mm")), "",
                      f(p["drift_mm"])])
-    rows.append([f"spread={f(dc.get('droop_spread_mm'))} mm -> {dc.get('verdict')}",
+    rows.append([f"擺幅={f(dc.get('droop_spread_mm'))} mm -> {dc.get('verdict')}",
                  "", "", "", ""])
     return cols, rows
 
 
 def t_215(d):
-    cols = ["body (link class)", "max pos err (m)", "max ang err (deg)",
-            "pusher frames", "zero-err"]
+    cols = ["物體 (link 類)", "max 位置誤差 (m)", "max 角誤差 (deg)",
+            "pusher frames", "零誤差"]
     rows = [[f"{b['name']} ({b['kind']})", f(b["max_pos_err_m"]),
              f(b["max_ang_err_deg"]), str(b["pusher_carried_frames"]),
              str(b["zero_error"])] for b in d.get("bodies", [])]
@@ -102,59 +133,58 @@ def t_215(d):
 
 
 def t_216(d):
-    cols = ["k (N/m)", "steady-state err (mrad)", "rms track err (mrad)",
-            "note"]
+    cols = ["k (N/m)", "穩態誤差 (mrad)", "RMS 追蹤 (mrad)", "備註"]
     rows = []
     for p in d.get("stiffness_sweep", []):
         sp = p.get("step_phase", {})
         sse_rad = sp.get("steady_state_error_rad")
         rows.append([f(p.get("stiffness_stored")),
                      f(sse_rad * 1000.0 if sse_rad is not None else None),
-                     "", "per-DOF; revolute axis +Z (zero gravity torque)"])
+                     "", "revolute 繞 +Z (重力零力矩)"])
     rep = d.get("repeatability", {})
     rms = rep.get("rms_tracking_error_rad_per_run", [None])
-    rows.append([f"repeatability k={f(rep.get('ref_stiffness'))}",
+    rows.append([f"重複性 k={f(rep.get('ref_stiffness'))}",
                  "", f((rms[0] or 0) * 1000.0), "3 runs, spread %s mrad"
                  % f(rep.get("rms_spread_mrad"))])
     return cols, rows
 
 
 def t_219(d):
-    cols = ["sub-test", "case", "result", "held/clamped"]
+    cols = ["子測", "case", "結果", "撐住/夾住"]
     rows = []
     for p in d.get("effort_clamp", {}).get("points", []):
-        rows.append(["effort clamp",
-                     "maxForce=%sN (%.2gx load)" % (f(p["max_force_N"]),
+        rows.append(["力矩飽和",
+                     "maxForce=%sN (%.2gx 重量)" % (f(p["max_force_N"]),
                                                     p["max_force_vs_load"]),
-                     "droop=%s mm" % f(p["droop_mm"]),
-                     "held" if p["held_target"] else "STALL@limit"])
+                     "下垂=%s mm" % f(p["droop_mm"]),
+                     "撐住" if p["held_target"] else "STALL@limit"])
     vc = d.get("velocity_clamp", {})
-    rows.append(["velocity clamp", "limit 0.3 vs 1000",
-                 "peak %s -> %s m/s" % (f(vc.get("high_limit_peak_velocity")),
-                                        f(vc.get("low_limit_peak_velocity"))),
+    rows.append(["速度夾", "limit 0.3 vs 1000",
+                 "峰速 %s -> %s m/s" % (f(vc.get("high_limit_peak_velocity")),
+                                       f(vc.get("low_limit_peak_velocity"))),
                  str(vc.get("clamp_confirmed"))])
     pl = d.get("position_limit", {})
-    rows.append(["position limit",
-                 "cmd %s m, upper %s m" % (f(pl.get("commanded_target_m")),
-                                           f(pl.get("upper_limit_m"))),
-                 "settled %s m" % f(pl.get("settled_position_m")),
+    rows.append(["行程極限",
+                 "命令 %s m, upper %s m" % (f(pl.get("commanded_target_m")),
+                                            f(pl.get("upper_limit_m"))),
+                 "停在 %s m" % f(pl.get("settled_position_m")),
                  str(pl.get("clamped_at_limit"))])
     si = d.get("solver_iterations", {})
-    rows.append(["solver iters", "1 / 4 / 32 iters",
-                 "droop spread %s mm" % f(si.get("droop_spread_mm")),
-                 "iter-indep=%s" % (not si.get("sensitive_to_iterations"))])
+    rows.append(["solver 迭代", "1 / 4 / 32",
+                 "下垂擺幅 %s mm" % f(si.get("droop_spread_mm")),
+                 "與迭代無關=%s" % (not si.get("sensitive_to_iterations"))])
     for c in d.get("gain_scaling_pi_over_180", {}).get("cases", []):
-        rows.append(["gain scaling", "%s (%s)" % (c["joint_kind"], c["drive_axis"]),
+        rows.append(["gain 換算", "%s (%s)" % (c["joint_kind"], c["drive_axis"]),
                      "stored/Kp=%s" % f(c["ratio_stored_over_Kp"]),
-                     "match=%s" % c["matches_expected"]])
+                     "符合=%s" % c["matches_expected"]])
     return cols, rows
 
 
 def t_218(d):
-    cols = ["mu", "max carried step (m)", "min slipped step (m)",
-            "analytic d_crit (m)", "monotonic"]
+    cols = ["mu", "最大乾淨載步 (m)", "最小滑脫步 (m)", "解析 d_crit (m)",
+            "monotonic"]
     rows = []
-    for key, v in sorted(d.get("threshold_by_friction", {}).items()):
+    for _key, v in sorted(d.get("threshold_by_friction", {}).items()):
         rows.append([f(v["mu"], 2), f(v["max_carried_ramp_step_m"]),
                      f(v["min_slipped_ramp_step_m"]), f(v["analytic_d_crit_m"]),
                      str(v["carried_slipped_monotonic"])])
@@ -164,57 +194,53 @@ def t_218(d):
 
 
 def t_220(d):
-    cols = ["object", "metric", "value"]
+    cols = ["物體", "指標", "數值"]
     pl = d.get("plate", {})
     cu = d.get("cube", {})
     fp = cu.get("final_pos_m", [None])
     bp = cu.get("baseline_pos_m", [None])
     disp = (fp[0] - bp[0]) if (fp[0] is not None and bp[0] is not None) else None
     rows = [
-        ["plate (kinematic)", "max pos err under contact (m)",
-         f(pl.get("max_pos_err_contact_m")) + "  [float32 floor; true-by-def]"],
-        ["plate (kinematic)", "contact frames", str(pl.get("contact_frames"))],
-        ["cube (dynamic)", "displacement x (m)", f(disp) + "  [genuine push]"],
-        ["transfer", "one_way_transfer_ok", str(d.get("one_way_transfer_ok"))],
+        ["plate (kinematic)", "接觸時 max 位置誤差 (m)",
+         f(pl.get("max_pos_err_contact_m")) + "  [float32 地板; 定義使然]"],
+        ["plate (kinematic)", "接觸 frames", str(pl.get("contact_frames"))],
+        ["cube (dynamic)", "位移 x (m)", f(disp) + "  [真的被推動]"],
+        ["傳遞", "one_way_transfer_ok", str(d.get("one_way_transfer_ok"))],
     ]
     return cols, rows
 
 
 def t_221(d):
-    cols = ["mass (kg)", "static give |z| (m)", "body travel (m)", "built"]
+    cols = ["質量 (kg)", "static give |z| (m)", "", ""]
     rows = []
     gm = d.get("give_rises_with_mass", {}).get("rigid", {})
-    masses = gm.get("masses_kg", [])
-    gives = gm.get("static_give_norm_m", [])
-    for m, g in zip(masses, gives):
+    for m, g in zip(gm.get("masses_kg", []), gm.get("static_give_norm_m", [])):
         rows.append([f(m), f(g), "", ""])
-    rows.append(["--- give identical across 1000x mass => below float32 floor ---",
+    rows.append(["--- give 在 1000x 質量下逐位元相同 => 在 float32 地板下 ---",
                  "", "", ""])
-    rows.append(["upper bound: give < ~2e-7 m @ 9810 N", "=> seam stiffness",
+    rows.append(["上界: give < ~2e-7 m @ 9810 N", "=> 接縫剛度",
                  "> ~5e10 N/m", ""])
     rows.append(["compliant_confirmed=%s  force_transfer_ok=%s"
                  % (d.get("compliant_confirmed"), d.get("force_transfer_ok")),
-                 "chain variant (#308): SIGSEGV, never run", "", ""])
+                 "鏈式版(#308): SIGSEGV, 沒跑成", "", ""])
     return cols, rows
 
 
 def t_227(d):
-    cols = ["joint", "supported mass (kg)", "sag (mm)", "mg/k pred (mm)",
-            "drift (mm)"]
+    cols = ["joint", "撐重 (kg)", "下垂 (mm)", "mg/k 預測 (mm)", "drift (mm)"]
     rows = []
     for p in d.get("chain", {}).get("per_joint", []):
         rows.append([p["joint"], f(p["supported_mass_kg"]), f(p["sag_mm"]),
                      f(p["predicted_mm"]), f(p["drift_mm"])])
     cp = d.get("coupling", {})
-    rows.append(["coupling: moved %s to %s m, reached %s mm short"
+    rows.append(["耦合: 移 %s 到 %s m, 差 %s mm"
                  % (cp.get("moved_joint"), f(cp.get("moved_target_m")),
                     f(cp.get("moved_reached_mm_short"))), "", "", "", ""])
     return cols, rows
 
 
 def t_229(d):
-    cols = ["lane", "base travel (m)", "arm travel (m)", "follow ratio",
-            "carries"]
+    cols = ["lane", "底盤位移 (m)", "arm 位移 (m)", "follow ratio", "帶得動"]
     rows = []
     for ln in d.get("lanes", []):
         rows.append([ln["tag"], f(ln["base_travel_x_m"]),
@@ -225,22 +251,22 @@ def t_229(d):
 
 
 def t_d1(d):
-    cols = ["k (N/m)", "cube disp (m)", "backoff contact (mm)",
-            "control lag (mm)", "contact reaction (mm)"]
+    cols = ["k (N/m)", "箱子位移 (m)", "接觸 back-off (mm)",
+            "no-cube 落後 (mm)", "純接觸反作用 (mm)"]
     rows = []
     for p in d.get("points", []):
         rows.append([f(p["stiffness"]), f(p["cube_displacement_x_m"]),
                      f(p["backoff_contact_mm"]),
                      f(p["control_following_lag_mm"]),
                      f(p["contact_reaction_mm"])])
-    rows.append(["feed-forward=%s; contact reaction = backoff - no-cube control"
+    rows.append(["feed-forward=%s; 純接觸反作用 = back-off - no-cube 對照"
                  % d.get("feedforward"), "", "", "", ""])
     return cols, rows
 
 
 def t_d2(d, d_fine):
     cols = ["k (N/m)", "payload lag std-dt (mm)", "payload lag fine-dt (mm)",
-            "delivery ok (std)", "carrier err (mm)"]
+            "交付OK(std)", "載台誤差 (mm)"]
     fine = {p["stiffness"]: p for p in (d_fine or {}).get("points", [])}
     rows = []
     for p in d.get("points", []):
@@ -248,15 +274,12 @@ def t_d2(d, d_fine):
         rows.append([f(p["stiffness"]), f(p["payload_lag_mm"]),
                      f(fp.get("payload_lag_mm")), str(p["delivery_ok"]),
                      f(p["carrier_track_err_max_mm"])])
-    rows.append(["std dt=%s ; fine dt=%s (4x): high-k slip collapses with dt"
+    rows.append(["std dt=%s ; fine dt=%s (4x): 高 k slip 隨 dt 細化而崩塌"
                  % (f(d.get("physics_dt")), f((d_fine or {}).get("physics_dt"))),
                  "", "", "", ""])
     return cols, rows
 
 
-# ---------------------------------------------------------------------------
-# Experiment registry: id, title, verdict, log, reproduce cmd, conclusion.
-# ---------------------------------------------------------------------------
 def build_registry(test_dir):
     d212 = _load(test_dir, ".prove-A-212-sag.json")
     d215 = _load(test_dir, ".prove-B-215-hold.json")
@@ -271,133 +294,117 @@ def build_registry(test_dir):
     dd2 = _load(test_dir, ".l25-dynamic-carry.json")
     dd2f = _load(test_dir, ".l25-dynamic-carry-finedt.json")
     reg = [
-        dict(id="#212", title="Single-joint sag vs stiffness (L2.5/L3)",
-             verdict="QUESTIONABLE -> FIXED (damping control added)",
+        dict(id="#212", title="單關節下垂 vs 剛度 (L2.5/L3)",
+             verdict="QUESTIONABLE -> 已修 (加 damping 對照)",
              log=".prove-A-212-sag.json",
              cmd=f"{PY} {W}/src/script/exp_l25_sag_sweep.py "
                  f"--out {W}/test/.prove-A-212-sag.json",
              tbl=t_212(d212),
-             concl="Damping control (fixed k=1e6, sweep damping) shows droop "
-                   "swings -0.10..+0.05 mm and even goes NEGATIVE at low damping "
-                   "-- at true steady state (drift=0) droop must equal mg/k=0.098 "
-                   "mm regardless of damping. So the high-k undershoot (k_eff/k up "
-                   "to 5.4x) is a TGS implicit-drive spring-stiffening artifact, "
-                   "NOT a stiffness property. ADR-0021 D1a 'no floor / beats "
-                   "prediction' is refuted; the defensible claim is only 'no "
-                   "float32 floor hit in-range'."),
-        dict(id="#215", title="Per-link true-kinematic substitution (L2 hold)",
-             verdict="QUESTIONABLE (crashed) -> FIXED (NameError; re-run clean)",
+             concl="damping 對照(固定 k=1e6、掃 damping)顯示 droop 從 -0.10 擺到 "
+                   "+0.05 mm、低 damping 甚至負值(overshoot)。真穩態(drift=0)下 "
+                   "droop 必等於 mg/k=0.098 mm 與 damping 無關 —— 但實測隨 damping "
+                   "變、且都不在 0.098 上。所以高 k undershoot(k_eff/k 到 5.4x)是 "
+                   "TGS implicit-drive 把 damping 摺進有效剛性的 solver 假象,不是剛性 "
+                   "特性。ADR-0021 D1a「no floor / beats prediction」要刪;可辯護的只剩 "
+                   "「in-range 沒撞 float32 地板」。"),
+        dict(id="#215", title="逐 link 真 kinematic 替換 (L2 hold)",
+             verdict="QUESTIONABLE(曾 crash) -> 已修 (NameError; 重跑乾淨)",
              log=".prove-B-215-hold.json",
              cmd=f"{PY} {W}/src/script/exp_l2_kinematic_substitution.py "
                  f"--out {W}/test/.prove-B-215-hold.json",
              tbl=t_215(d215),
-             concl="NameError (contact_frames[nm]) fixed -> committed driver now "
-                   "produces the table. Kinematic bodies hold to the float32 "
-                   "read-back floor (6e-8..4.6e-7 m) under 10 kg load + contact, "
-                   "vs a dynamic body that would fall 1.36 mm/step -- the "
-                   "kinematic-vs-dynamic distinction is real. The 'ignores "
-                   "contact' half is true-by-definition (softened, not a stress "
-                   "test)."),
-        dict(id="#216", title="L3 trajectory tracking precision",
-             verdict="QUESTIONABLE -> DOC CORRECTED (units + inapplicable floor)",
+             concl="修掉 NameError(contact_frames[nm])後,committed driver 才真的 "
+                   "產出此表。kinematic body 在 10 kg 負載 + 接觸下撐到 float32 "
+                   "read-back 地板(6e-8..4.6e-7 m);dynamic body 一步會掉 1.36 mm "
+                   "—— kinematic vs dynamic 分野成立。「無視接觸」那半是 kinematic "
+                   "定義使然(靜置 pusher 壓在無視外力的 body 上不算獨立壓力測試),已 "
+                   "改述。"),
+        dict(id="#216", title="L3 軌跡追蹤精度",
+             verdict="QUESTIONABLE -> 改稿 (單位 + 不適用的地板)",
              log=".prove-A-216-tracking.json",
              cmd=f"{PY} {W}/src/script/exp_traj_tracking.py "
                  f"--out {W}/test/.prove-A-216-tracking.json",
              tbl=t_216(d216),
-             concl="Driver reports RADIANS/mrad; the acceptance doc mislabeled "
-                   "them 'mm' (an angle as a distance). The joint is revolute "
-                   "about +Z so gravity gives ZERO torque -> ideal steady-state "
-                   "error ~0, NOT mg/k; the doc's 'analytic floor mg/k=1.962 mm' "
-                   "was imported from the prismatic experiment and is "
-                   "inapplicable. Correct metric: angular tracking error in mrad, "
-                   "no gravity floor."),
-        dict(id="#219", title="Drive limits: effort / velocity / position",
-             verdict="QUESTIONABLE (provenance) -> FIXED (re-run matches driver)",
+             concl="driver 報的是弧度/毫弧度(mrad),原稿誤標成 mm(角度當距離)。此 "
+                   "joint 繞 +Z revolute,重力對該軸零力矩 -> 理想穩態誤差 ~0,不是 "
+                   "mg/k;原稿「地板 mg/k=1.962 mm」是從 prismatic 實驗搬來、不適用,"
+                   "「1.757 對 1.962」是巧合。正解:報 mrad 角度追蹤誤差,無重力地板可比。"),
+        dict(id="#219", title="drive 極限:力矩 / 速度 / 行程",
+             verdict="QUESTIONABLE(provenance) -> 已修 (重跑對齊 driver)",
              log=".prove-A-219-limits.json",
              cmd=f"{PY} {W}/src/script/exp_drive_limits.py "
                  f"--out {W}/test/.prove-A-219-limits.json",
              tbl=t_219(d219),
-             concl="Re-run so numbers match the committed driver. Payload weight "
-                   "is 98.1 N (10 kg) -- the doc's '49 N weight' mislabeled a "
-                   "0.5x maxForce CASE (49.05 N) as the weight. maxForce >= mg "
-                   "holds (droop mg/k); maxForce < mg stalls at the lower limit. "
-                   "Position limit 0.5 m clamps a 2.0 m command. Droop is "
-                   "solver-iteration-independent; revolute drive stores Kp*pi/180."),
-        dict(id="#218", title="Kinematic carry speed limit (analytic d_crit)",
-             verdict="MINOR (report mu-dependent threshold)",
+             concl="重跑使數字對齊 committed driver。重物是 98.1 N(10 kg)—— 原稿的 "
+                   "「49 N 重物」把一個 0.5x maxForce case(49.05 N)誤標成重量。"
+                   "maxForce >= mg 才撐得住(下垂 mg/k);< mg 則 stall 到 lower "
+                   "limit。行程極限 0.5 m 夾住 2.0 m 命令。下垂與 solver 迭代數無關;"
+                   "revolute drive 存 Kp*pi/180。"),
+        dict(id="#218", title="kinematic 載運速度上限 (解析 d_crit)",
+             verdict="MINOR (報 mu-dependent 門檻)",
              log=".prove-B-218-carry.json",
              cmd=f"{PY} {W}/src/script/exp_l2_carry_speed_limit.py "
                  f"--out {W}/test/.prove-B-218-carry.json",
              tbl=t_218(d218),
-             concl="Bracket derivation sound: d_crit = dt*sqrt(2*mu*g*L_back) "
-                   "matches the measured carried/slipped threshold and rises "
-                   "monotonically with mu (0.035..0.077 m/tick). Report the "
-                   "mu-dependent threshold, not a coarse single band; the "
-                   "high-speed 'launch to 5.19 m' endpoint is a contact-"
-                   "penetration artifact, not a physical finding."),
-        dict(id="#220", title="Kinematic pushes dynamic (one-way transfer)",
-             verdict="QUESTIONABLE -> WORDING SOFTENED",
+             concl="推導成立:d_crit = dt*sqrt(2*mu*g*L_back) 對上實測 carried/"
+                   "slipped 門檻、隨 mu 單調上升(0.035..0.077 m/tick)。要報 "
+                   "mu-dependent 門檻,不是粗略單一帶;高速「發射到 5.19 m」是接觸穿透 "
+                   "注入能量的 solver 假象,不是物理發現。"),
+        dict(id="#220", title="kinematic 推 dynamic 物 (單向傳遞)",
+             verdict="QUESTIONABLE -> 措辭軟化",
              log=".prove-B-220-push.json",
              cmd=f"{PY} {W}/src/script/exp_l2_push_dynamic.py "
                  f"--out {W}/test/.prove-B-220-push.json",
              tbl=t_220(d220),
-             concl="Plate 'tracks 0.000 under contact' is true-by-definition of "
-                   "kinematic (teleport per tick + never integrated -> any "
-                   "reaction discarded before read-back), not a measurement -- "
-                   "stated as such. The genuine finding is the cube-push: normal-"
-                   "overlap depenetration imparts ~1.19 m displacement. One-way "
-                   "transfer holds."),
-        dict(id="#221", title="Maximal loop-joint seam compliance",
-             verdict="QUESTIONABLE -> REFRAMED AS UPPER BOUND",
+             concl="plate「接觸下 track 0.000」是 kinematic 定義使然(每 tick teleport "
+                   "+ 不積分 -> 任何反作用在 read-back 前被丟掉),max_pos_err<1e-4 是 "
+                   "float32 地板、保證成立無法證偽 —— 改述為 true-by-definition。真正 "
+                   "的量測是推箱:normal-overlap depenetration 傳 ~1.19 m 位移。單向 "
+                   "傳遞成立。"),
+        dict(id="#221", title="maximal loop-joint 接縫 compliance",
+             verdict="QUESTIONABLE -> 改寫成上界",
              log=".prove-C-221-seam.json",
              cmd=f"{PY} {W}/src/script/exp_l2_loop_joint_boundary.py "
                  f"--out {W}/test/.prove-C-221-seam.json",
              tbl=t_221(d221),
-             concl="static_give is bit-for-bit identical (2.38e-8 m) across "
-                   "1/10/100/1000 kg -> it is the float32 quantization residual, "
-                   "not a measured compliance. The run yields only an UPPER BOUND: "
-                   "give < ~2e-7 m at 9810 N => seam stiffness > ~5e10 N/m "
-                   "(effectively rigid for practical loads). Drop the specific "
-                   "give values, the 'mass-invariant' / monotonic sub-claims, and "
-                   "'refutes PhysX #308' -- #308 is about CHAINED joints; only a "
-                   "single joint ran (the chain variant SIGSEGVs)."),
-        dict(id="#227", title="3-joint serial sag accumulation",
-             verdict="MINOR (geometric-identity wording)",
+             concl="static give 在 1/10/100/1000 kg 逐位元相同(2.38e-8 m)-> 是 "
+                   "float32 量化殘差,不是量到的 compliance。此 run 只能給上界:give "
+                   "< ~2e-7 m @ 9810 N => 接縫剛度 > ~5e10 N/m(對實用負載有效剛性)。"
+                   "要刪具體 give 值、「give 隨質量成長」/ monotonic(四值相同,vacuous)、"
+                   "「駁斥 #308」—— #308 是鏈式 joint 疊加,這只跑了單一個(鏈版 "
+                   "SIGSEGV)。"),
+        dict(id="#227", title="3 關節串接下垂累加",
+             verdict="MINOR (幾何恆等式措辭)",
              log=".prove-A-227-multijoint.json",
              cmd=f"{PY} {W}/src/script/exp_multijoint_sag.py "
                  f"--out {W}/test/.prove-A-227-multijoint.json",
              tbl=t_227(d227),
-             concl="Clean vertical-prismatic stack; measured tip sum 60.3 mm vs "
-                   "predicted 58.9 mm (+2.4% real coupling). 'tip error = sum of "
-                   "per-joint sags' is a geometric identity of a serial chain, not "
-                   "a discovered solver coupling -- the genuine finding is "
-                   "measured-sum ~= predicted-sum."),
-        dict(id="#229", title="Base carries a floating articulation (negative)",
-             verdict="MINOR (doc numbers corrected to committed JSON)",
+             concl="乾淨的垂直 prismatic 串接;實測 tip 總和 60.3 mm vs 預測 58.9 mm "
+                   "(+2.4% 真耦合)。「tip 誤差 = 各節 sag 相加」是串接鏈的幾何恆等式,"
+                   "不是量到的 solver 耦合發現 —— 真正的發現是實測總和 ~= 預測總和。"),
+        dict(id="#229", title="底盤帶浮動 articulation (negative)",
+             verdict="MINOR (數字對齊 committed JSON)",
              log=".prove-C-229-basecarry.json",
              cmd=f"{PY} {W}/src/script/exp_l2_base_carries_arm.py "
                  f"--out {W}/test/.prove-C-229-basecarry.json",
              tbl=t_229(d229),
-             concl="Genuine PhysX negative: a USD-hierarchy parent does NOT carry "
-                   "a floating articulation (follow_ratio ~0, arm rides 0 while "
-                   "base moves 2.5 m) -- a joint is forced. The acceptance doc's "
-                   "numbers (base 1.5 m / arm diverges to 2.369 m) were STALE and "
-                   "even implied divergence the clean follow=0 run contradicts; "
-                   "corrected to the committed JSON (base 2.5 / arm 0 / follow 0)."),
-        dict(id="D1", title="L2.5 dynamic push: pusher back-off vs stiffness",
-             verdict="QUESTIONABLE -> FIXED (no-cube control + feed-forward)",
+             concl="真 PhysX negative:USD 階層 parent 帶不動浮動 articulation "
+                   "(follow_ratio ~0,arm 動 ~0 而底盤移 2.5 m)—— 必須用 joint。原稿 "
+                   "數字(底盤 1.5 m / arm 發散到 2.369 m)是 stale、甚至暗示被乾淨 "
+                   "follow=0 run 否定的發散;已改成 committed JSON(底盤 2.5 / arm 0 / "
+                   "follow 0)。"),
+        dict(id="D1", title="L2.5 動態推:推板 back-off vs 剛度",
+             verdict="QUESTIONABLE -> 已修 (no-cube 對照 + feed-forward)",
              log=".l25-dynamic-push.json",
              cmd=f"{PY} {W}/src/script/exp_l25_dynamic_interaction.py --mode push "
                  f"--out {W}/test/.l25-dynamic-push.json",
              tbl=t_d1(dd1),
-             concl="Added drive velocity feed-forward + an identical NO-CUBE "
-                   "control lane. Result: control (following-lag) back-off ~= the "
-                   "contact back-off at every k, so the PURE contact reaction is "
-                   "~0 (<0.13 mm). The soft-end 'back-off' the original attributed "
-                   "to contact was drive-following / startup lag, not finite-"
-                   "spring reaction -- confirming the audit."),
-        dict(id="D2", title="L2.5 dynamic carry: payload lag vs stiffness + dt",
-             verdict="FLAWED -> FIXED (feed-forward + dt-refinement control)",
+             concl="加了 drive velocity feed-forward + 同規格 no-cube 對照 lane。"
+                   "結果:對照(following-lag)back-off ~= 接觸 back-off,所以純接觸 "
+                   "反作用 ~0(<0.13 mm)。原稿歸給接觸的軟端 back-off,其實是 "
+                   "drive-following / startup lag,不是有限彈簧反作用 —— 確認審查。"),
+        dict(id="D2", title="L2.5 動態載:payload lag vs 剛度 + dt",
+             verdict="FLAWED -> 已修 (feed-forward + dt 對照)",
              log=".l25-dynamic-carry.json",
              cmd=f"{PY} {W}/src/script/exp_l25_dynamic_interaction.py --mode carry "
                  f"--out {W}/test/.l25-dynamic-carry.json\n"
@@ -405,75 +412,62 @@ def build_registry(test_dir):
                  f"--warmup 240 --settle 480 "
                  f"--out {W}/test/.l25-dynamic-carry-finedt.json",
              tbl=t_d2(dd2, dd2f),
-             concl="The 'stiffer is worse for the payload' conclusion was "
-                   "BACKWARDS. First principles: a=0.75 m/s^2 needs 0.75 N "
-                   "friction vs 4.9 N static limit (6.5x) -> zero slip in "
-                   "continuous motion at any k. The high-k slip is a (k*dt) "
-                   "discretization artifact: a stiff drive snaps the per-tick "
-                   "position staircase impulsively when dt is not << the drive "
-                   "natural period 2*pi*sqrt(m/k). It COLLAPSES with 4x finer dt "
-                   "(k=1e5: 154 mm -> 19 mm; k=1e6/1e7 need finer still). Delivery "
-                   "is judged on the PAYLOAD lag, not the carrier tracking error "
-                   "(which can be <0.05 mm while the cargo lags). L2.5 CAN carry; "
-                   "match dt to stiffness."),
-        dict(id="Limit (1)",
-             title="Articulation + kinematic maximal loop-joint SIGSEGV",
-             verdict="MINOR (correctly stated; upstream bug)",
+             concl="原本「越硬對 payload 越差」是錯的、方向相反。第一性原理:a=0.75 "
+                   "m/s^2 只需 0.75 N 摩擦 vs 靜摩擦上限 4.9 N(6.5x)-> 連續運動下任何 "
+                   "k 都零滑。高 k slip 是 (k*dt) 離散化假象:stiff drive 在單 substep "
+                   "內 snap 到 per-tick 位置階梯 -> 衝擊 -> 破壞摩擦,dt 不 << drive "
+                   "自然週期 2*pi*sqrt(m/k) 時發生。dt 細化即崩塌(k=1e5:154->19 mm;"
+                   "k=1e6/1e7 要更細)。交付以 payload lag 判,不是載台 tracking err "
+                   "(後者可 <0.05 mm 而貨物大幅落後)。L2.5 能載;dt 要配剛度。"),
+        dict(id="限制①",
+             title="articulation + kinematic maximal loop-joint SIGSEGV",
+             verdict="MINOR (陳述正確;上游 bug)",
              log=None,
              cmd=f"{PY} {W}/src/script/repro_artic_kinematic_loopjoint_sigsegv.py "
                  f"# native SIGSEGV -> writes no JSON",
-             tbl=(["control", "outcome"],
-                  [["dynamic body (no ArticulationRootAPI)", "exit 0 (survives)"],
+             tbl=(["對照組", "結果"],
+                  [["dynamic body (無 ArticulationRootAPI)", "exit 0 (存活)"],
                    ["floating articulation + get_transforms", "SIGSEGV"],
-                   ["body-only readback", "survives"],
-                   ["no readback", "survives"],
-                   ["=> trigger = artic topology x get_transforms "
-                    "on kinematic anchor after world.step", ""]]),
-             concl="Clean bisection isolates a native SIGSEGV in "
-                   "libomni.physx.tensors to a documented-legitimate PhysX "
-                   "construct -> upstream engine defect (isaac-sim/IsaacSim#803), "
-                   "workaround = plain dynamic body. Note the older ADR-0008 "
-                   "wording ('crash at physics-view init') is stale; the repro "
-                   "pins it to the post-step get_transforms readback."),
-        dict(id="Limit (2)",
-             title="PhysX forbids kinematic articulation LINKS",
-             verdict="MINOR (correctly stated; PhysX 5.4 doc)",
+                   ["只讀 body、不讀 transforms", "存活"],
+                   ["完全不 readback", "存活"],
+                   ["=> 觸發 = artic 拓樸 x world.step 後對 kinematic 錨點 "
+                    "get_transforms", ""]]),
+             concl="乾淨 bisection 把 native SIGSEGV(libomni.physx.tensors)隔離到一個 "
+                   "文件上合法的 PhysX 構造 -> 上游引擎缺陷(isaac-sim/IsaacSim#803),"
+                   "workaround = 用 plain dynamic body。註:ADR-0008 舊措辭「crash at "
+                   "physics-view init」已 stale;repro 把它定位在 world.step 後的 "
+                   "get_transforms readback。"),
+        dict(id="限制②",
+             title="PhysX 禁止 kinematic articulation LINK",
+             verdict="MINOR (陳述正確;PhysX 5.4 明文)",
              log=None,
-             cmd="(documentation constraint; #229 usd_child is supporting "
-                 "evidence, not proof)",
-             tbl=(["fact", "source"],
-                  [["links inside an articulation cannot be kinematic",
-                    "PhysX 5.4 Articulations doc"],
-                   ["true-L2 substitution target = standalone rigid body",
+             cmd="(doc constraint; #229 usd_child is supporting evidence, not proof)",
+             tbl=(["事實", "來源"],
+                  [["articulation 內 link 不能 kinematic",
+                    "PhysX 5.4 Articulations 文件"],
+                   ["真 L2 替換目標 = 散裝 rigid body",
                     "ADR-0008 clause 4 / ADR-0021 D2"],
-                   ["#229 proves the COMPLEMENTARY proposition",
-                    "supporting, not proof of the clause"]]),
-             concl="Core claim correctly attributed to PhysX 5.4 docs. Minor: the "
-                   "doc's '#229 proves this' over-attributes -- #229 shows a "
-                   "floating root is not dragged by a kinematic USD parent, which "
-                   "is supporting evidence, not a proof that links cannot be "
-                   "kinematic."),
-        dict(id="Limit (3)",
-             title="#205 / #171 / #166 deferred on missing CAD",
-             verdict="SOUND (genuinely asset-blocked)",
+                   ["#229 證的是互補命題",
+                    "支持證據,非此明文限制的證明"]]),
+             concl="核心宣稱正確引 PhysX 5.4 文件。小瑕:原稿「#229 即證此」over-"
+                   "attribute —— #229 證的是「浮動 root 不被 kinematic USD parent 帶 "
+                   "動」,是支持證據,不是「link 不能 kinematic」的證明。"),
+        dict(id="限制③",
+             title="#205 / #171 / #166 卡 CAD 模型延後",
+             verdict="SOUND (純粹 asset 卡關)",
              log=None,
-             cmd="(no run: blocked on the user's CAD model)",
-             tbl=(["experiment", "blocker"],
-                  [["#205 real-vehicle e2e", "needs user CAD model (ADR-0021)"],
-                   ["#171 representative-robot e2e", "needs CAD model"],
-                   ["#166 DAE color import", "needs CAD (pipeline in ADR-0020)"]]),
-             concl="Confirmed genuinely asset-blocked, not a technical "
-                   "impossibility: the DAE color-import pipeline (ADR-0020) and "
-                   "the CAD dependency (ADR-0021) are specified; only the asset "
-                   "is missing."),
+             cmd="(not run: blocked on the user's CAD model)",
+             tbl=(["實驗", "卡點"],
+                  [["#205 實車 e2e", "需 user CAD 模型 (ADR-0021)"],
+                   ["#171 代表性機器人 e2e", "需 CAD 模型"],
+                   ["#166 DAE 顏色匯入", "需 CAD (pipeline 在 ADR-0020)"]]),
+             concl="確認純粹 asset 卡關、非技術不可能:DAE 顏色匯入 pipeline(ADR-0020)"
+                   "與 CAD 依賴(ADR-0021)都已明訂,只差模型。"),
     ]
     return reg
 
 
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-def _wrap(text, width=96):
+def _wrap(text, width=52):
     import textwrap
     out = []
     for para in text.split("\n"):
@@ -483,79 +477,70 @@ def _wrap(text, width=96):
 
 def title_page(pdf, test_dir):
     fig = plt.figure(figsize=(8.27, 11.69))
-    fig.subplots_adjust(left=0.07, right=0.95, top=0.93, bottom=0.05)
     ax = fig.add_subplot(111)
     ax.axis("off")
     lines = [
-        ("Isaac Sim 6.0.1 Physics Re-validation -- Review Data Tables", 16, "bold"),
-        ("Post-audit corrected; every experiment traceable to log + reproducible",
-         10, "italic"),
-        ("", 8, "normal"),
-        ("Environment", 12, "bold"),
+        ("Isaac Sim 6.0.1 物理再驗證 —— 驗收資料表", 16, "bold", "sans"),
+        ("審查後修正版;每支實驗可追溯 log + 可重現", 10, "italic", "sans"),
+        ("", 8, "normal", "sans"),
+        ("環境", 12, "bold", "sans"),
         ("  Isaac Sim 6.0.1 / Isaac Lab 3.0 (v3.0.0-beta2.patch1), Kit Python 3.12",
-         9, "normal"),
-        ("  GPU: NVIDIA GeForce RTX 5090 (31 GiB); driver 610.43.02; Warp 1.13.0 "
-         "(CUDA 12.9)", 9, "normal"),
-        ("  Container image: yunchien/isaac:devel (base BASE_IMAGE="
-         "nvcr.io/nvidia/isaac-sim:6.0.1)", 9, "normal"),
-        ("  Physics dt: 1/60 s (unless a per-experiment fine-dt control says "
-         "otherwise)", 9, "normal"),
-        ("", 8, "normal"),
-        ("Reproduce (from the isaac worktree root)", 12, "bold"),
-        ("  W=/home/<user>/work/worktree/<wt>   # container path of this worktree",
-         9, "mono"),
+         9, "normal", "sans"),
+        ("  GPU: NVIDIA GeForce RTX 5090 (31 GiB); driver 610.43.02; Warp 1.13.0",
+         9, "normal", "sans"),
+        ("  容器 image: yunchien/isaac:devel (BASE_IMAGE=nvcr.io/nvidia/isaac-sim:"
+         "6.0.1)", 9, "normal", "sans"),
+        ("  physics dt: 1/60 s(除非某支的 fine-dt 對照另有標示)", 9, "normal",
+         "sans"),
+        ("", 8, "normal", "sans"),
+        ("重現方式(在 isaac worktree 根目錄)", 12, "bold", "sans"),
+        ("  W=/home/<user>/work/worktree/<wt>   # this worktree inside container",
+         9, "mono", "mono"),
         ("  just setup apply && just run -t devel -d       # start devel container",
-         9, "mono"),
+         9, "mono", "mono"),
         ("  # then run each per-page command (env PYTHONPATH=$W/framework is only",
-         9, "mono"),
-        ("  # required for URDF-import drivers but is harmless everywhere)",
-         9, "mono"),
-        ("", 8, "normal"),
-        ("Verdict legend (2026-09 adversarial physics-validity audit)", 12, "bold"),
-        ("  FLAWED       headline conclusion was wrong; fixed + re-verified",
-         9, "normal"),
-        ("  QUESTIONABLE design/provenance gap; fixed (control added / re-run) "
-         "or doc corrected", 9, "normal"),
-        ("  MINOR        conclusion holds; wording / number alignment only",
-         9, "normal"),
-        ("  SOUND        clean", 9, "normal"),
-        ("", 8, "normal"),
-        ("Tally: 1 FLAWED, 7 QUESTIONABLE, 5 MINOR, 1 SOUND -> all addressed.",
-         10, "bold"),
-        ("Qualitative L2/L2.5/L3 hierarchy was always correct; this pass fixed "
-         "the", 9, "normal"),
-        ("quantitative / mechanistic claims the framework depends on.", 9,
-         "normal"),
+         9, "mono", "mono"),
+        ("  # needed by URDF-import drivers, harmless elsewhere)", 9, "mono",
+         "mono"),
+        ("", 8, "normal", "sans"),
+        ("判定圖例(2026-09 對抗式物理有效性審查)", 12, "bold", "sans"),
+        ("  FLAWED       headline 結論錯了;已修 + 重新驗證", 9, "normal", "sans"),
+        ("  QUESTIONABLE 設計/provenance 有洞;已修(加對照/重跑)或改稿", 9,
+         "normal", "sans"),
+        ("  MINOR        結論成立;僅措辭/數字對齊", 9, "normal", "sans"),
+        ("  SOUND        乾淨", 9, "normal", "sans"),
+        ("", 8, "normal", "sans"),
+        ("統計:1 FLAWED, 7 QUESTIONABLE, 5 MINOR, 1 SOUND -> 皆已處理。", 10,
+         "bold", "sans"),
+        ("定性 L2/L2.5/L3 階層一直是對的;這次修的是框架要依賴的量化 / 機制宣稱。",
+         9, "normal", "sans"),
     ]
     y = 0.96
-    for txt, sz, style in lines:
+    for txt, sz, style, fam in lines:
         weight = "bold" if style == "bold" else "normal"
         st = "italic" if style == "italic" else "normal"
-        fam = "monospace" if style == "mono" else "sans-serif"
-        ax.text(0.0, y, txt, fontsize=sz, fontweight=weight, fontstyle=st,
-                family=fam, transform=ax.transAxes, va="top")
-        y -= 0.021 + sz * 0.0013
+        family = "monospace" if fam == "mono" else "sans-serif"
+        ax.text(0.02, y, txt, fontsize=sz, fontweight=weight, fontstyle=st,
+                family=family, transform=ax.transAxes, va="top")
+        y -= 0.023 + sz * 0.0013
     pdf.savefig(fig)
     plt.close(fig)
 
 
 def exp_page(pdf, exp, test_dir):
     fig = plt.figure(figsize=(8.27, 11.69))
-    fig.subplots_adjust(left=0.06, right=0.97, top=0.95, bottom=0.04)
 
-    # Header
     hax = fig.add_axes([0.06, 0.86, 0.91, 0.11])
     hax.axis("off")
     hax.text(0.0, 1.0, f"{exp['id']}  {exp['title']}", fontsize=13,
              fontweight="bold", va="top")
-    hax.text(0.0, 0.55, f"Verdict: {exp['verdict']}", fontsize=10,
+    hax.text(0.0, 0.52, f"判定: {exp['verdict']}", fontsize=10,
              color="#8a1500", va="top")
     log = exp.get("log")
-    prov = "log: (none -- see command)" if not log else (
+    prov = "log: (none -- see reproduce command)" if not log else (
         f"log: test/{log}   sha256:{_sha256(Path(test_dir) / log)}")
-    hax.text(0.0, 0.2, prov, fontsize=8, family="monospace", va="top")
+    hax.text(0.0, 0.16, prov, fontsize=8, family="monospace", va="top")
 
-    # Table
     cols, rows = exp["tbl"]
     tax = fig.add_axes([0.06, 0.34, 0.91, 0.5])
     tax.axis("off")
@@ -563,32 +548,29 @@ def exp_page(pdf, exp, test_dir):
         tbl = tax.table(cellText=[[str(c) for c in r] for r in rows],
                         colLabels=cols, loc="upper left", cellLoc="left")
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(7.2)
-        tbl.scale(1.0, 1.25)
-        for (r, c), cell in tbl.get_celld().items():
+        tbl.set_fontsize(7.0)
+        tbl.scale(1.0, 1.3)
+        for (r, _c), cell in tbl.get_celld().items():
             cell.set_edgecolor("#cccccc")
             if r == 0:
                 cell.set_facecolor("#1f3b57")
                 cell.set_text_props(color="white", fontweight="bold")
 
-    # Reproduce command
     cax = fig.add_axes([0.06, 0.20, 0.91, 0.12])
     cax.axis("off")
-    cax.text(0.0, 1.0, "Reproduce:", fontsize=9, fontweight="bold", va="top")
+    cax.text(0.0, 1.0, "重跑:", fontsize=9, fontweight="bold", va="top")
     y = 0.78
     for ln in _wrap(exp["cmd"], width=104):
         cax.text(0.0, y, ln, fontsize=7, family="monospace", va="top")
         y -= 0.16
 
-    # Conclusion
-    concax = fig.add_axes([0.06, 0.04, 0.91, 0.15])
+    concax = fig.add_axes([0.06, 0.03, 0.91, 0.16])
     concax.axis("off")
-    concax.text(0.0, 1.0, "Corrected conclusion:", fontsize=9,
-                fontweight="bold", va="top")
-    y = 0.86
-    for ln in _wrap(exp["concl"], width=104):
-        concax.text(0.0, y, ln, fontsize=8, va="top")
-        y -= 0.085
+    concax.text(0.0, 1.0, "修正結論:", fontsize=9, fontweight="bold", va="top")
+    y = 0.88
+    for ln in _wrap(exp["concl"], width=52):
+        concax.text(0.0, y, ln, fontsize=8.5, va="top")
+        y -= 0.075
 
     pdf.savefig(fig)
     plt.close(fig)
@@ -598,15 +580,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test-dir", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--font", default=None,
+                    help="Path to a CJK font (.ttc/.otf) for zh-TW rendering. "
+                         "Default: test/.notocjk.ttc then host Noto paths.")
     args = ap.parse_args()
 
+    _init_cjk_font(args.font, args.test_dir)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     reg = build_registry(args.test_dir)
     with PdfPages(args.out) as pdf:
         title_page(pdf, args.test_dir)
         for exp in reg:
             exp_page(pdf, exp, args.test_dir)
-    print("wrote", args.out, "with", 1 + len(reg), "pages")
+    print("wrote", args.out, "with", 1 + len(reg), "pages; font:", _CJK_NAME)
 
 
 if __name__ == "__main__":
