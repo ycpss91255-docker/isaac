@@ -46,3 +46,6 @@ test/.scaffold-smoke/
 
 # vendored CJK font for review-PDF generation (not committed; 19MB)
 test/.notocjk.ttc
+
+# rendered verification / experiment videos (local artifacts, not committed)
+viz/

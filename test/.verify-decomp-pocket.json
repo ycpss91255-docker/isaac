@@ -1,0 +1,36 @@
+{
+  "check": "Claim 2 -- convex_decomposition functional pocket (probe drop)",
+  "isaac_variant": "6.0.1",
+  "slot_width_m": 0.4,
+  "probe_width_m": 0.3,
+  "enter_z_threshold_m": 0.58,
+  "wall_top_z_m": 0.6,
+  "base_top_z_m": 0.3,
+  "lanes": [
+    {
+      "lane": "A_convexHull",
+      "approximation": "convexHull",
+      "max_convex_hulls": null,
+      "probe_final_z_m": 0.75,
+      "entered_pocket": false
+    },
+    {
+      "lane": "B_decomp_h8",
+      "approximation": "convexDecomposition",
+      "max_convex_hulls": 8,
+      "probe_final_z_m": 0.4625,
+      "entered_pocket": true
+    },
+    {
+      "lane": "C_decomp_h64",
+      "approximation": "convexDecomposition",
+      "max_convex_hulls": 64,
+      "probe_final_z_m": 0.4625,
+      "entered_pocket": true
+    }
+  ],
+  "error": null,
+  "mp4": "/home/yunchien/work/worktree/isaac-revalidate-6.0.1/viz/decomp_pocket.mp4",
+  "mp4_frames": 45,
+  "mp4_nonblack": 45
+}
