@@ -201,12 +201,32 @@ def run(args):
 
         plate_path, cube_path = _build_scene(stage)
 
+        render = bool(args.mp4)
+        cap = None
+        if render:
+            import viz_render as vr
+            vr.apply_clean_render_settings()
+            vr.add_fill_lights(stage)
+            vr.bind(stage, "/World/Ground",
+                    vr.material(stage, "/World/Looks/Gray", (0.55, 0.55, 0.58)))
+            vr.bind(stage, plate_path,
+                    vr.material(stage, "/World/Looks/Blue", (0.15, 0.4, 0.85)))
+            vr.bind(stage, cube_path,
+                    vr.material(stage, "/World/Looks/Orange", (0.95, 0.5, 0.1)))
+            vr.make_camera(stage, "/World/VizCam", (1.0, -6.5, 3.2), (1.2, 0.0, 0.3))
+
         world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                       rendering_dt=args.dt)
         world.reset()
 
         plate = SingleRigidPrim(plate_path)
         cube = SingleRigidPrim(cube_path)
+        if render:
+            import viz_render as vr
+            cap = vr.Capturer(world, "/World/VizCam", args.width, args.height)
+        cap_steps = set(int(round(v)) for v in np.linspace(
+            args.warmup, total_steps - 1, 48)) if render else set()
+        frames, nonblack = [], 0
         result["drive_api"] = (
             "isaacsim.core.prims.SingleRigidPrim.set_world_pose per tick on a "
             "physics:kinematicEnabled plate (routes to kinematic target, not "
@@ -244,7 +264,7 @@ def run(args):
                 np.asarray(pos_c, dtype=float),
                 np.asarray(quat_c, dtype=float),
             )
-            world.step(render=False)
+            world.step(render=render)
 
             # Plate read-back + tracking error.
             pos_a, quat_a = plate.get_world_pose()
@@ -279,6 +299,23 @@ def run(args):
                 if plate_front >= cube_back - contact_margin:
                     contact_frames += 1
                     max_pos_err_contact = max(max_pos_err_contact, pos_err)
+
+            if render and step_i in cap_steps:
+                import viz_render as vr
+                base_x = cube_baseline[0] if cube_baseline is not None else cpos[0]
+                lines = [
+                    "L2 kinematic pushes dynamic cube (one-way transfer)",
+                    "plate_x    = %7.3f m" % float(pos_a[0]),
+                    "cube_x     = %7.3f m" % float(cpos[0]),
+                    "cube disp  = %7.3f m" % float(cpos[0] - base_x),
+                    "plate err  = %.1e m  (kinematic, exact)" % max_pos_err,
+                ]
+                rgb = cap.grab()
+                if rgb is not None and float(rgb.mean()) > 1.0:
+                    nonblack += 1
+                if rgb is None:
+                    rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+                frames.append(vr.overlay(rgb, lines))
 
         cpos_final, _ = cube.get_world_pose()
         cpos_final = np.asarray(cpos_final, dtype=float).reshape(-1)
@@ -325,6 +362,14 @@ def run(args):
             plate_ok and contact_ok and cube_pushed and cube_on_ground
         )
 
+        if render and frames:
+            import viz_render as vr
+            vr.encode_mp4(args.mp4, frames, fps=15)
+            cap.detach()
+            result["mp4"] = args.mp4
+            result["mp4_frames"] = len(frames)
+            result["mp4_nonblack"] = nonblack
+
     except Exception as exc:  # noqa: BLE001
         result["error"] = f"{type(exc).__name__}: {exc}"
         result["traceback"] = traceback.format_exc()
@@ -346,6 +391,11 @@ def _parse_args():
     p.add_argument("--push-steps", type=int, default=300,
                    help="Push-phase steps (plate sweeps into cube).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="If set, RTX-render the push with a per-frame data HUD "
+                        "and encode an MP4 to this path (mounted).")
+    p.add_argument("--width", type=int, default=960, help="mp4 render width.")
+    p.add_argument("--height", type=int, default=540, help="mp4 render height.")
     return p.parse_args()
 
 
