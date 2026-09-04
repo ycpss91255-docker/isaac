@@ -71,6 +71,28 @@ ends; A=0.75 m/s^2, so peak per-tick displacement ~0.031 m/tick, inside the L2
       accel plateau, and residual in the settle window), vs the L2 clean-carry
       baseline (#217/#218: clean <=0.05 m/tick carried, launches at 0.2 m/tick).
 
+DELIVERY METRIC + dt CONTROL (added after the 2026-09 physics-validity audit)
+-----------------------------------------------------------------------------
+The delivery metric is the PAYLOAD lag (payload_lag_mm / delivery_ok), NOT the
+carrier tracking error: a stiff drive tracks its OWN target to <0.05 mm while the
+payload can slip hundreds of mm, so citing carrier lag as carry performance is
+misleading. Two fixes:
+  * velocity feed-forward (see _set_drive_target): the drive damping term no
+    longer fights the commanded motion.
+  * the apparent "high stiffness -> payload slips" inversion is NOT a physical
+    property of stiffness -- first principles: a=0.75 m/s^2 needs 0.75 N friction
+    vs the mu*m*g=4.9 N static limit (6.5x margin) => ZERO slip in continuous
+    motion at any k. The slip is a (k*dt) DISCRETIZATION artifact: a stiff drive
+    snaps the per-tick position staircase (peak ~0.031 m/tick at dt=1/60)
+    impulsively whenever dt is not << the drive natural period 2*pi*sqrt(m/k). It
+    COLLAPSES with a finer dt (measured: k=1e5 payload lag 154 mm at dt=1/60 ->
+    19 mm at dt=1/240; k=1e6/1e7 need finer still, their natural periods ~2-6 ms
+    straddle dt=4.2 ms). Reproduce the dt control by re-running with
+    ``--dt 0.004166667 --steps 1200 --warmup 240 --settle 480`` (same profile,
+    4x finer staircase) and comparing payload_lag_mm.
+Conclusion: L2.5 CAN carry a payload; match the physics dt to the drive stiffness
+(dt << 2*pi*sqrt(m/k)), or use moderate k where the standard dt already delivers.
+
 MODE = viz  (RENDER the push so a human WATCHES the back-off)
 ------------------------------------------------------------
 The push modes above run headless (render=False) and only emit numbers. ``viz``
@@ -215,18 +237,36 @@ def _author_l25_actuator(stage, tag, x0, y0, z0, dims, mass, k):
     drive.CreateStiffnessAttr().Set(float(k))
     drive.CreateDampingAttr().Set(float(damping))
     drive.CreateTargetPositionAttr().Set(0.0)
+    drive.CreateTargetVelocityAttr().Set(0.0)  # velocity feed-forward (see below)
     drive.CreateMaxForceAttr().Set(float("inf"))  # never saturates
 
     return anchor_path, slider_path, joint_path, damping
 
 
-def _set_drive_target(stage, joint_path, target_q):
-    """Update the linear drive target position on the prismatic joint."""
+def _set_drive_target(stage, joint_path, target_q, target_v=0.0):
+    """Update the linear drive target position (and velocity feed-forward).
+
+    A position drive force is ``k*(target_pos - pos) + d*(target_vel - vel)``.
+    With ``target_vel = 0`` the damping term ``-d*vel`` fights ALL motion, so at
+    critical damping ``d = 2*sqrt(k*m)`` a moving slider carries a systematic
+    following error ``2*v*sqrt(m/k)`` (confounding the D1 push back-off) and, on a
+    per-tick position staircase, replays each step as a near-impulsive intra-tick
+    acceleration that breaks payload friction (the D2 carry slip artifact).
+    Setting ``target_vel`` to the commanded profile velocity each tick makes the
+    damping term ``d*(target_vel - vel) ~= 0`` during smooth tracking, so the
+    drive follows the trajectory without the spurious velocity-proportional lag.
+    This is the physics-validity fix from the 2026-09 audit; passing target_v=0
+    reproduces the old (confounded) behavior for comparison.
+    """
     from pxr import UsdPhysics
 
     prim = stage.GetPrimAtPath(joint_path)
     drive = UsdPhysics.DriveAPI.Get(prim, "linear")
     drive.GetTargetPositionAttr().Set(float(target_q))
+    tv = drive.GetTargetVelocityAttr()
+    if not tv:
+        tv = drive.CreateTargetVelocityAttr()
+    tv.Set(float(target_v))
 
 
 # ===========================================================================
@@ -293,40 +333,63 @@ def _run_push(args, app):
     cube_half = _PUSH_CUBE_SIZE * 0.5
     contact_margin = 0.02
 
+    # Two lanes per stiffness: a "cube" lane (slider pushes a free cube) and a
+    # NO-CUBE control lane (identical actuator + identical commanded ramp, no
+    # cube). Back-off on the control lane is the pure drive-following lag; the
+    # contact reaction the mover actually feels is (cube back-off - control
+    # back-off). Without this control the ramp-phase following lag masquerades as
+    # contact push-back (the 2026-09 audit confound).
     lanes = []
-    for i, k in enumerate(_STIFFNESS):
-        y0 = i * _LANE_SPACING_Y
-        tag = f"k{int(k):d}"
-        _a, slider_path, joint_path, damping = _author_l25_actuator(
-            stage, tag, _PUSH_PLATE_X0, y0, _PUSH_PLATE_Z,
-            _PUSH_PLATE_DIMS, _SLIDER_MASS, k,
-        )
-        cube_path = f"/World/cube_{tag}"
-        cube = UsdGeom.Cube.Define(stage, cube_path)
-        cube.GetSizeAttr().Set(1.0)
-        cube.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
-            Gf.Vec3d(_PUSH_PLATE_X0 + _PUSH_CUBE_DX, y0, _PUSH_CUBE_Z)
-        )
-        cube.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
-            Gf.Vec3f(_PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE)
-        )
-        cprim = cube.GetPrim()
-        UsdPhysics.RigidBodyAPI.Apply(cprim)
-        UsdPhysics.CollisionAPI.Apply(cprim)
-        UsdPhysics.MassAPI.Apply(cprim).CreateMassAttr(1.0)
-        PhysxSchema.PhysxRigidBodyAPI.Apply(cprim).CreateLinearDampingAttr(0.2)
-        lanes.append({
-            "k": k, "tag": tag, "y0": y0, "x0": _PUSH_PLATE_X0,
-            "slider_path": slider_path, "joint_path": joint_path,
-            "cube_path": cube_path, "damping": damping,
-        })
+    lane_i = 0
+    for k in _STIFFNESS:
+        for has_cube in (True, False):
+            y0 = lane_i * _LANE_SPACING_Y
+            lane_i += 1
+            suffix = "" if has_cube else "_ctl"
+            tag = f"k{int(k):d}{suffix}"
+            _a, slider_path, joint_path, damping = _author_l25_actuator(
+                stage, tag, _PUSH_PLATE_X0, y0, _PUSH_PLATE_Z,
+                _PUSH_PLATE_DIMS, _SLIDER_MASS, k,
+            )
+            cube_path = None
+            if has_cube:
+                cube_path = f"/World/cube_{tag}"
+                cube = UsdGeom.Cube.Define(stage, cube_path)
+                cube.GetSizeAttr().Set(1.0)
+                cube.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
+                    Gf.Vec3d(_PUSH_PLATE_X0 + _PUSH_CUBE_DX, y0, _PUSH_CUBE_Z)
+                )
+                cube.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
+                    Gf.Vec3f(_PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE)
+                )
+                cprim = cube.GetPrim()
+                UsdPhysics.RigidBodyAPI.Apply(cprim)
+                UsdPhysics.CollisionAPI.Apply(cprim)
+                UsdPhysics.MassAPI.Apply(cprim).CreateMassAttr(1.0)
+                PhysxSchema.PhysxRigidBodyAPI.Apply(cprim).CreateLinearDampingAttr(
+                    0.2
+                )
+            lanes.append({
+                "k": k, "tag": tag, "y0": y0, "x0": _PUSH_PLATE_X0,
+                "has_cube": has_cube,
+                "slider_path": slider_path, "joint_path": joint_path,
+                "cube_path": cube_path, "damping": damping,
+            })
 
     world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                   rendering_dt=args.dt)
     world.reset()
 
     slider = {ln["tag"]: SingleRigidPrim(ln["slider_path"]) for ln in lanes}
-    cube = {ln["tag"]: SingleRigidPrim(ln["cube_path"]) for ln in lanes}
+    cube = {
+        ln["tag"]: SingleRigidPrim(ln["cube_path"])
+        for ln in lanes if ln["has_cube"]
+    }
+
+    # Commanded ramp velocity (m/s) during the sweep -> velocity feed-forward.
+    sweep_vel = _PUSH_SWEEP_M / (args.steps * args.dt) if args.steps else 0.0
+    result["feedforward"] = (not args.no_feedforward)
+    result["sweep_velocity_mps"] = sweep_vel
 
     total = args.warmup + args.steps + args.settle
     acc = {ln["tag"]: {
@@ -339,13 +402,18 @@ def _run_push(args, app):
     for step_i in range(total):
         if step_i < args.warmup:
             target_q = 0.0
+            target_v = 0.0
         elif step_i < args.warmup + args.steps:
             phase = (step_i - args.warmup) / float(args.steps)
             target_q = _PUSH_SWEEP_M * phase
+            target_v = sweep_vel
         else:
             target_q = _PUSH_SWEEP_M
+            target_v = 0.0
+        if args.no_feedforward:
+            target_v = 0.0
         for ln in lanes:
-            _set_drive_target(stage, ln["joint_path"], target_q)
+            _set_drive_target(stage, ln["joint_path"], target_q, target_v)
         world.step(render=False)
 
         for ln in lanes:
@@ -357,6 +425,13 @@ def _run_push(args, app):
             commanded_x = ln["x0"] + target_q
             backoff = abs(slider_x - commanded_x)
             a["max_backoff"] = max(a["max_backoff"], backoff)
+
+            if step_i >= args.warmup + args.steps:
+                a["settle_err_sum"] += backoff
+                a["settle_n"] += 1
+
+            if not ln["has_cube"]:
+                continue  # control lane: only the drive-following back-off matters
 
             cpos, _ = cube[tag].get_world_pose()
             cpos = np.asarray(cpos, dtype=float).reshape(-1)
@@ -381,11 +456,14 @@ def _run_push(args, app):
                         a["max_backoff_contact"], backoff
                     )
 
-            if step_i >= args.warmup + args.steps:
-                a["settle_err_sum"] += backoff
-                a["settle_n"] += 1
-
+    # Control-lane (no-cube) following-lag back-off, keyed by k.
+    ctl_backoff_mm = {
+        ln["k"]: acc[ln["tag"]]["max_backoff"] * 1000.0
+        for ln in lanes if not ln["has_cube"]
+    }
     for ln in lanes:
+        if not ln["has_cube"]:
+            continue
         tag = ln["tag"]
         a = acc[tag]
         cpos_final, _ = cube[tag].get_world_pose()
@@ -397,6 +475,11 @@ def _run_push(args, app):
         steady_lag = (
             a["settle_err_sum"] / a["settle_n"] if a["settle_n"] else float("nan")
         )
+        backoff_contact_mm = a["max_backoff_contact"] * 1000.0
+        ctl_mm = ctl_backoff_mm.get(ln["k"], 0.0)
+        # Pure contact reaction = contact back-off minus the drive-following lag
+        # measured on the identical no-cube control lane (clamped at 0).
+        contact_reaction_mm = max(0.0, backoff_contact_mm - ctl_mm)
         result["points"].append({
             "stiffness": ln["k"],
             "damping_critical": ln["damping"],
@@ -406,7 +489,9 @@ def _run_push(args, app):
             "cube_min_z_m": a["cube_min_z"],
             "contact_frames": a["contact_frames"],
             "backoff_overall_mm": a["max_backoff"] * 1000.0,
-            "backoff_contact_mm": a["max_backoff_contact"] * 1000.0,
+            "backoff_contact_mm": backoff_contact_mm,
+            "control_following_lag_mm": ctl_mm,
+            "contact_reaction_mm": contact_reaction_mm,
             "steady_lag_mm": steady_lag * 1000.0,
             "cube_pushed": bool(disp_x > 0.3 and a["cube_max_speed"] > 1e-3),
             "cube_on_ground": bool(
@@ -429,6 +514,20 @@ def _carry_target(t, T, accel):
     x_half = 0.5 * accel * half * half
     td = t - half
     return x_half + v_peak * td - 0.5 * accel * td * td
+
+
+def _carry_velocity(t, T, accel):
+    """Commanded velocity (d/dt of _carry_target) at time t in [0, T].
+
+    Used as the drive velocity feed-forward so the critically-damped drive tracks
+    the constant-accel profile without the velocity-proportional following error
+    that would otherwise inject per-tick impulses and break payload friction.
+    """
+    half = T * 0.5
+    if t <= half:
+        return accel * t
+    td = t - half
+    return accel * half - accel * td
 
 
 def _run_carry(args, app):
@@ -563,16 +662,22 @@ def _run_carry(args, app):
         "payload_x_base": None, "slider_x_base": None,
     } for ln in lanes}
 
+    result["feedforward"] = (not args.no_feedforward)
     for step_i in range(total):
         if step_i < args.warmup:
             target_q = 0.0
+            target_v = 0.0
         elif step_i < args.warmup + args.steps:
             t = (step_i - args.warmup) * args.dt
             target_q = _carry_target(t, T_move, _CARRY_ACCEL)
+            target_v = _carry_velocity(t, T_move, _CARRY_ACCEL)
         else:
             target_q = total_travel
+            target_v = 0.0
+        if args.no_feedforward:
+            target_v = 0.0
         for ln in lanes:
-            _set_drive_target(stage, ln["joint_path"], target_q)
+            _set_drive_target(stage, ln["joint_path"], target_q, target_v)
         world.step(render=False)
 
         for ln in lanes:
@@ -617,19 +722,35 @@ def _run_carry(args, app):
         settle_err = (
             a["settle_sum"] / a["settle_n"] if a["settle_n"] else float("nan")
         )
+        payload_lag_m = carrier_travel - payload_travel
+        # DELIVERY metric is the PAYLOAD lag (how far short the cargo lands), NOT
+        # the carrier tracking error. The audit showed a stiff drive can track its
+        # own target to <0.05 mm (carrier) while the payload slips hundreds of mm;
+        # reporting only the carrier lag hides the delivery failure. Both are kept,
+        # but delivery_ok is judged on the payload.
         result["points"].append({
             "stiffness": ln["k"],
             "damping_critical": ln["damping"],
             "carrier_travel_x_m": carrier_travel,
             "payload_travel_x_m": payload_travel,
-            "payload_lag_m": carrier_travel - payload_travel,
+            "payload_lag_m": payload_lag_m,
+            "payload_lag_mm": payload_lag_m * 1000.0,
             "payload_z_final_m": payload_z,
             "payload_rel_x_m": rel_x,
             "payload_rode": bool(payload_z > _CARRY_CARRIED_Z),
+            "delivery_ok": bool(
+                payload_z > _CARRY_CARRIED_Z and abs(payload_lag_m) < 0.01
+            ),
             "carrier_track_err_max_mm": a["max_err"] * 1000.0,
             "carrier_track_err_plateau_mm": plateau_err * 1000.0,
             "carrier_track_err_settle_mm": settle_err * 1000.0,
         })
+    result["delivery_metric_note"] = (
+        "delivery_ok / payload_lag_mm are the CARGO-delivery metrics; "
+        "carrier_track_err_* describe only the actuator tracking its own target "
+        "and can be tiny while the payload lags -- do not cite carrier lag as "
+        "carry performance."
+    )
     return result
 
 
@@ -1054,6 +1175,11 @@ def _parse_args():
     p.add_argument("--settle", type=int, default=120,
                    help="Settle steps (drive holds at end target).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--no-feedforward", action="store_true",
+                   help="Disable drive velocity feed-forward (reproduces the old "
+                        "confounded behavior: target_vel=0 so the damping term "
+                        "fights motion -> following lag + payload-friction "
+                        "impulses). Default: feed-forward ON.")
     return p.parse_args()
 
 

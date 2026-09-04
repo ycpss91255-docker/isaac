@@ -1,0 +1,39 @@
+{
+  "issue": "isaac#228",
+  "adr": "ADR-0008 L2 kinematic base carries an arm (rule 4: no kinematic articulation link)",
+  "isaac_variant": "6.0.1",
+  "topology": "usd_child",
+  "warmup_steps": 60,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "base_profile_s": {
+    "accel": 0.5,
+    "cruise": 0.5,
+    "decel": 0.5,
+    "settle": 1.0
+  },
+  "arm_pendulum_length_m": 0.4,
+  "arm_mass_kg": 2.0,
+  "stiffnesses_stored": null,
+  "accels_mps2": [
+    2.0,
+    5.0
+  ],
+  "metric": "revolute_maximal: per (stiffness, accel) ride_along_anchor_err_max_m + follow_ratio (joint carries arm), hold_peak_dev_accel/decel_rad (held-joint peak deviation in accel/decel windows), hold_residual_rad (mean |dev| after base stops). usd_child: ride_along_x_err_m + follow_ratio (does a moving kinematic USD parent carry a floating articulation).",
+  "baseline_5_1": "none committed -- first-run 6.0.1 characterization of base-carry ride-along and base-motion joint disturbance",
+  "drive_api": "kinematic base driven by RigidBodyView.set_kinematic_targets (+X profile); arm is a FLOATING articulation parented UNDER the base prim in USD (no joint to base). SingleRigidPrim reads the arm-root world pose.",
+  "lanes": [
+    {
+      "tag": "usd_child",
+      "base_travel_x_m": 2.5,
+      "arm_root_travel_x_m": -1.9387045606711586e-24,
+      "ride_along_x_err_m": 2.5,
+      "follow_ratio": -7.754818242684634e-25,
+      "nan_seen": false,
+      "topology_A_carries": false
+    }
+  ],
+  "error": null,
+  "topology_A_usd_hierarchy_carries_arm": false,
+  "finding": "topology A (USD-hierarchy parent) does NOT carry the floating articulation -- a joint is forced for base carry (see revolute_maximal)"
+}
