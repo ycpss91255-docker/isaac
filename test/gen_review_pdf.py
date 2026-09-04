@@ -310,6 +310,172 @@ def t_colB(d):
     return cols, rows
 
 
+# ---------------------------------------------------------------------------
+# Charts: for subtle (mm/um/nm-scale, near-static) experiments a plot conveys
+# the quantitative story better than a video ever could. Each draws onto a fig.
+# ---------------------------------------------------------------------------
+_NAVY = "#1f3b57"
+
+
+def _sci(v, _pos):
+    """Plain-text power-of-ten tick label (mathtext is globally off)."""
+    import math
+    if v <= 0:
+        return ""
+    e = int(round(math.log10(v)))
+    if abs(v - 10.0 ** e) <= 1e-6 * max(1.0, v):
+        return "1" if e == 0 else ("1e%d" % e)
+    return "%g" % v
+
+
+def _fix_log(ax, which="both"):
+    from matplotlib.ticker import FuncFormatter, NullFormatter
+    fmt = FuncFormatter(_sci)
+    axes = {"x": [ax.xaxis], "y": [ax.yaxis], "both": [ax.xaxis, ax.yaxis]}[which]
+    for a in axes:
+        a.set_major_formatter(fmt)
+        a.set_minor_formatter(NullFormatter())
+
+
+def _chart_212(fig, d):
+    pts = d.get("points", [])
+    ax1 = fig.add_axes([0.13, 0.55, 0.78, 0.33])
+    k = [p["stiffness"] for p in pts]
+    ax1.loglog(k, [p["predicted_mm"] for p in pts], "o--", color="#999",
+               label="mg/k 預測")
+    ax1.loglog(k, [p["droop_mm"] for p in pts], "s-", color=_NAVY,
+               label="實測下垂")
+    ax1.set_xlabel("剛度 k (N/m)")
+    ax1.set_ylabel("下垂 (mm)")
+    ax1.set_title("下垂 vs 剛度:高 k 低於 mg/k 預測", fontsize=10)
+    ax1.legend(fontsize=8)
+    ax1.grid(True, which="both", alpha=0.3)
+    _fix_log(ax1, "both")
+    dc = d.get("damping_control", {})
+    dp = dc.get("points", [])
+    ax2 = fig.add_axes([0.13, 0.10, 0.78, 0.30])
+    if dp:
+        ax2.axhline(dc.get("predicted_mm") or 0, color="#c0392b", ls="--",
+                    label="mg/k(此處下垂應為定值)")
+        ax2.axhline(0, color="#bbb", lw=0.6)
+        ax2.plot([p["damping_factor"] for p in dp], [p["droop_mm"] for p in dp],
+                 "o-", color=_NAVY, label="實測下垂")
+        ax2.set_xlabel("阻尼倍數 (x critical) @ k=%.0e"
+                       % (dc.get("fixed_stiffness") or 0))
+        ax2.set_ylabel("下垂 (mm)")
+        ax2.set_title("阻尼對照:下垂隨阻尼擺動 -> solver 假象", fontsize=10)
+        ax2.legend(fontsize=8)
+        ax2.grid(True, alpha=0.3)
+
+
+def _chart_d2(fig, d, dfine):
+    ax = fig.add_axes([0.13, 0.12, 0.78, 0.76])
+    pts = d.get("points", [])
+    fine = {p["stiffness"]: p for p in (dfine or {}).get("points", [])}
+    k = [p["stiffness"] for p in pts]
+    ax.semilogx(k, [p["payload_lag_mm"] for p in pts], "s-", color="#c0392b",
+                label="payload lag @ dt=1/60")
+    ax.semilogx(k, [fine.get(p["stiffness"], {}).get("payload_lag_mm", 0)
+                    for p in pts], "o-", color=_NAVY,
+                label="payload lag @ dt=1/240(4x 細)")
+    ax.set_xlabel("載台 drive 剛度 k (N/m)")
+    ax.set_ylabel("payload 交付落後 (mm)")
+    ax.set_title("載運:高 k 的 payload 滑動是 (k*dt) 假象,dt 細化即崩塌",
+                 fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, which="both", alpha=0.3)
+    _fix_log(ax, "x")
+
+
+def _chart_227(fig, d):
+    import numpy as np
+    ax = fig.add_axes([0.12, 0.12, 0.80, 0.76])
+    per = d.get("chain", {}).get("per_joint", [])
+    names = [p["joint"] for p in per]
+    x = np.arange(len(names))
+    ax.bar(x - 0.19, [p["predicted_mm"] for p in per], 0.38, color="#999",
+           label="mg/k 預測")
+    ax.bar(x + 0.19, [p["sag_mm"] for p in per], 0.38, color=_NAVY,
+           label="實測下垂")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names)
+    ax.set_ylabel("各節下垂 (mm)")
+    ax.set_title("多關節下垂:各節實測 ~= 預測", fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+
+
+def _chart_218(fig, d):
+    ax = fig.add_axes([0.12, 0.12, 0.80, 0.76])
+    tb = d.get("threshold_by_friction", {})
+    items = sorted(tb.values(), key=lambda v: v["mu"])
+    mu = [v["mu"] for v in items]
+    ax.plot(mu, [v["analytic_d_crit_m"] for v in items], "o--", color="#999",
+            label="解析 d_crit = dt*sqrt(2*mu*g*L)")
+    ax.plot(mu, [v["max_carried_ramp_step_m"] for v in items], "^-",
+            color="#2e7d32", label="最大乾淨載運步")
+    ax.plot(mu, [v["min_slipped_ramp_step_m"] for v in items], "v-",
+            color="#c0392b", label="最小滑脫步")
+    ax.set_xlabel("摩擦係數 mu")
+    ax.set_ylabel("每 tick 載運步 (m)")
+    ax.set_title("kinematic 載運門檻隨 mu 上升(對上解析式)", fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+
+def _chart_221(fig, d):
+    ax = fig.add_axes([0.13, 0.12, 0.78, 0.76])
+    gm = d.get("give_rises_with_mass", {}).get("rigid", {})
+    m = gm.get("masses_kg", [])
+    g = gm.get("static_give_norm_m", [])
+    ax.loglog(m, g, "s-", color=_NAVY, label="實測 give(持平=float32 讀取地板)")
+    if m and g:
+        g0 = g[0] if g[0] else 2.38e-8
+        ax.loglog(m, [g0 * mm / m[0] for mm in m], "--", color="#c0392b",
+                  label="真有 compliance 時的線性 give(未觀察到)")
+    ax.set_xlabel("負載質量 (kg)")
+    ax.set_ylabel("static give |z| (m)")
+    ax.set_title("接縫 give 在 1000x 負載下持平 -> 在讀取地板下(僅上界)",
+                 fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, which="both", alpha=0.3)
+    _fix_log(ax, "both")
+
+
+def _chart_219(fig, d):
+    import numpy as np
+    ax = fig.add_axes([0.12, 0.16, 0.80, 0.72])
+    pts = d.get("effort_clamp", {}).get("points", [])
+    labels = ["maxF=%.4g N\n(%.2gx 負載)" % (p["max_force_N"],
+              p["max_force_vs_load"]) for p in pts]
+    droop = [min(p["droop_mm"], 50.0) for p in pts]  # clamp stall bar for scale
+    colors = ["#2e7d32" if p["held_target"] else "#c0392b" for p in pts]
+    x = np.arange(len(pts))
+    ax.bar(x, droop, 0.5, color=colors)
+    for i, p in enumerate(pts):
+        ax.text(i, droop[i], "撐住" if p["held_target"] else "STALL",
+                ha="center", va="bottom", fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=7)
+    ax.set_ylabel("下垂 (mm;stall 為顯示夾在 50)")
+    ax.set_title("力矩飽和:maxForce < 重量(98.1 N)-> stall,非下垂", fontsize=10)
+    ax.grid(True, axis="y", alpha=0.3)
+
+
+def chart_page(pdf, exp, test_dir):
+    fig = plt.figure(figsize=(8.27, 11.69))
+    fig.text(0.06, 0.955, f"{exp['id']}  {exp['title']} -- 圖表", fontsize=13,
+             fontweight="bold", va="top")
+    exp["chart"](fig)
+    log = exp.get("log")
+    prov = "" if not log else (
+        f"log: test/{log}   sha256:{_sha256(Path(test_dir) / log)}   "
+        f"|  reproduce: see the table page")
+    fig.text(0.06, 0.04, prov, fontsize=7, family="monospace", va="bottom")
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def build_registry(test_dir):
     d212 = _load(test_dir, ".prove-A-212-sag.json")
     d215 = _load(test_dir, ".prove-B-215-hold.json")
@@ -519,6 +685,17 @@ def build_registry(test_dir):
              concl="確認純粹 asset 卡關、非技術不可能:DAE 顏色匯入 pipeline(ADR-0020)"
                    "與 CAD 依賴(ADR-0021)都已明訂,只差模型。"),
     ]
+    charts = {
+        "#212": lambda fig: _chart_212(fig, d212),
+        "D2": lambda fig: _chart_d2(fig, dd2, dd2f),
+        "#227": lambda fig: _chart_227(fig, d227),
+        "#218": lambda fig: _chart_218(fig, d218),
+        "#221": lambda fig: _chart_221(fig, d221),
+        "#219": lambda fig: _chart_219(fig, d219),
+    }
+    for e in reg:
+        if e["id"] in charts:
+            e["chart"] = charts[e["id"]]
     return reg
 
 
@@ -643,11 +820,16 @@ def main():
     _init_cjk_font(args.font, args.test_dir)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     reg = build_registry(args.test_dir)
+    n_pages = 1
     with PdfPages(args.out) as pdf:
         title_page(pdf, args.test_dir)
         for exp in reg:
             exp_page(pdf, exp, args.test_dir)
-    print("wrote", args.out, "with", 1 + len(reg), "pages; font:", _CJK_NAME)
+            n_pages += 1
+            if exp.get("chart"):
+                chart_page(pdf, exp, args.test_dir)
+                n_pages += 1
+    print("wrote", args.out, "with", n_pages, "pages; font:", _CJK_NAME)
 
 
 if __name__ == "__main__":
