@@ -1016,8 +1016,19 @@ def _run_viz(args, app):
         "error": None,
     }
 
-    # RTX auto-exposure off (histogram) -- mirror #209 so brightness is stable.
-    carb.settings.get_settings().set("/rtx/post/histogram/enabled", False)
+    # Clean-frame recipe (no NGX denoiser in headless): real-time raster, all
+    # stochastic effects off, spatial FXAA. Flat/unlit materials (below) are what
+    # actually removes the noise; these just help.
+    _vs = carb.settings.get_settings()
+    for _vk, _vv in (("/rtx/post/histogram/enabled", False),
+                     ("/rtx/rendermode", "RaytracedLighting"),
+                     ("/rtx/indirectDiffuse/enabled", False),
+                     ("/rtx/ambientOcclusion/enabled", False),
+                     ("/rtx/reflections/enabled", False),
+                     ("/rtx/directLighting/sampledLighting/enabled", False),
+                     ("/rtx/shadows/enabled", False),
+                     ("/rtx/post/aa/op", 2)):
+        _vs.set(_vk, _vv)
 
     for k in stiffnesses:
         tag = f"k{_viz_klabel(k)}"
@@ -1039,13 +1050,14 @@ def _run_viz(args, app):
             Gf.Vec3f(-40.0, 20.0, 0.0)
         )
 
-        gray = _viz_material(stage, "/World/Looks/Gray", (0.50, 0.50, 0.52))
-        blue = _viz_material(stage, "/World/Looks/Blue", (0.10, 0.35, 0.85))
-        orange = _viz_material(stage, "/World/Looks/Orange", (0.95, 0.45, 0.10))
-        green = _viz_material(
-            stage, "/World/Looks/MarkerGreen", (0.10, 1.0, 0.10),
-            emissive=(0.10, 1.0, 0.10),
-        )
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.55, 0.55, 0.60),
+                             flat=True)
+        blue = _viz_material(stage, "/World/Looks/Blue", (0.10, 0.35, 0.85),
+                             flat=True)
+        orange = _viz_material(stage, "/World/Looks/Orange", (0.95, 0.45, 0.10),
+                               flat=True)
+        green = _viz_material(stage, "/World/Looks/MarkerGreen", (0.10, 1.0, 0.10),
+                              flat=True)
 
         ground = UsdGeom.Cube.Define(stage, "/World/Ground")
         ground.GetSizeAttr().Set(1.0)
@@ -1056,6 +1068,9 @@ def _run_viz(args, app):
             Gf.Vec3f(400.0, 400.0, 1.0)
         )
         UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+        # Hide the huge ground for the render (grazing-angle aliasing, no denoiser);
+        # collision stays, only the visual is hidden.
+        UsdGeom.Imageable(ground.GetPrim()).MakeInvisible()
         _viz_bind(stage, "/World/Ground", gray)
 
         _a, slider_path, joint_path, _damp = _author_l25_actuator(
@@ -1195,17 +1210,16 @@ def _run_viz(args, app):
                     "nonblack": bool(mean_px > 1.0),
                 })
 
-        gif_name = f"push_{tag}.gif"
-        gif_path = str(Path(viz_dir) / gif_name)
+        mp4_name = f"push_{tag}.mp4"
+        mp4_path = str(Path(viz_dir) / mp4_name)
         if pil_frames:
-            pil_frames[0].save(
-                gif_path, save_all=True, append_images=pil_frames[1:],
-                duration=_VIZ_GIF_MS, loop=0, optimize=False,
-            )
+            import imageio.v2 as imageio
+            imageio.mimwrite(mp4_path, [np.asarray(im) for im in pil_frames],
+                             fps=1000.0 / _VIZ_GIF_MS, codec="libx264", quality=8)
         nonblack_n = sum(1 for f in frames_meta if f["nonblack"])
         result["per_k"][tag] = {
             "stiffness": k,
-            "gif": gif_path,
+            "mp4": mp4_path,
             "png_dir": viz_dir,
             "png_pattern": f"push_{tag}_NNN.png",
             "n_frames": len(frames_meta),
