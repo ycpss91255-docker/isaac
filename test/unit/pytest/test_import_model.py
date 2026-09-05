@@ -363,6 +363,99 @@ class TestXacroDetection:
         assert import_model._is_xacro(p, "<robot name='x'/>") is False
 
 
+class TestPackageDirResolution:
+    """#267: resolve $(find <pkg>) offline, without a ROS package index.
+
+    xacro's `_eval_find` does `from ament_index_python.packages import
+    get_package_share_directory`, which is not in the Kit python. Every
+    mainstream robot description references its own package in every include
+    and every mesh path, so without this the supported input is limited to
+    xacro files that never mention a package.
+    """
+
+    def _pkg(self, root, name):
+        d = root / name
+        (d / "urdf").mkdir(parents=True)
+        (d / "meshes").mkdir()
+        (d / "package.xml").write_text(
+            f"<package><name>{name}</name></package>"
+        )
+        return d
+
+    def test_explicit_mapping_wins(self, tmp_path):
+        pkg = self._pkg(tmp_path, "my_robot_description")
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        got = import_model._resolve_package_dir(
+            "my_robot_description",
+            pkg / "urdf" / "r.urdf.xacro",
+            {"my_robot_description": str(other)},
+        )
+        assert Path(got) == other
+
+    def test_finds_own_package_from_urdf_location(self, tmp_path):
+        pkg = self._pkg(tmp_path, "turtlebot3_description")
+        got = import_model._resolve_package_dir(
+            "turtlebot3_description",
+            pkg / "urdf" / "turtlebot3_waffle_pi.urdf.xacro",
+            {},
+        )
+        assert Path(got) == pkg
+
+    def test_finds_sibling_package(self, tmp_path):
+        pkg = self._pkg(tmp_path, "husky_description")
+        sibling = self._pkg(tmp_path, "realsense2_description")
+        got = import_model._resolve_package_dir(
+            "realsense2_description",
+            pkg / "urdf" / "husky.urdf.xacro",
+            {},
+        )
+        assert Path(got) == sibling
+
+    def test_requires_package_xml(self, tmp_path):
+        # A directory with the right NAME but no package.xml is not a package.
+        (tmp_path / "not_a_package" / "urdf").mkdir(parents=True)
+        with pytest.raises(RuntimeError) as exc:
+            import_model._resolve_package_dir(
+                "not_a_package",
+                tmp_path / "not_a_package" / "urdf" / "r.urdf.xacro",
+                {},
+            )
+        assert "not_a_package" in str(exc.value)
+
+    def test_error_names_the_package_and_the_flag(self, tmp_path):
+        with pytest.raises(RuntimeError) as exc:
+            import_model._resolve_package_dir(
+                "realsense2_description", tmp_path / "r.urdf.xacro", {}
+            )
+        msg = str(exc.value)
+        assert "realsense2_description" in msg
+        assert "--package-path" in msg
+
+
+class TestXacroFindResolver:
+    """#267: the resolver is installed into xacro before expansion."""
+
+    def test_expand_resolves_find_of_own_package(self, tmp_path):
+        pkg = tmp_path / "demo_description"
+        (pkg / "urdf").mkdir(parents=True)
+        (pkg / "meshes").mkdir()
+        (pkg / "package.xml").write_text("<package><name>demo</name></package>")
+        (pkg / "urdf" / "robot.urdf.xacro").write_text(
+            '<?xml version="1.0"?>\n'
+            '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="d">\n'
+            '  <link name="base_link">\n'
+            '    <visual><geometry>\n'
+            '      <mesh filename="$(find demo_description)/meshes/b.stl"/>\n'
+            '    </geometry></visual>\n'
+            '  </link>\n'
+            '</robot>\n'
+        )
+        out = import_model._expand_xacro(pkg / "urdf" / "robot.urdf.xacro")
+        assert "$(find" not in out
+        assert str(pkg) in out
+
+
 class TestXacroExpansion:
     """#169: a xacro URDF expands to plain, well-formed URDF."""
 
