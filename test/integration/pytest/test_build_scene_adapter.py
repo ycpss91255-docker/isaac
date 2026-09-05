@@ -104,3 +104,32 @@ def test_adapter_spawns_mobility_dynamic_object(adapter_run):
         f"dynamic object {m.group(1)} spawned without RigidBodyAPI; the "
         "defaultPrim reference did not resolve the rigid-body content"
     )
+
+
+def test_adapter_spawns_with_identity_orientation(adapter_run):
+    """rpy [0,0,0] in the YAML must reach the stage as an identity orient.
+
+    Regression guard for the quaternion-order bug: ``rpy_to_quat`` returns
+    (w,x,y,z) while the ``sim_utils`` spawners document ``orientation`` as
+    (x,y,z,w). Passing it through unreordered sends identity as x=1, w=0 --
+    a 180-degree rotation about X, so every scene spawns upside-down
+    (authored z becomes -z, the example robot ends up below the floor).
+
+    The existing adapter tests assert prim STRUCTURE and cannot see this;
+    the example scene's cube and the robot's box pair are symmetric enough
+    that the render looks plausible either way.
+    """
+    import re
+
+    found = re.findall(
+        r"\[ADAPTER ORIENT\] path=(\S+) quat=\(([^)]*)\)", adapter_run.stdout
+    )
+    assert found, f"no [ADAPTER ORIENT] marker:\n{adapter_run.stdout}"
+
+    for path, quat_str in found:
+        w, x, y, z = (float(v) for v in quat_str.split(","))
+        assert (w, x, y, z) == pytest.approx((1.0, 0.0, 0.0, 0.0), abs=1e-6), (
+            f"{path} spawned rotated: orient=({w}, {x}, {y}, {z}); the scene "
+            "YAML says rpy [0,0,0] so this must be identity. (0,1,0,0) means "
+            "the (w,x,y,z) quaternion reached the spawner as (x,y,z,w)."
+        )
