@@ -153,8 +153,14 @@
 #   (`test_scene_builder.py` 39 -> 43, `TestOrientationXyzw`): the pure
 #   (w,x,y,z) -> (x,y,z,w) reorder `build_scene` must apply before handing an
 #   orientation to the `sim_utils` spawners, identity case included -- that is
-#   the case the bug hid in. Live count is now 330 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 330
+#   the case the bug hid in. Live count is now 330. Offline $(find <pkg>)
+#   resolution (isaac#267) adds 6 (`test_import_model.py` 55 -> 61): the
+#   package-directory resolver (explicit mapping, own package from the URDF's
+#   location, sibling package, package.xml required, actionable error) and one
+#   expansion test proving `$(find <own package>)` is substituted. Pure --
+#   filesystem existence checks only, no Isaac import. Live count is now 336 --
+#   the enforced floor.
+HOSTED_UNIT_BASELINE = 336
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

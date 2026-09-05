@@ -219,6 +219,19 @@ def _parse_args():
         ),
     )
     parser.add_argument(
+        "--package-path",
+        action="append",
+        default=[],
+        metavar="NAME=DIR",
+        help=(
+            "Resolve $(find NAME) in a xacro to DIR (isaac#267). Repeatable. "
+            "The robot's own package is found automatically from the URDF's "
+            "location; this is for packages a description pulls in from "
+            "elsewhere (e.g. husky_description -> realsense2_description). "
+            "Needed because this container has no ROS package index."
+        ),
+    )
+    parser.add_argument(
         "--joint-drive-damping",
         type=float,
         default=None,
@@ -380,7 +393,105 @@ def _is_xacro(urdf_path, content):
     return "xmlns:xacro" in content or "xacro:" in content
 
 
-def _expand_xacro(urdf_path):
+def _parse_package_paths(entries):
+    """Parse repeatable ``NAME=DIR`` CLI values into a mapping.
+
+    Pure. Fails fast on a malformed entry rather than silently dropping it --
+    a typo here shows up much later as an unresolved mesh.
+    """
+    out = {}
+    for entry in entries or []:
+        name, sep, directory = str(entry).partition("=")
+        if not sep or not name or not directory:
+            raise ValueError(
+                f"--package-path expects NAME=DIR, got {entry!r}"
+            )
+        out[name] = directory
+    return out
+
+
+def _resolve_package_dir(pkg, urdf_path, package_paths):
+    """Locate a ROS package directory without a ROS package index.
+
+    xacro resolves ``$(find PKG)`` through
+    ``ament_index_python.packages.get_package_share_directory``, which needs an
+    ament index this container does not have. Every mainstream robot
+    description names its own package in each include and each mesh path, so
+    without an offline equivalent the ingestible input is limited to xacro that
+    never mentions a package (isaac#267).
+
+    Resolution order:
+
+    1. an explicit ``package_paths`` mapping (``--package-path NAME=DIR``);
+    2. an ancestor of the URDF named ``pkg`` that carries a ``package.xml`` --
+       this is the robot's own package, since a description lives at
+       ``<pkg>/urdf/<robot>.urdf.xacro``;
+    3. a ``pkg`` directory beside any of those ancestors, also carrying a
+       ``package.xml`` -- this is a sibling package checked out next to the
+       robot's own.
+
+    ``package.xml`` is required, not optional: a bare directory that happens to
+    share the name is not a package, and silently accepting one would resolve a
+    mesh path to somewhere meaningless.
+
+    PURE apart from filesystem existence checks -- no Isaac import, so it is
+    unit-testable on the host.
+
+    Args:
+        pkg: Package name from ``$(find pkg)``.
+        urdf_path: Path to the URDF/xacro being expanded.
+        package_paths: Explicit ``{name: directory}`` overrides.
+
+    Returns:
+        The package directory as a string.
+
+    Raises:
+        RuntimeError: If the package cannot be located, naming the package and
+            the flag that fixes it.
+    """
+    if pkg in (package_paths or {}):
+        return str(package_paths[pkg])
+
+    start = Path(urdf_path).resolve().parent
+    ancestors = [start, *start.parents]
+
+    for d in ancestors:
+        if d.name == pkg and (d / "package.xml").is_file():
+            return str(d)
+
+    for d in ancestors:
+        candidate = d / pkg
+        if (candidate / "package.xml").is_file():
+            return str(candidate)
+
+    raise RuntimeError(
+        f"cannot resolve $(find {pkg}) offline: no directory named '{pkg}' "
+        f"with a package.xml was found at or beside {start}. Point at it with "
+        f"--package-path {pkg}=/path/to/{pkg} (or the package_paths kwarg). "
+        "This container has no ROS package index, so $(find ...) cannot be "
+        "resolved the way a sourced ROS workspace would."
+    )
+
+
+def _install_xacro_find_resolver(urdf_path, package_paths):
+    """Teach xacro to resolve ``$(find PKG)`` from the filesystem.
+
+    ``xacro.substitution_args._eval_find`` does a function-local import of
+    ``ament_index_python``, so replacing that one function is enough to cover
+    includes AND mesh paths, without copying or rewriting the package tree.
+
+    Returns the previous resolver so a caller can restore it.
+    """
+    from xacro import substitution_args
+
+    previous = substitution_args._eval_find
+    substitution_args._eval_find = lambda name: _resolve_package_dir(
+        name, urdf_path, package_paths
+    )
+    return previous
+
+
+def _expand_xacro(urdf_path, package_paths=None):
     """Expand a xacro URDF to plain-URDF text (offline, no ROS env).
 
     Uses the standalone ``xacro`` PyPI package: ``xacro.process_file``
@@ -412,11 +523,17 @@ def _expand_xacro(urdf_path):
             f"'xacro {urdf_path} > expanded.urdf' before import."
         ) from exc
 
-    doc = xacro.process_file(str(urdf_path))
+    previous = _install_xacro_find_resolver(urdf_path, package_paths)
+    try:
+        doc = xacro.process_file(str(urdf_path))
+    finally:
+        from xacro import substitution_args
+
+        substitution_args._eval_find = previous
     return doc.toprettyxml(indent="  ")
 
 
-def _preprocess_urdf(urdf_path):
+def _preprocess_urdf(urdf_path, package_paths=None):
     """Expand xacro, sanity-check units, and resolve ``package://`` URIs.
 
     The deterministic, offline cleanup of a CAD-exported URDF
@@ -452,7 +569,7 @@ def _preprocess_urdf(urdf_path):
     if _is_xacro(urdf_path, content):
         print(f"  xacro input detected: expanding {urdf_path.name}",
               flush=True)
-        content = _expand_xacro(urdf_path)
+        content = _expand_xacro(urdf_path, package_paths)
 
     # Units sanity check (#170) runs on the expanded URDF, before the
     # path substitution (which does not change any magnitudes).
@@ -728,6 +845,7 @@ def _convert_urdf(
     collider_type=_DEFAULT_COLLIDER_TYPE,
     joint_drive_stiffness=None,
     joint_drive_damping=None,
+    package_paths=None,
 ):
     """Convert a URDF to a single self-contained USD via Isaac Lab.
 
@@ -787,7 +905,7 @@ def _convert_urdf(
     _ensure_newton_usd_schemas_importable()
 
     _validate_collider_type(collider_type)
-    resolved_urdf = _preprocess_urdf(urdf_path)
+    resolved_urdf = _preprocess_urdf(urdf_path, package_paths)
 
     # Convert into a scratch dir (the 3.0 importer writes a <robot>/ subdir +
     # sidecar .asset_hash / config.yaml); we re-export the single stage to the
@@ -1073,6 +1191,7 @@ def import_urdf(
     collider_type=_DEFAULT_COLLIDER_TYPE,
     joint_drive_stiffness=None,
     joint_drive_damping=None,
+    package_paths=None,
 ):
     """Import a URDF into a single self-contained USD; return its ``PrimSummary``.
 
@@ -1152,6 +1271,7 @@ def import_urdf(
             collider_type=collider_type,
             joint_drive_stiffness=joint_drive_stiffness,
             joint_drive_damping=joint_drive_damping,
+            package_paths=package_paths,
         )
         if not produced.exists():
             raise ValueError(
@@ -1210,6 +1330,7 @@ def main():
             collider_type=args.collider_type,
             joint_drive_stiffness=args.joint_drive_stiffness,
             joint_drive_damping=args.joint_drive_damping,
+            package_paths=_parse_package_paths(args.package_path),
         )
     except Exception as exc:  # noqa: BLE001
         # The converter can raise on mesh-resolution warnings while still
