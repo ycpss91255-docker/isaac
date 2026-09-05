@@ -19,7 +19,7 @@ Opens the stage read-only over HTTPS and inventories geometry; does NOT step
 physics here (that is the separate fork-insertion comparison).
 
 CLI:
-  just exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
+  just docker exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
     $W/test/verify_real_asset_collision.py \\
       --url https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd \\
       --out $W/test/.verify-real-asset-collision.json

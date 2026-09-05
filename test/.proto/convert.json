@@ -1,0 +1,7 @@
+{
+  "phase": "convert",
+  "error": null,
+  "usd": "/home/yunchien/work/worktree/isaac-revalidate-6.0.1/test/.proto/proto_sag.usd",
+  "produced": "/home/yunchien/work/worktree/isaac-revalidate-6.0.1/test/.proto/proto_sag.usd",
+  "produced_exists": true
+}

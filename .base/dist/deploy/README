@@ -1,0 +1,57 @@
+# @REPO@ field deploy bundle (@STAGE@)
+
+A self-contained deploy of the image `@IMAGE@`. Everything needed to run it
+in the field travels in this folder; the target host does NOT need base's
+toolchain, source tree, or `setup.conf`.
+
+## Run it
+
+    ./deploy.sh up      load the image, then `docker compose up -d`
+    ./deploy.sh down    `docker compose down`
+    ./deploy.sh logs    `docker compose logs` (add `-f` to follow)
+
+`up` docker-loads `image.tar.xz` then starts the resolved `compose.yaml`.
+The service uses `restart: unless-stopped`, so it auto-starts on host
+reboot; stop it with `./deploy.sh down`.
+
+## Contents
+
+    image.tar.xz   the container image (deploy.sh docker-loads it)
+    compose.yaml   fully-resolved, self-contained compose (do NOT edit)
+    config/        operator-tunable config copies (see below)
+    deploy.sh      this launcher
+    README         this file
+
+## Adjusting config in the field (no rebuild)
+
+`config/` holds an editable copy of each file the component declared as
+operator-tunable (`config/<component>/deploy.manifest`). Edit a file under
+`config/`, then re-run `./deploy.sh up`: the mounted copy wins over the
+image's baked default. Files NOT under `config/` are baked-only and require
+a rebuild to change.
+
+**You edit these on the host; the container only reads them.** Each bind in
+`compose.yaml` ends in its access mode, and it is `:ro` unless the component
+explicitly declared that path writable (`<path> rw` in its manifest):
+
+    volumes:
+      - ./config/host.yaml:/etc/app/host.yaml:ro     # you edit, app reads
+      - ./config/calibration.yaml:/etc/app/calibration.yaml:rw   # app writes too
+
+Read-only is the default because nothing in "the operator retunes a value"
+needs the application to write, and a writable mount would quietly depend on
+the container's user id matching whoever unpacked this folder -- which fails
+on the field host, not on the bench. A `:rw` path is one someone deliberately
+declared writable (a calibration file the app updates itself, say); its
+contents can change under you, and it is the one place where that user-id
+mismatch can still bite.
+
+Do not edit `compose.yaml` -- it is machine-generated and fully resolved.
+Adjust behavior through `config/` instead. If the application needs to write
+a path that is mounted `:ro`, that is a source change (declare it `rw` in the
+component's manifest and regenerate the bundle), not a `compose.yaml` edit.
+
+## Image identity
+
+The image is tagged `@IMAGE@` (`<repo>:<stage>-<version>`, version from
+`git describe`), so loading multiple versions on one host never collides.

@@ -17,7 +17,7 @@ the produced USD's entry face to see whether the fork tunnels survived:
            UsdGeom.Cube colliders (see verify_collision_import.py A1/A2).
 
 CLI:
-  just exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
+  just docker exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
     $W/test/verify_urdf_mesh_collision_path.py \\
       --out $W/test/.verify-urdf-mesh-collision.json
 """

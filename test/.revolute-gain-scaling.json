@@ -1,0 +1,106 @@
+{
+  "issue": "isaac#189",
+  "isaac_variant": "6.0.1",
+  "joint_type": "revolute",
+  "convention": "angular DriveAPI stores per-radian = deg_input * pi/180",
+  "deg2rad": 0.017453292519943295,
+  "rel_tol": 0.0001,
+  "cases": [
+    {
+      "gain_deg": {
+        "stiffness": 800.0,
+        "damping": 40.0
+      },
+      "import_path": {
+        "joint": "/two_link_revolute/Physics/joint1",
+        "has_drive": true,
+        "stiffness": {
+          "deg_input": 800.0,
+          "stored": 13.962634086608887,
+          "expected_deg_x_pi_over_180": 13.962634015954636,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.24369393582936688,
+          "would_be_if_unscaled": 800.0
+        },
+        "damping": {
+          "deg_input": 40.0,
+          "stored": 0.6981316804885864,
+          "expected_deg_x_pi_over_180": 0.6981317007977318,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.012184696791468342,
+          "would_be_if_unscaled": 40.0
+        }
+      },
+      "runtime_apply_path": {
+        "joint": "/two_link_revolute/Physics/joint1",
+        "apply_returned": true,
+        "has_drive": true,
+        "stiffness": {
+          "deg_input": 800.0,
+          "stored": 13.962634086608887,
+          "expected_deg_x_pi_over_180": 13.962634015954636,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.24369393582936688,
+          "would_be_if_unscaled": 800.0
+        },
+        "damping": {
+          "deg_input": 40.0,
+          "stored": 0.6981316804885864,
+          "expected_deg_x_pi_over_180": 0.6981317007977318,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.012184696791468342,
+          "would_be_if_unscaled": 40.0
+        }
+      }
+    },
+    {
+      "gain_deg": {
+        "stiffness": 180.0,
+        "damping": 90.0
+      },
+      "import_path": {
+        "joint": "/two_link_revolute/Physics/joint1",
+        "has_drive": true,
+        "stiffness": {
+          "deg_input": 180.0,
+          "stored": 3.1415927410125732,
+          "expected_deg_x_pi_over_180": 3.141592653589793,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.05483113556160755,
+          "would_be_if_unscaled": 180.0
+        },
+        "damping": {
+          "deg_input": 90.0,
+          "stored": 1.5707963705062866,
+          "expected_deg_x_pi_over_180": 1.5707963267948966,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.027415567780803774,
+          "would_be_if_unscaled": 90.0
+        }
+      },
+      "runtime_apply_path": {
+        "joint": "/two_link_revolute/Physics/joint1",
+        "apply_returned": true,
+        "has_drive": true,
+        "stiffness": {
+          "deg_input": 180.0,
+          "stored": 3.1415927410125732,
+          "expected_deg_x_pi_over_180": 3.141592653589793,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.05483113556160755,
+          "would_be_if_unscaled": 180.0
+        },
+        "damping": {
+          "deg_input": 90.0,
+          "stored": 1.5707963705062866,
+          "expected_deg_x_pi_over_180": 1.5707963267948966,
+          "matches_single_scaling": true,
+          "would_be_if_doubled": 0.027415567780803774,
+          "would_be_if_unscaled": 90.0
+        }
+      }
+    }
+  ],
+  "all_pass": true,
+  "error": null
+}

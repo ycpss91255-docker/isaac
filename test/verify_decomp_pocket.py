@@ -24,7 +24,7 @@ Reads (empirical, not doc):
   - if neither B nor C enters    -> supports the doc's stronger claim
 
 CLI:
-  just exec -t devel /isaac-sim/python.sh \\
+  just docker exec -t devel /isaac-sim/python.sh \\
     $W/test/verify_decomp_pocket.py --out $W/test/.verify-decomp-pocket.json
 """
 

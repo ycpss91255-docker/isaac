@@ -39,6 +39,7 @@ ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:6.0.1"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS sys
 
 ARG USER_NAME="user"
@@ -255,7 +256,7 @@ RUN /isaac-sim/python.sh -m pip install --no-cache-dir xacro
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Layer 1: .base/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
-COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/dist/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree pull).
 # Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
@@ -366,6 +367,7 @@ CMD ["bash"]
 
 ############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+# hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
@@ -394,9 +396,9 @@ COPY script/*.sh /lint/script/
 # and all libs consolidated under script/docker/lib/. _lib.sh, i18n.sh,
 # _tui_conf.sh are now under lib/. Preserve the lib/ subdirectory in
 # /lint/ so the source paths inside _lib.sh resolve identically to the
-# normal .base/ layout. The `COPY .base/script/docker/lib /lint/lib`
+# normal .base/ layout. The `COPY .base/dist/script/docker/lib /lint/lib`
 # below brings ALL of these in one shot.
-COPY .base/script/docker/lib /lint/lib
+COPY .base/dist/script/docker/lib /lint/lib
 # Lint coverage for repo-local Dockerfile-internal build helpers
 # (base #275). Uncomment if your repo has any <repo>/script/docker/*.sh
 # build helpers (see the commented example in the devel stage above);
@@ -413,7 +415,8 @@ RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
 # stream_smoke.sh -> stream_smoke_lib.sh.
 COPY script/ci /lint/ci
 RUN shellcheck -S warning -x /lint/ci/*.sh
-RUN cd /lint && hadolint Dockerfile
+WORKDIR /lint
+RUN hadolint Dockerfile
 
 # [isaac] Python testing toolkit (pytest + common deps). Installed into
 # Isaac Sim's bundled Python (/isaac-sim/python.sh) because PEP 668
@@ -431,12 +434,17 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from base + repo-specific). Repo-local .bats
-# files live under test/smoke/bats/ per isaac#64 (separating tool
-# layers under test/<category>/<tool>/), so future Python smoke tests
-# under test/smoke/pytest/ do not collide with bats discovery.
-COPY .base/test/smoke/ /smoke_test/
-COPY test/smoke/bats/ /smoke_test/
+# Smoke test (shared from base + repo-specific). base v0.42.0 ships its
+# smoke templates under the canonical tool-first layout
+# .base/dist/test/bats/smoke/{shared,devel-test,runtime-test}/ (base#650 /
+# base#835). Repo-local .bats files move to the matching test/bats/smoke/
+# (base's canonical consumer layout; this is what release-worker.yaml's
+# archive keep-list expects). Selective COPY of base's shared baseline +
+# the devel-test stage specs, then the repo's own smoke specs, flattened
+# into /smoke_test/ for `bats /smoke_test/` (see .base/doc/test/smoke.md).
+COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+COPY test/bats/smoke/ /smoke_test/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 # [#233] Tier A stream-smoke decision logic (client-connect sequence +
@@ -444,9 +452,10 @@ COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
 # [owv#55] The Tier A GPU driver itself, baked next to
 # stream_smoke_isolation_spec.bats so the spec can exercise its compose-
-# project isolation (--instance bring-up + instance-scoped teardown)
-# against stub run.sh / docker -- behavioral, no docker, no GPU. The GPU
-# path stays host-side and nightly-only (stream-smoke.yaml).
+# project isolation (distinct PROJECT_NAME bring-up + project-scoped
+# teardown; base v0.42.0 removed --instance, base#666) against stub
+# run.sh / docker -- behavioral, no docker, no GPU. The GPU path stays
+# host-side and nightly-only (stream-smoke.yaml).
 COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
@@ -462,10 +471,20 @@ COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
 COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_baseline.sh
 
-ARG USER
+ARG USER="${USER_NAME}"
 USER "${USER}"
 
 RUN bats /smoke_test/
+
+# Restore the runtime working directory to the workspace mount. The
+# hadolint step above uses `WORKDIR /lint` (base v0.42.0's declarative
+# migration of `cd /lint && hadolint`, avoiding hadolint DL3003), but
+# that WORKDIR persists into the image -- leaving the devel-test runtime
+# CWD at /lint. `./script/run.sh -t test -- ... pytest test/integration/
+# pytest/` passes a workspace-relative path, so a /lint CWD makes pytest
+# collect 0 items ("rootdir: /lint"). Reset to ${HOME}/work (the bind
+# mount target, same as the devel stage) so relative test paths resolve.
+WORKDIR "${HOME}/work"
 
 # [isaac #127] Idle on startup so the `test` compose service survives
 # `compose up -d` and `./script/run.sh -t test -- <cmd>` (up -d + exec)
@@ -528,6 +547,25 @@ CMD ["sleep", "infinity"]
 # ISAAC_SIGNAL_PORT from env (its argparse defaults); ISAAC_LIVESTREAM=2 is
 # inherited from the stream stage.
 FROM stream AS producer
+
+# What this image is, in the image, so nobody has to run an 18 GB container to
+# find out (isaac#252 aftermath). The version tag deliberately does NOT encode
+# the Isaac Sim version -- it just increments -- so the base image is recorded
+# here instead, where it cannot drift from what was actually built.
+#
+#   docker inspect <image> \
+#     --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}'
+#
+# script/ci/sync_producer_versions.py reads exactly this label, from the
+# registry and without pulling, to regenerate the READMEs' version table.
+# `org.opencontainers.image.*` are the OCI-specified keys; MAINTAINER is the
+# deprecated instruction these replaced.
+ARG BASE_IMAGE
+ARG GIT_SHA="unknown"
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.source="https://github.com/ycpss91255-docker/isaac"
+LABEL org.opencontainers.image.description="Deterministic WebRTC stream-source producer for downstream viewer e2e (isaac#223)"
 
 COPY --chmod=0644 src/script/stream_source_producer.py \
      /opt/isaac-producer/stream_source_producer.py

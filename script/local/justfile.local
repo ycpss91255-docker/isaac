@@ -1,0 +1,17 @@
+# Repo-local just command groups (registry). REPO-OWNED: committed by this
+# repo, never clobbered by a base subtree upgrade. The base entry imports
+# this file optionally (`import?`), so an empty registry is fine.
+#
+# Register a group with one `mod?` line (path relative to this file's dir,
+# i.e. script/local):
+#
+#   mod? deploy 'deploy/justfile.deploy'
+#
+# then `just deploy <recipe>` runs it. Scaffold a new group with
+# `just template new <name>` -- it appends the `mod?` line here for you.
+#
+# A companion bash template ships beside this file as local.sh. Wire it to
+# a recipe you add here, e.g.:
+#
+#   local-hello:
+#       @./local.sh

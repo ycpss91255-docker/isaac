@@ -10,7 +10,7 @@ face, '.' open) and dumps the grid, so the insertion driver can aim the prongs a
 real openings -- or show that this low-poly pallet has no through tunnel at all.
 
 CLI:
-  just exec -t devel /isaac-sim/python.sh \\
+  just docker exec -t devel /isaac-sim/python.sh \\
     $W/test/verify_pallet_entry_map.py \\
       --approx convexDecomposition \\
       --out $W/test/.pallet-entry-map.json

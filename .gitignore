@@ -44,6 +44,10 @@ test/.xc-pytest-report.xml
 # The fixture writes + cleans this up; ignored as defense if a run aborts.
 test/.scaffold-smoke/
 
+.setup.conf.bak
+.setup.conf.local
+/deploy/
+
 # vendored CJK font for review-PDF generation (not committed; 19MB)
 test/.notocjk.ttc
 

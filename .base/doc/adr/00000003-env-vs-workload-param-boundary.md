@@ -1,7 +1,17 @@
 # Environment vs runtime parameter boundary and field delivery model
 
+> Serves: PRD invariant 3 (multi_run-expandable) via the axis-A
+> `.env`-overlay model; also the one-source -> many-render goal (field
+> delivery).
+
 - **Date:** 2026-06-02
 - **Status:** Accepted
+- **Amended:** 2026-07-15 -- the structured-config **Field** cell of the
+  parameter-routing table gains a field override channel (baked default +
+  optional mount-wins `-v`), making it symmetric with the env row's `-e`; and
+  the "compose does not travel" delivery model is refined to "a fully-resolved,
+  self-contained compose travels". The general git-tracked provisioning axis
+  this makes explicit, and the mechanism, are recorded in ADR-00000023.
 
 ## Context
 
@@ -108,7 +118,7 @@ switch machines?"). Three channels, distinguished by *kind* of value:
 |---|---|---|---|
 | machine-bound / set-once (GPU, `privileged`, mounts, `IMAGE_NAME`, APT mirror) | `setup.conf` (committed) | rendered into `compose.yaml` | inlined as `docker run` flags in the generated `deploy.sh` |
 | volatile workload **env vars** (`ROS_DOMAIN_ID`, `LOG_LEVEL`, tokens) | `.env` overlay (hand-authored, gitignored) | injected per service via `env_file: - .env` (overlay-overrides-`[environment]` completes in S3 once defaults are baked `ENV`) | baked `ENV` defaults + optional `deploy.sh -e` |
-| structured app **config** (bridge topics, pipeline lists) | an app config file/dir (e.g. `config/<repo>/*.yaml`) | bind-mounted into the container (edit + restart, no rebuild) | `COPY`-baked into the image |
+| structured app **config** (bridge topics, pipeline lists) | an app config file/dir (e.g. `config/<repo>/*.yaml`) | bind-mounted into the container (edit + restart, no rebuild) | `COPY`-baked default + optional field `-v` override (mount-wins) |
 
 The third channel is distinct from the `.env` overlay: the overlay
 carries flat `KEY=VALUE` env vars only; structured config goes to its own
@@ -159,6 +169,17 @@ given repo) live in the README, not here -- this records the routing
   #462): future such needs route through the `.env` overlay or the unified
   flag-resolution layer rather than spawning a new per-case mechanism.
   Parallel to #75's static-config consolidation, not a reversal of it.
+- **Amended (2026-07-15, ADR-00000023):** the structured-config Field cell is
+  no longer bake-only. It is now a `COPY`-baked *default* plus an optional
+  field `-v` override (mount-wins) -- the file analog of this ADR's env-row
+  `deploy.sh -e`, so both rows are symmetric. The general axis this makes
+  explicit is **git-tracking**: a committed config file is the developer's
+  baked default; a gitignored / bundle-shipped file is the operator-editable
+  overlay that mounts over it in the field without a rebuild. The
+  "compose does not travel" delivery constraint (channel 2 above) is likewise
+  refined -- a *fully-resolved, self-contained* compose does travel, with no
+  `setup.conf` / `.env.generated` dependency. Both the provisioning axis and
+  the field-deploy mechanism are recorded in ADR-00000023.
 - Open questions deferred to #497: `deploy.sh` confirm-step UX (extend
   `setup_tui.sh` vs new flow), final naming (`deploy.sh` vs `field-run.sh`),
   the fate of `runtime.env` (#462), and interaction with #439 (legacy

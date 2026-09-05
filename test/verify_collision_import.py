@@ -17,7 +17,7 @@ Settles empirically, not from docs:
   +   the actual USD prim structure (Scope grouping? ghost/duplicate colliders?)
 
 CLI:
-  just exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
+  just docker exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
     $W/test/verify_collision_import.py --out $W/test/.verify-collision-import.json
 """
 

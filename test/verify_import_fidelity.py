@@ -18,7 +18,7 @@ Settles empirically (not from docs) whether the CAD-derived mass/inertia -- the
 highest-value output of the sw2urdf path -- survives conversion unchanged.
 
 CLI:
-  just exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
+  just docker exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
     $W/test/verify_import_fidelity.py --out $W/test/.verify-import-fidelity.json
 """
 

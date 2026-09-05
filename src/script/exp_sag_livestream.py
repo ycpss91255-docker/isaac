@@ -74,7 +74,7 @@ host`` so the container's listen ports == the host's):
 
     # 2. Launch this driver into it with WebRTC streaming on. It settles the
     #    sag, prints the droop to --out, then holds the scene live.
-    just exec -t stream /isaac-sim/python.sh \\
+    just docker exec -t stream /isaac-sim/python.sh \\
         /home/<user>/work/worktree/<wt>/src/script/exp_sag_livestream.py \\
         --livestream 2 --out /home/<user>/work/worktree/<wt>/test/.sag-live.json
 

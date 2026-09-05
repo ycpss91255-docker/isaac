@@ -14,11 +14,37 @@ on:
         description: "Space-separated list of extra files/dirs to include in archive"
 
 jobs:
+  # ────────────────────────────────────────────────────────────────
+  # #800 — caller-contract preflight. Same self-validation the build
+  # worker runs: a caller that forgot a required input fails within
+  # seconds with a plain-language fix, before any archive work. The
+  # declared requirement list is script/ci/preflight/release.manifest,
+  # validated by script/ci/preflight.sh — both fetched from base at the
+  # SAME ref as this workflow (github.job_workflow_sha) so the validator
+  # never drifts from the worker. The logic is tested under `just test`.
+  # ────────────────────────────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .preflight-base
+      - name: Validate caller contract (preflight)
+        env:
+          PREFLIGHT_INPUT_ARCHIVE_NAME_PREFIX: ${{ inputs.archive_name_prefix }}
+        run: bash .preflight-base/script/ci/preflight.sh .preflight-base/script/ci/preflight/release.manifest
+
   release:
+    needs: [preflight]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Create release archive
         run: |
@@ -34,8 +60,7 @@ jobs:
           # gitignored since v0.9.0; including it here is a latent bug
           # that silently broke `call-release` on any tag push).
           cp -r Dockerfile \
-                build.sh run.sh exec.sh stop.sh setup_tui.sh \
-                script/ .hadolint.yaml test/smoke/ \
+                script/ .hadolint.yaml test/bats/smoke/ \
                 .base/ \
                 README.md doc/ "${ARCHIVE_NAME}/"
 

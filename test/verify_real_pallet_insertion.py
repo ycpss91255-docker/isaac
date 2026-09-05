@@ -21,7 +21,7 @@ U-channel) and directly tests the collision-authoring policy in ADR-0020: the
 NVIDIA itself ships o3dyn_pallet.usd with convexDecomposition for exactly this.
 
 CLI:
-  just exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
+  just docker exec -t devel env PYTHONPATH=$W/framework /isaac-sim/python.sh \\
     $W/test/verify_real_pallet_insertion.py \\
       --out $W/test/.verify-real-pallet-insertion.json \\
       --mp4 $W/doc/viz/pallet_insertion.mp4
