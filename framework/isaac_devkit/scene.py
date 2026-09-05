@@ -343,6 +343,27 @@ def to_isaaclab_cfg(scene, repo_root):
     return specs
 
 
+def _orientation_xyzw(wxyz):
+    """Reorder a (w, x, y, z) quaternion to the (x, y, z, w) the spawners want.
+
+    ``rpy_to_quat`` returns (w, x, y, z) -- the convention Isaac Lab uses for
+    quaternions nearly everywhere. The ``sim_utils`` SPAWNERS are the
+    exception: ``spawn_from_usd`` / ``spawn_from_urdf`` document their
+    ``orientation`` argument as ``(x, y, z, w)``.
+
+    Passing (w, x, y, z) straight through therefore rotates every spawned prim.
+    For the common ``rpy: [0, 0, 0]`` it sends (1, 0, 0, 0), which reads as
+    x=1, w=0 -- a 180-degree rotation about X. The whole scene spawns
+    upside-down: authored z becomes -z. It went unnoticed because the example
+    scene's only object is a symmetric cube and the GPU tests assert prim
+    structure, not pose.
+
+    PURE (no Isaac import) so the reorder is unit-testable on the host.
+    """
+    w, x, y, z = wxyz
+    return (x, y, z, w)
+
+
 def build_scene(scene, stage, repo_root):
     """Assemble the scene on the active USD stage. Requires Isaac Lab.
 
@@ -403,7 +424,7 @@ def build_scene(scene, stage, repo_root):
                 spec.prim_path,
                 cfg,
                 translation=spec.translation,
-                orientation=spec.orientation,
+                orientation=_orientation_xyzw(spec.orientation),
             )
             _apply_mobility_physics(spec, stage)
 
