@@ -285,6 +285,29 @@ def run(args):
         result["usd_asset"] = usd_path
         clutter = _add_clutter(stage)
 
+        render = bool(args.mp4)
+        cap = None
+        if render:
+            import viz_render as vr
+            from pxr import UsdGeom as _UG
+            vr.apply_clean_render_settings()
+            vr.add_fill_lights(stage)
+            for _gp in ("/World/Ground", "/World/GroundPlane",
+                        "/World/defaultGroundPlane"):
+                _p = stage.GetPrimAtPath(_gp)
+                if _p and _p.IsValid():
+                    _UG.Imageable(_p).MakeInvisible()
+            blue = vr.material(stage, "/World/Looks/Fork", (0.15, 0.45, 0.9))
+            for c in _FORKLIFT_CUBES:
+                vr.bind(stage, f"/World/Forklift/{c}", blue)
+            vr.bind(stage, _PALLET_PATH,
+                    vr.material(stage, "/World/Looks/Pallet", (0.85, 0.55, 0.2)))
+            for c in clutter:
+                vr.bind(stage, c["path"], vr.material(
+                    stage, f"/World/Looks/cl_{c['name']}", (0.5, 0.5, 0.55)))
+            vr.make_camera(stage, "/World/VizCam", (-3.0, -10.0, 8.0),
+                           (2.0, 2.0, 0.3))
+
         world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                       rendering_dt=args.dt)
         world.reset()
@@ -353,6 +376,13 @@ def run(args):
         settle_start = args.warmup + int(0.70 * args.steps)
         total_t = args.steps * args.dt
 
+        if render:
+            import viz_render as vr
+            cap = vr.Capturer(world, "/World/VizCam", args.width, args.height)
+        cap_steps = set(int(round(v)) for v in np.linspace(
+            args.warmup, total_steps - 1, 60)) if render else set()
+        frames, nonblack = [], 0
+
         for step_i in range(total_steps):
             if step_i < args.warmup:
                 cx, cy, yaw = 0.0, 0.0, 0.0
@@ -370,7 +400,7 @@ def run(args):
                                   dtype=wp.float32, device=wp_device)
                 cube_view[c].set_kinematic_targets(target, wp_idx)
 
-            world.step(render=False)
+            world.step(render=render)
 
             # Read-back forklift cubes: tracking error + lock + NaN + explosion.
             for c in _FORKLIFT_CUBES:
@@ -409,6 +439,31 @@ def run(args):
                     if step_i >= settle_start:
                         obst_acc[k]["settle_speeds"].append(speed)
                 obst_prev[k] = pos_a.copy()
+
+            if render and step_i in cap_steps:
+                import viz_render as vr
+                gmax = max(a["max_pos"] for a in cube_acc.values())
+                lines = [
+                    "Model A forklift (6 kinematic cubes) SE(2) slide over clutter",
+                    "chassis  x=%6.3f  y=%6.3f  yaw=%6.1f deg"
+                    % (cx, cy, math.degrees(yaw)),
+                    "forklift track err = %.1e m  (kinematic, exact)" % gmax,
+                    "t = %5.2f s" % (max(0.0, (step_i - args.warmup) * args.dt)),
+                ]
+                rgb = cap.grab()
+                if rgb is not None and float(rgb.mean()) > 1.0:
+                    nonblack += 1
+                if rgb is None:
+                    rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+                frames.append(vr.overlay(rgb, lines))
+
+        if render and frames:
+            import viz_render as vr
+            vr.encode_mp4(args.mp4, frames, fps=20)
+            cap.detach()
+            result["mp4"] = args.mp4
+            result["mp4_frames"] = len(frames)
+            result["mp4_nonblack"] = nonblack
 
         # Assemble per-cube results.
         cube_flags = []
@@ -491,6 +546,11 @@ def _parse_args():
     p.add_argument("--warmup", type=int, default=120,
                    help="Pre-drive settle steps (forklift held at rest).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="If set, RTX-render the forklift SE(2) slide with a data "
+                        "HUD and encode an MP4 to this path (mounted).")
+    p.add_argument("--width", type=int, default=960, help="mp4 render width.")
+    p.add_argument("--height", type=int, default=540, help="mp4 render height.")
     return p.parse_args()
 
 
