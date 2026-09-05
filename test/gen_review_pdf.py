@@ -1212,6 +1212,25 @@ class Doc:
             self.y -= _lh(pt)
         self.y -= gap
 
+    def labelled(self, label, body, pt=8.4, gap=0.008):
+        """Bold lead-in with a hanging indent, so the body aligns under itself.
+
+        The discussion blocks used to be one dense run-on paragraph that mixed
+        what was measured, why it means that, and what changed as a result.
+        Splitting them under lead-ins makes each of those separable at a glance."""
+        lab = str(label) + " "
+        ind = _width(lab) * (0.5 * pt / 72.0) / _PAGE_W
+        lines = _wrap(str(body), _cols(pt, 1.0 - ind / (_MR - _ML)))
+        for i, ln in enumerate(lines):
+            self.need(_lh(pt))
+            if i == 0:
+                self.fig.text(_ML, self.y, lab, fontsize=pt, fontweight="bold",
+                              color="#1f3b57", va="top")
+            self.fig.text(_ML + ind, self.y, ln, fontsize=pt, color=_INK,
+                          va="top")
+            self.y -= _lh(pt)
+        self.y -= gap
+
     def bullets(self, items, pt=8.5):
         for it in items:
             lines = _wrap(str(it), _cols(pt, 0.95))
@@ -1416,6 +1435,221 @@ _KEYS = {
 }
 
 
+# Discussion, split into labelled parts. Same facts as the prose it replaces --
+# what was measured, how to read it, and what changed in the docs as a result --
+# but separable instead of one run-on paragraph.
+_NOTES = {
+    "#212": [
+        ("量到什麼",
+         "固定 k=1e6、只掃 damping,下垂就從 -0.10 擺到 +0.05 mm,低 damping 甚至出現負值"
+         "(overshoot)。"),
+        ("為什麼這是假象",
+         "真穩態(drift=0)下,下垂必等於 mg/k=0.098 mm,而且與 damping 無關。實測卻隨 "
+         "damping 改變,沒有一個落在 0.098 上。所以高 k 的 undershoot(k_eff/k 到 5.4x)"
+         "是 TGS implicit-drive 把 damping 摺進了有效剛性,不是剛性本身的特性。"),
+        ("因此改了什麼",
+         "ADR-0021 D1a 的「no floor / beats prediction」要刪掉;可辯護的只剩「在量測範圍內"
+         "沒有撞到 float32 地板」。"),
+    ],
+    "#215": [
+        ("量到什麼",
+         "kinematic body 在 10 kg 負載加接觸下,誤差撐在 float32 read-back 地板"
+         "(6e-8 ~ 4.6e-7 m);同條件的 dynamic body 一步就掉 1.36 mm。"),
+        ("怎麼解讀",
+         "kinematic 與 dynamic 的分野成立。但「無視接觸」那半是 kinematic 定義使然 —— "
+         "靜置 pusher 壓在一個本來就無視外力的 body 上,不算獨立的壓力測試,已改述。"),
+        ("先修了什麼",
+         "先修掉 NameError(contact_frames[nm]),committed driver 才真的產得出這張表。"),
+    ],
+    "#216": [
+        ("錯在哪",
+         "driver 報的是弧度 / 毫弧度(mrad),原稿誤標成 mm —— 把角度當成了距離。"),
+        ("為什麼沒有地板可比",
+         "此 joint 繞 +Z revolute,重力對該軸零力矩,理想穩態誤差約為 0,不是 mg/k。原稿"
+         "的「地板 mg/k=1.962 mm」是從 prismatic 實驗搬過來的、根本不適用,"
+         "「1.757 對 1.962」只是巧合。"),
+        ("正解", "報 mrad 角度追蹤誤差,不附重力地板的比較。"),
+    ],
+    "#219": [
+        ("量到什麼",
+         "maxForce >= mg 才撐得住(下垂 mg/k);< mg 則 stall 到行程下限。行程極限 0.5 m "
+         "夾住了 2.0 m 的命令。下垂與 solver 迭代數無關;revolute drive 存的是 "
+         "Kp*pi/180。"),
+        ("錯在哪",
+         "重物是 98.1 N(10 kg)。原稿的「49 N 重物」是把一個 0.5x maxForce 的 case"
+         "(49.05 N)誤標成了重量。"),
+        ("因此改了什麼", "重跑一次,讓表上的數字對齊 committed driver。"),
+    ],
+    "#218": [
+        ("量到什麼",
+         "d_crit = dt*sqrt(2*mu*g*L_back) 對得上實測的 carried / slipped 門檻,且隨 mu "
+         "單調上升(0.035 ~ 0.077 m/tick)。"),
+        ("該怎麼報", "要報 mu 相依的門檻,不是粗略的單一數帶。"),
+        ("不要拿來當發現",
+         "高速下「發射到 5.19 m」是接觸穿透注入能量的 solver 假象,不是物理發現。"),
+    ],
+    "#220": [
+        ("哪一半不算數",
+         "plate 的「接觸下 track 0.000」是 kinematic 定義使然 —— 每 tick teleport 且不"
+         "積分,任何反作用在 read-back 之前就被丟掉;max_pos_err < 1e-4 是 float32 地板,"
+         "保證成立、無法證偽。已改述為 true-by-definition。"),
+        ("真正的量測",
+         "推箱那一半:normal-overlap depenetration 傳遞了約 1.19 m 位移,單向傳遞成立。"),
+    ],
+    "#221": [
+        ("量到什麼",
+         "static give 在 1 / 10 / 100 / 1000 kg 下逐位元相同(2.38e-8 m)—— 那是 float32 "
+         "量化殘差,不是量到的 compliance。"),
+        ("只能宣稱到哪",
+         "這一輪只能給上界:give < 約 2e-7 m @ 9810 N,推得接縫剛度 > 約 5e10 N/m"
+         "(對實用負載而言的有效剛性)。"),
+        ("因此刪了什麼",
+         "刪具體 give 值;刪「give 隨質量成長 / monotonic」(四個值相同,該敘述是空的);"
+         "刪「駁斥 #308」—— #308 講的是鏈式 joint 疊加,這裡只跑了單一個(鏈版會 SIGSEGV)。"),
+    ],
+    "#227": [
+        ("量到什麼",
+         "乾淨的垂直 prismatic 串接:實測 tip 總和 60.3 mm,預測 58.9 mm,差 +2.4% 是真耦合。"),
+        ("措辭要修",
+         "「tip 誤差 = 各節 sag 相加」是串接鏈的幾何恆等式,不是量到的 solver 耦合發現。"
+         "真正的發現是實測總和約等於預測總和。"),
+    ],
+    "#229": [
+        ("量到什麼",
+         "USD 階層的 parent 帶不動浮動 articulation:底盤移動 2.5 m,arm 只動約 0,"
+         "follow_ratio 約 0。要帶得動就必須用 joint。"),
+        ("原稿錯在哪",
+         "原稿數字(底盤 1.5 m、arm 發散到 2.369 m)是 stale,甚至暗示了一個已被乾淨 "
+         "follow=0 run 否定掉的發散;已改成 committed JSON 的值(底盤 2.5 / arm 0 / follow 0)。"),
+    ],
+    "D1": [
+        ("補了什麼對照",
+         "加上 drive velocity feed-forward,以及一條同規格但沒有箱子的 no-cube 對照 lane。"),
+        ("量到什麼",
+         "對照組(純 following-lag)的 back-off 與有接觸時幾乎一樣,所以純接觸反作用約為 0"
+         "(< 0.13 mm)。"),
+        ("因此改了什麼",
+         "原稿把軟端 back-off 歸給接觸,其實那是 drive-following / startup lag,"
+         "不是有限彈簧的反作用 —— 確認審查意見成立。"),
+    ],
+    "D2": [
+        ("原本錯在哪", "「越硬對 payload 越差」方向是相反的,結論本身錯了。"),
+        ("第一性原理",
+         "a=0.75 m/s^2 只需要 0.75 N 摩擦,而靜摩擦上限有 4.9 N(6.5x)—— 連續運動下"
+         "任何 k 都不該打滑。"),
+        ("高 k 打滑的真因",
+         "是 (k*dt) 離散化假象:stiff drive 在單一 substep 內 snap 到 per-tick 的位置階梯,"
+         "產生衝擊而破壞摩擦。當 dt 不遠小於 drive 自然週期 2*pi*sqrt(m/k) 時就會發生。"
+         "dt 一細化就崩塌(k=1e5:154 -> 19 mm;k=1e6 / 1e7 需要更細)。"),
+        ("交付要怎麼判",
+         "以 payload lag 判,不是載台的 tracking error —— 後者可以 < 0.05 mm,而貨物"
+         "已經大幅落後。L2.5 載得動,但 dt 要配剛度。"),
+    ],
+    "Collision A1/A2": [
+        ("量到什麼",
+         "1-link URDF 帶 3 個不同原點的 box <collision>,匯入 6.0.1 後得到 3 個獨立的 "
+         "UsdGeom.Cube colliders:位置正確、各自只掛 CollisionAPI(沒有 MeshCollisionAPI "
+         "與 approximation,等同 PxBoxGeometry)、直接掛在 link 底下(沒有 colliders "
+         "Scope)、沒有 ghost 或重複。"),
+        ("意義",
+         "A1(三個都保留)與 A2(全是解析 box、無 convexHull)實測成立 —— box-union 的"
+         "匯入地基是乾淨的。"),
+    ],
+    "Collision decomp": [
+        ("量到什麼",
+         "U-channel 口袋加掉落探針:convexHull 把口袋填滿(探針卡在頂端 z=0.75);"
+         "convexDecomposition 在 maxHulls 8 與 64 都保住口袋(探針落到底 z=0.4625,"
+         "等於 base_top 0.3 加半高 0.15)。"),
+        ("意義",
+         "decomposition 能保住功能性口袋。對乾淨、可 box 分解的矩形件(棧板 / 牙叉)可行;"
+         "會讓 hull 數爆掉的是 forklift_b 那種薄件很多的美術資產。"),
+        ("因此改了什麼", "文件 §2.2 的「disqualified」是 overstated。"),
+    ],
+    "Collision A3/A4": [
+        ("量到什麼",
+         "合成 URDF(已知 mass 7.5、三個相異的對角慣量、box 放在非零原點)匯入後讀回 USD:"
+         "mass 精確、diagonalInertia 與 URDF 張量一致(沒有被重算)、collider 的 world "
+         "原點等於授權原點乘上 joint。"),
+        ("意義",
+         "A3(原點)與 A4(CAD 慣量)保真成立 —— sw2urdf 最有價值的輸出不會在轉換中被破壞。"),
+        ("後續", "留作 CI regression guard,防匯入器版本漂移。"),
+    ],
+    "Collision 真實資產": [
+        ("先解掉的阻礙",
+         "本地 Omniverse Hub daemon 在容器內起不來(寫不了 /tmp/hub-*.config.json),"
+         "但 NVIDIA 資產伺服器本身正常 —— host 與容器 curl 都拿到 HTTP 200。用 "
+         "Usd.Stage.Open 直連 HTTPS 就能完全繞過 Hub。"),
+        ("量到什麼",
+         "5 個官方 prop。同樣是棧板,NVIDIA 出了三種碰撞狀態:pallet.usd 是 boundingCube"
+         "(口袋消失)、o3dyn_pallet.usd 是 convexDecomposition(口袋保留)、"
+         "pallet_holder.usd 根本沒授權碰撞。連 KLT 的「_visual_collision」版也只是 "
+         "boundingCube。"),
+        ("結論",
+         "凹槽能不能用,取決於 authoring 時選的近似法,與 mesh 品質無關;而且 "
+         "convexDecomposition 正是原廠自己在用的做法 —— 「decomposition disqualified」"
+         "不成立。"),
+    ],
+    "Collision entry 圖": [
+        ("做法",
+         "對棧板的 -x 進叉面掃 17x13 的 (y,z) 網格射線,量第一個命中點,直接畫出碰撞體的"
+         "通透結構。"),
+        ("量到什麼",
+         "boundingCube 全實心(0 開口);convexHull 只剩邊緣 sliver(hull 依定義會填滿凹陷);"
+         "convexDecomposition 出現兩條清楚的 tunnel(y=±0.15、z<=0.09),頂板以上仍是實心 "
+         "—— 與真實棧板幾何吻合。"),
+        ("附帶用途",
+         "這張圖也是修正實驗的工具:牙叉原本瞄在 y=±0.26,三個位置全撞到 block,"
+         "靠它才定位到真正的 tunnel。"),
+    ],
+    "Collision 插入": [
+        ("做法",
+         "同一顆官方 pallet.usd,只換 collider approximation;牙叉用 1-DOF prismatic "
+         "滑軌、0.5 m/s coast、開 CCD,從 -x 面插入。"),
+        ("量到什麼",
+         "free_control(沒有棧板)穿透 2.628 m,驗證機構本身沒問題;boundingCube 與 "
+         "convexHull 三個位置全擋(約 0);convexDecomposition 在兩條真 tunnel 穿透 "
+         "2.628 m,卻在真中柱(y=0)正確擋住(0.005)。"),
+        ("為什麼中柱那一格最關鍵",
+         "它證明 decomposition 不是「什麼都放行」,而是忠實還原真實幾何 —— 該開的開、"
+         "該實的實。"),
+    ],
+    "Collision importer": [
+        ("補上哪個缺口",
+         "前面的實驗都動「預先授權好的 USD」,沒走到我們的匯入路徑。這支把同一份真實幾何"
+         "繞回自家 pipeline:pallet mesh -> OBJ -> URDF <collision><mesh> -> "
+         "model_import._convert_urdf。"),
+        ("量到什麼",
+         "importer 一律寫 convexHull;匯入後 entry 面開口 0 格,tunnel 全滅。"),
+        ("意義",
+         "「作者在 URDF 裡指定別的近似法」這條路並不存在,任何第三方 URDF 帶凹形碰撞 mesh "
+         "進來都會無聲失去口袋。這正是 ADR-0020 選 box-union 的實證依據 —— "
+         "<collision><box> 會匯入成真正的 UsdGeom.Cube(見 Collision A1/A2),是唯一"
+         "繞得開這道硬寫死關卡的授權方式。"),
+    ],
+    "限制①": [
+        ("怎麼定位的",
+         "乾淨的 bisection 把 native SIGSEGV(libomni.physx.tensors)隔離到一個文件上"
+         "合法的 PhysX 構造。"),
+        ("結論與繞法",
+         "上游引擎缺陷(isaac-sim/IsaacSim#803),workaround 是改用 plain dynamic body。"),
+        ("順帶修的",
+         "ADR-0008 舊措辭「crash at physics-view init」已 stale;repro 把它定位在 "
+         "world.step 之後的 get_transforms readback。"),
+    ],
+    "限制②": [
+        ("核心宣稱", "正確,直接引 PhysX 5.4 文件。"),
+        ("小瑕疵",
+         "原稿「#229 即證此」是 over-attribute —— #229 證的是「浮動 root 不被 kinematic "
+         "USD parent 帶動」,那是支持證據,不是「link 不能 kinematic」的證明。"),
+    ],
+    "限制③": [
+        ("結論",
+         "確認是純粹的 asset 卡關,不是技術上做不到 —— DAE 顏色匯入 pipeline(ADR-0020)"
+         "與 CAD 依賴(ADR-0021)都已明訂,只差模型。"),
+    ],
+}
+
+
 def _key_of(exp):
     k = _KEYS.get(exp["id"])
     if k:
@@ -1519,8 +1753,13 @@ def experiment(doc, exp, test_dir, viz_dir=None):
         if still:
             doc.image(still, caption="影片 doc/viz/%s 的畫面。%s" % (name, cap))
 
-    doc.para("說明", pt=9.0, weight="bold", gap=0.003)
-    doc.para(exp["concl"], pt=8.4)
+    notes = _NOTES.get(exp["id"])
+    if notes:
+        for label, body in notes:
+            doc.labelled(label, body)
+    else:
+        doc.para("說明", pt=9.0, weight="bold", gap=0.003)
+        doc.para(exp["concl"], pt=8.4)
 
     log = exp.get("log")
     prov = ("log: (none -- see the reproduce command below)" if not log else
