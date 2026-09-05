@@ -265,6 +265,38 @@ class TestRpyToQuat:
         assert norm == pytest.approx(1.0)
 
 
+class TestOrientationXyzw:
+    """(w,x,y,z) -> (x,y,z,w) reorder for the sim_utils spawners.
+
+    Regression guard. ``rpy_to_quat`` returns (w,x,y,z) -- the convention
+    Isaac Lab uses for quaternions nearly everywhere -- but the spawners
+    (``spawn_from_usd`` / ``spawn_from_urdf``) document their ``orientation``
+    argument as (x,y,z,w). Passing (w,x,y,z) straight through sends the
+    identity (1,0,0,0) as x=1, w=0: a 180-degree rotation about X, which
+    spawns the entire scene upside-down (authored z becomes -z).
+    """
+
+    def test_identity_stays_identity(self):
+        assert scene_builder._orientation_xyzw((1.0, 0.0, 0.0, 0.0)) == (
+            0.0, 0.0, 0.0, 1.0
+        )
+
+    def test_reorders_general_quaternion(self):
+        assert scene_builder._orientation_xyzw((0.1, 0.2, 0.3, 0.4)) == (
+            0.2, 0.3, 0.4, 0.1
+        )
+
+    def test_composes_with_rpy_to_quat_yaw_90(self):
+        # 90 deg about Z: (w,x,y,z) = (s,0,0,s) -> (x,y,z,w) = (0,0,s,s).
+        s = math.sqrt(2) / 2
+        out = scene_builder._orientation_xyzw(scene_builder.rpy_to_quat([0, 0, 90]))
+        assert out == pytest.approx((0.0, 0.0, s, s))
+
+    def test_norm_preserved(self):
+        out = scene_builder._orientation_xyzw(scene_builder.rpy_to_quat([30, 45, 60]))
+        assert math.sqrt(sum(c * c for c in out)) == pytest.approx(1.0)
+
+
 def _scene_dict(robot=None, objects=None, environment=None):
     base_robot = {
         "model": "robot/openbase/openbase.usd",

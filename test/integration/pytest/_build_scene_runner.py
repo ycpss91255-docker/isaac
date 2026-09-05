@@ -86,6 +86,26 @@ def _main() -> None:
         base_link = _valid("/World/Robot/base_link")
         print(f"[ADAPTER BASE_LINK] valid={base_link}", flush=True)
 
+        # The spawned orientation is what a quaternion-order mistake shows up
+        # in: the scene YAML says rpy [0,0,0], so every spawned prim must
+        # carry an IDENTITY orient. Sending (w,x,y,z) into a spawner that
+        # documents (x,y,z,w) writes (0,1,0,0) instead -- 180 degrees about X,
+        # the whole scene upside-down. Structure assertions cannot see that;
+        # this can.
+        from pxr import UsdGeom
+
+        for path in ("/World/Robot", "/World/light"):
+            prim = stage.GetPrimAtPath(path)
+            quat = None
+            if prim.IsValid():
+                for op in UsdGeom.Xformable(prim).GetOrderedXformOps():
+                    if op.GetOpName().endswith("orient"):
+                        q = op.Get()
+                        img = q.GetImaginary()
+                        quat = (q.GetReal(), img[0], img[1], img[2])
+                        break
+            print(f"[ADAPTER ORIENT] path={path} quat={quat}", flush=True)
+
         objects_root = stage.GetPrimAtPath("/World/Objects")
         obj_children = (
             list(objects_root.GetChildren()) if objects_root.IsValid() else []
