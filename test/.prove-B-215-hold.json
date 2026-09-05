@@ -78,5 +78,8 @@
     }
   ],
   "all_zero_error": true,
-  "error": null
+  "error": null,
+  "mp4": "/home/yunchien/work/doc/viz/l2_kinematic_hold.mp4",
+  "mp4_frames": 48,
+  "mp4_nonblack": 0
 }

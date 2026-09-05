@@ -95,5 +95,8 @@
   ],
   "error": null,
   "feedforward": true,
-  "delivery_metric_note": "delivery_ok / payload_lag_mm are the CARGO-delivery metrics; carrier_track_err_* describe only the actuator tracking its own target and can be tiny while the payload lags -- do not cite carrier lag as carry performance."
+  "delivery_metric_note": "delivery_ok / payload_lag_mm are the CARGO-delivery metrics; carrier_track_err_* describe only the actuator tracking its own target and can be tiny while the payload lags -- do not cite carrier lag as carry performance.",
+  "mp4": "/home/yunchien/work/doc/viz/l25_carry.mp4",
+  "mp4_frames": 48,
+  "mp4_nonblack": 48
 }

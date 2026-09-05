@@ -34,6 +34,9 @@
     }
   ],
   "error": null,
+  "mp4": "/home/yunchien/work/doc/viz/l2_base_carry.mp4",
+  "mp4_frames": 48,
+  "mp4_nonblack": 48,
   "topology_A_usd_hierarchy_carries_arm": false,
   "finding": "topology A (USD-hierarchy parent) does NOT carry the floating articulation -- a joint is forced for base carry (see revolute_maximal)"
 }

@@ -79,6 +79,55 @@ def _sha256(path):
         return "MISSING"
 
 
+def _video_still(mp4, out_png, frac=0.65):
+    """Grab one representative frame from an MP4 so the PDF can SHOW the video.
+
+    A PDF cannot play video, and a bare filename in a reproduce command is not
+    evidence a reader can check. Each experiment that ships an MP4 therefore
+    carries a still from it, with the file name printed underneath."""
+    try:
+        if Path(out_png).is_file():
+            return str(out_png)
+        if not Path(mp4).is_file():
+            return None
+        import imageio.v2 as iio
+        import imageio
+        frames = iio.mimread(mp4, memtest=False)
+        if not frames:
+            return None
+        i = min(int(len(frames) * frac), len(frames) - 1)
+        imageio.imwrite(str(out_png), frames[i])
+        return str(out_png)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# experiment id -> (mp4 filename, frame fraction, what the still shows)
+_VIDEOS = {
+    "#215": ("l2_kinematic_hold.mp4", 0.60,
+             "四種形狀的 kinematic body 沿同一條 SE(3) 軌跡移動,彼此完全不變形、不落後。"),
+    "#220": ("l2_push.mp4", 0.70,
+             "kinematic 推板推動 dynamic 箱子:箱子被推走,推板本身完全不受反作用影響。"),
+    "D1": ("push_k1e6.mp4", 0.75,
+           "L2.5 推板(k=1e6)推箱。與無箱對照組相比,推板的 back-off 幾乎一樣 —— "
+           "那是 drive 跟隨落後,不是接觸反作用。"),
+    "D2": ("l25_carry.mp4", 0.70,
+           "L2.5 載台載 payload:高剛度時 payload 相對載台滑動,細化 dt 後消失。"),
+    "Collision decomp": ("decomp_pocket.mp4", 0.90,
+                         "合成 U-channel 口袋 + 掉落探針:convexHull 那條卡在口袋頂端,"
+                         "兩條 convexDecomposition 都落到口袋底。"),
+    "Collision 插入": ("pallet_insertion.mp4", 1.00,
+                       "真實棧板牙叉插入。綠色(convexDecomposition)整組穿透棧板、兩側都露出來;"
+                       "黃色(convexHull)與橘色(boundingCube)停在近端面上。"),
+}
+
+# videos that exist but belong to experiments outside this review's scope
+_EXTRA_VIDEOS = [
+    ("modela_forklift.mp4", "#94 Model A forklift_blocky 的 SE(2) 滑行穩定度(車輛動作)"),
+    ("push_k1e4.mp4", "D1 的低剛度對照(k=1e4),與 push_k1e6.mp4 成對比較"),
+]
+
+
 def _load(test_dir, name):
     p = Path(test_dir) / name
     try:
@@ -329,6 +378,98 @@ def t_fidelity(d):
     return cols, rows
 
 
+def _assets_of(d):
+    """Normalise both probe formats (single-asset legacy / batch) to a list."""
+    if not d:
+        return []
+    if "assets" in d:
+        return d["assets"]
+    return [d] if d.get("url") else []
+
+
+def t_real_assets(dicts):
+    cols = ["官方資產", "mesh", "三角形", "collider", "approximation", "尺寸 (m)"]
+    rows, seen = [], set()
+    for d in dicts:
+        for a in _assets_of(d):
+            name = str(a.get("url", "")).split("/")[-1]
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if a.get("error"):
+                rows.append([name, "-", "-", "-", "ERROR", "-"])
+                continue
+            ap = sorted({str(c.get("approximation"))
+                         for c in a.get("colliders", [])})
+            rows.append([name, str(a.get("mesh_count")),
+                         str(a.get("total_triangles")),
+                         str(a.get("collider_count")), ", ".join(ap),
+                         str(a.get("world_size"))])
+    return cols, rows
+
+
+def t_entry_map(maps):
+    cols = ["碰撞近似法", "開口格數 / 總格", "叉孔", "叉孔高度那一列的剖面 (.=開口 #=實心)"]
+    rows, marks = [], {}
+    for i, (name, d) in enumerate(maps):
+        asc = (d or {}).get("ascii_map_top_to_bottom", [])
+        opens = sum(r.count(".") for r in asc)
+        total = sum(len(r) for r in asc)
+        zs = (d or {}).get("zs", [])
+        line = ""
+        if zs and asc:
+            j = min(range(len(zs)), key=lambda k: abs(zs[k] - 0.05))
+            line = asc[j]
+        has = bool(total and opens > total * 0.1)
+        rows.append([name, "%d / %d" % (opens, total),
+                     "有" if has else "無", line])
+        marks[(i, 2)] = "ok" if has else "bad"
+    return cols, rows, marks
+
+
+def t_insertion(d):
+    cols = ["碰撞近似法", "y=-0.15 叉孔", "y=0 中柱", "y=+0.15 叉孔",
+            "最深穿透 (m)", "可插入"]
+    rows, marks = [], {}
+    for i, L in enumerate(d.get("lanes", [])):
+        by = {round(float(k["lateral_y"]), 2): k for k in L.get("forks", [])}
+
+        def cell(y):
+            k = by.get(y)
+            if not k:
+                return "-", None
+            return ("%.3f  %s" % (k["penetration_depth_m"],
+                                  "插入" if k["entered"] else "擋住"),
+                    "ok" if k["entered"] else "bad")
+        vals = [cell(-0.15), cell(0.0), cell(0.15)]
+        for j, (_t, m) in enumerate(vals):
+            marks[(i, j + 1)] = m
+        ent = bool(L.get("any_entered"))
+        marks[(i, 5)] = "ok" if ent else "bad"
+        rows.append([L["lane"], vals[0][0], vals[1][0], vals[2][0],
+                     f(L.get("best_penetration_m")), "是" if ent else "否"])
+    return cols, rows, {k: v for k, v in marks.items() if v}
+
+
+def t_urdf_mesh(d):
+    obj = d.get("exported_obj", {})
+    cols = ["項目", "值"]
+    rows = [
+        ["來源 mesh", str(d.get("source_mesh", "")).split("/")[-1]],
+        ["匯出 OBJ", "%s verts / %s faces"
+         % (obj.get("verts"), obj.get("faces"))],
+        ["importer 實際寫入的 approximation",
+         ", ".join(d.get("importer_approximations") or [])],
+        ["硬寫死 convexHull", str(d.get("importer_forced_convex_hull"))],
+        ["匯入後 entry 面開口格數", str(d.get("entry_open_cells"))],
+        ["tunnel 存活", str(d.get("tunnels_survived_import"))],
+    ]
+    for c in d.get("importer_authored_colliders", []):
+        rows.append(["collider %s" % c["path"].split("/")[-1],
+                     "%s / %s" % (c["type"], c["approximation"])])
+    return cols, rows
+
+
 # ---------------------------------------------------------------------------
 # Charts: for subtle (mm/um/nm-scale, near-static) experiments a plot conveys
 # the quantitative story better than a video ever could. Each draws onto a fig.
@@ -356,9 +497,10 @@ def _fix_log(ax, which="both"):
         a.set_minor_formatter(NullFormatter())
 
 
-def _chart_212(fig, d):
+def _chart_212(fig, d, rect):
     pts = d.get("points", [])
-    ax1 = fig.add_axes([0.13, 0.55, 0.78, 0.33])
+    x0, y0, w, h = rect
+    ax1 = fig.add_axes([x0 + 0.050, y0 + h * 0.635, w - 0.065, h * 0.305])
     k = [p["stiffness"] for p in pts]
     ax1.loglog(k, [p["predicted_mm"] for p in pts], "o--", color="#999",
                label="mg/k 預測")
@@ -372,7 +514,7 @@ def _chart_212(fig, d):
     _fix_log(ax1, "both")
     dc = d.get("damping_control", {})
     dp = dc.get("points", [])
-    ax2 = fig.add_axes([0.13, 0.10, 0.78, 0.30])
+    ax2 = fig.add_axes([x0 + 0.050, y0 + h * 0.135, w - 0.065, h * 0.285])
     if dp:
         ax2.axhline(dc.get("predicted_mm") or 0, color="#c0392b", ls="--",
                     label="mg/k(此處下垂應為定值)")
@@ -387,8 +529,9 @@ def _chart_212(fig, d):
         ax2.grid(True, alpha=0.3)
 
 
-def _chart_d2(fig, d, dfine):
-    ax = fig.add_axes([0.13, 0.12, 0.78, 0.76])
+def _chart_d2(fig, d, dfine, rect):
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.050, y0 + h * 0.21, w - 0.065, h * 0.66])
     pts = d.get("points", [])
     fine = {p["stiffness"]: p for p in (dfine or {}).get("points", [])}
     k = [p["stiffness"] for p in pts]
@@ -406,9 +549,10 @@ def _chart_d2(fig, d, dfine):
     _fix_log(ax, "x")
 
 
-def _chart_227(fig, d):
+def _chart_227(fig, d, rect):
     import numpy as np
-    ax = fig.add_axes([0.12, 0.12, 0.80, 0.76])
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.050, y0 + h * 0.21, w - 0.065, h * 0.66])
     per = d.get("chain", {}).get("per_joint", [])
     names = [p["joint"] for p in per]
     x = np.arange(len(names))
@@ -424,8 +568,9 @@ def _chart_227(fig, d):
     ax.grid(True, axis="y", alpha=0.3)
 
 
-def _chart_218(fig, d):
-    ax = fig.add_axes([0.12, 0.12, 0.80, 0.76])
+def _chart_218(fig, d, rect):
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.050, y0 + h * 0.21, w - 0.065, h * 0.66])
     tb = d.get("threshold_by_friction", {})
     items = sorted(tb.values(), key=lambda v: v["mu"])
     mu = [v["mu"] for v in items]
@@ -442,8 +587,9 @@ def _chart_218(fig, d):
     ax.grid(True, alpha=0.3)
 
 
-def _chart_221(fig, d):
-    ax = fig.add_axes([0.13, 0.12, 0.78, 0.76])
+def _chart_221(fig, d, rect):
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.050, y0 + h * 0.21, w - 0.065, h * 0.66])
     gm = d.get("give_rises_with_mass", {}).get("rigid", {})
     m = gm.get("masses_kg", [])
     g = gm.get("static_give_norm_m", [])
@@ -461,9 +607,10 @@ def _chart_221(fig, d):
     _fix_log(ax, "both")
 
 
-def _chart_219(fig, d):
+def _chart_219(fig, d, rect):
     import numpy as np
-    ax = fig.add_axes([0.12, 0.16, 0.80, 0.72])
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.050, y0 + h * 0.21, w - 0.065, h * 0.66])
     pts = d.get("effort_clamp", {}).get("points", [])
     labels = ["maxF=%.4g N\n(%.2gx 負載)" % (p["max_force_N"],
               p["max_force_vs_load"]) for p in pts]
@@ -481,18 +628,90 @@ def _chart_219(fig, d):
     ax.grid(True, axis="y", alpha=0.3)
 
 
-def chart_page(pdf, exp, test_dir):
-    fig = plt.figure(figsize=(8.27, 11.69))
-    fig.text(0.06, 0.955, f"{exp['id']}  {exp['title']} -- 圖表", fontsize=13,
-             fontweight="bold", va="top")
-    exp["chart"](fig)
-    log = exp.get("log")
-    prov = "" if not log else (
-        f"log: test/{log}   sha256:{_sha256(Path(test_dir) / log)}   "
-        f"|  reproduce: see the table page")
-    fig.text(0.06, 0.04, prov, fontsize=7, family="monospace", va="bottom")
-    pdf.savefig(fig)
-    plt.close(fig)
+def _chart_insertion(fig, d, rect):
+    """Horizontal bars. The blocked lanes are ~0 m, so a plain bar chart renders
+    them as NOTHING (the old version's real flaw). Every bar therefore carries an
+    explicit end label, and blocked lanes get a visible stub + '擋' marker."""
+    import numpy as np
+    x0, y0, w, h = rect
+    ax = fig.add_axes([x0 + 0.175, y0 + h * 0.19, w - 0.195, h * 0.72])
+    lanes = d.get("lanes", [])
+    ys = [(-0.15, "y=-0.15 叉孔"), (0.0, "y=0 中柱"), (0.15, "y=+0.15 叉孔")]
+    colors = ["#2e7d32", "#8a8f98", "#1f3b57"]
+    labels, vals, cols = [], [], []
+    for L in lanes:
+        by = {round(float(k["lateral_y"]), 2): k for k in L.get("forks", [])}
+        for j, (yv, yl) in enumerate(ys):
+            k = by.get(yv, {})
+            labels.append(f"{L['lane']}  |  {yl}")
+            vals.append(max(float(k.get("penetration_depth_m", 0.0)), 0.0))
+            cols.append(colors[j])
+    ypos = np.arange(len(labels))
+    ax.barh(ypos, vals, 0.72, color=cols)
+    thr = float(d.get("enter_threshold_m", 0.3))
+    ax.axvline(thr, color="#c0392b", ls="--", lw=1.0)
+    ax.text(thr, -0.75, " 進入門檻 %.2f m" % thr, color="#c0392b",
+            fontsize=6.5, va="bottom")
+    vmax = max(vals + [1.0])
+    for i, v in enumerate(vals):
+        if v < thr:
+            ax.plot([0.006 * vmax], [i], marker="x", color="#a8271a", ms=4)
+            ax.text(0.02 * vmax, i, "擋住  %.3f m" % v, va="center",
+                    fontsize=6.5, color="#a8271a")
+        else:
+            ax.text(v - 0.01 * vmax, i, "插入 %.2f m  " % v, va="center",
+                    ha="right", fontsize=6.5, color="white", fontweight="bold")
+    ax.set_yticks(ypos)
+    ax.set_yticklabels(labels, fontsize=6.5)
+    ax.invert_yaxis()
+    ax.set_xlabel("牙叉穿透深度 (m) -- 棧板全長 1.21 m", fontsize=7.5)
+    ax.set_xlim(0, vmax * 1.08)
+    ax.tick_params(axis="x", labelsize=7)
+    ax.grid(True, axis="x", alpha=0.25)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+
+
+def _chart_entry_maps(fig, maps, rect):
+    """The entry-face occupancy MAP -- the one visual a table cannot carry.
+
+    Each panel is the 17x13 (y,z) raycast grid of the pallet's fork-entry face
+    under one approximation: dark = solid there, light = the ray passed through.
+    Side by side you SEE the two fork tunnels appear only under decomposition."""
+    import numpy as np
+    from matplotlib.colors import ListedColormap
+    x0, y0, w, h = rect
+    n = max(len(maps), 1)
+    gap = 0.018
+    pw = (w - gap * (n - 1)) / n
+    cmap = ListedColormap(["#26333f", "#d8f0dc"])
+    for i, (name, d) in enumerate(maps):
+        asc = (d or {}).get("ascii_map_top_to_bottom", []) or ["#"]
+        ys = (d or {}).get("ys", [])
+        zs = (d or {}).get("zs", [])
+        grid = np.array([[0 if ch == "#" else 1 for ch in row] for row in asc])
+        ax = fig.add_axes([x0 + i * (pw + gap), y0 + h * 0.16, pw, h * 0.70])
+        ax.imshow(grid, cmap=cmap, aspect="auto", interpolation="nearest",
+                  vmin=0, vmax=1)
+        opens = int(grid.sum())
+        ax.set_title("%s\n開口 %d / %d 格" % (name, opens, grid.size),
+                     fontsize=7.5, fontweight="bold", pad=4)
+        if ys:
+            tk = [0, len(ys) // 2, len(ys) - 1]
+            ax.set_xticks(tk)
+            ax.set_xticklabels(["%.2f" % ys[t] for t in tk], fontsize=6)
+        # y ticks only on the leftmost panel -- otherwise each panel's labels
+        # are drawn over its neighbour.
+        if zs and i == 0:
+            tk = [0, len(zs) // 2, len(zs) - 1]
+            ax.set_yticks(tk)
+            ax.set_yticklabels(["%.2f" % zs[t] for t in tk], fontsize=6)
+            ax.set_ylabel("z 叉孔高度 (m)", fontsize=7)
+        else:
+            ax.set_yticks([])
+        ax.set_xlabel("y 橫向位置 (m)", fontsize=7)
+        for s in ax.spines.values():
+            s.set_edgecolor("#aab2bb")
 
 
 def build_registry(test_dir):
@@ -511,6 +730,15 @@ def build_registry(test_dir):
     dd1 = _load(test_dir, ".l25-dynamic-push.json")
     dd2 = _load(test_dir, ".l25-dynamic-carry.json")
     dd2f = _load(test_dir, ".l25-dynamic-carry-finedt.json")
+    # real open-source (NVIDIA) asset collision experiments
+    dra1 = _load(test_dir, ".verify-real-asset-collision.json")
+    dra2 = _load(test_dir, ".verify-real-asset-batch.json")
+    dra3 = _load(test_dir, ".o3dyn-pockets.json")
+    dmapD = _load(test_dir, ".pallet-entry-map.json")
+    dmapB = _load(test_dir, ".pallet-entry-map-boundingCube.json")
+    dmapH = _load(test_dir, ".pallet-entry-map-convexHull.json")
+    dins = _load(test_dir, ".verify-real-pallet-insertion.json")
+    dumesh = _load(test_dir, ".verify-urdf-mesh-collision.json")
     reg = [
         dict(id="#212", title="單關節下垂 vs 剛度 (L2.5/L3)",
              verdict="QUESTIONABLE -> 已修 (加 damping 對照)",
@@ -671,6 +899,63 @@ def build_registry(test_dir):
                    "world 原點 = 授權原點 x joint。A3(原點)+ A4(CAD 慣量)保真成立 —— "
                    "sw2urdf 的最高價值輸出(CAD 慣量)不會在轉換中被破壞;留作 CI regression "
                    "guard 防匯入器版本漂移。"),
+        dict(id="Collision 真實資產", title="官方 prop 的 collision approximation 光譜",
+             verdict="實測確認(直連 HTTPS 繞過壞掉的本地 Hub)",
+             log=".verify-real-asset-batch.json",
+             cmd=f"{PY} {W}/test/verify_real_asset_collision.py "
+                 f"--url <https-asset-url>[,...] "
+                 f"--out {W}/test/.verify-real-asset-batch.json",
+             tbl=t_real_assets([dra1, dra2, dra3]),
+             concl="本地 Omniverse Hub daemon 在容器內起不來(寫不了 /tmp/hub-*.config."
+                   "json),但 NVIDIA 資產伺服器本身正常(host 與容器 curl 皆 HTTP 200)"
+                   " —— 用 Usd.Stage.Open 直連 HTTPS 可完全繞過 Hub。實測 5 個官方 prop:"
+                   "同樣是棧板,NVIDIA 出了三種碰撞狀態 —— pallet.usd 是 boundingCube"
+                   "(口袋消失)、o3dyn_pallet.usd 是 convexDecomposition(口袋保留)、"
+                   "pallet_holder.usd 根本沒授權碰撞。連 KLT 的「_visual_collision」版也"
+                   "只是 boundingCube。結論:凹槽能不能用,取決於 authoring 時選的近似法,"
+                   "與 mesh 品質無關;且 convexDecomposition 是原廠自己在用的正解 —— "
+                   "「decomposition disqualified」不成立。"),
+        dict(id="Collision entry 圖", title="entry 面佔據圖(raycast 定位 tunnel)",
+             verdict="實測:三種近似的通透性差異可視化",
+             log=".pallet-entry-map.json",
+             cmd=f"{PY} {W}/test/verify_pallet_entry_map.py "
+                 f"--approx convexDecomposition "
+                 f"--out {W}/test/.pallet-entry-map.json",
+             tbl=t_entry_map([("boundingCube", dmapB), ("convexHull", dmapH),
+                              ("convexDecomposition", dmapD)]),
+             concl="對 pallet 的 -x 進叉面掃 17x13 的 (y,z) 網格射線,量第一個命中點,"
+                   "直接畫出碰撞體的通透結構。boundingCube 全實心(0 開口);convexHull "
+                   "僅剩邊緣 sliver(hull 依定義填滿凹陷);convexDecomposition 出現兩條"
+                   "清楚 tunnel(y=+-0.15、z<=0.09),頂板以上仍實心 —— 與真實棧板幾何吻合。"
+                   "這張圖也是修正實驗的工具:牙叉原本瞄在 y=+-0.26 全撞 block,靠它才定位"
+                   "到真正的 tunnel。"),
+        dict(id="Collision 插入", title="真實 pallet 牙叉插入:三法同場對照",
+             verdict="決定性實測(根因確認)",
+             log=".verify-real-pallet-insertion.json",
+             cmd=f"{PY} {W}/test/verify_real_pallet_insertion.py "
+                 f"--out {W}/test/.verify-real-pallet-insertion.json "
+                 f"[--mp4 {W}/doc/viz/pallet_insertion.mp4]",
+             tbl=t_insertion(dins),
+             concl="同一顆官方 pallet.usd,只換 collider approximation:牙叉(1-DOF "
+                   "prismatic 滑軌、0.5 m/s coast、開 CCD)從 -x 面插入。free_control"
+                   "(無 pallet)穿透 2.628 m 驗證機構;boundingCube 與 convexHull 三個"
+                   "位置全擋(~0);convexDecomposition 在兩條真 tunnel 穿透 2.628 m、"
+                   "卻在真中柱(y=0)正確擋住(0.005)。最後這一格是最強證據:decomposition "
+                   "不是「什麼都放行」,而是忠實還原真實幾何 —— 該開的開、該實的實。"),
+        dict(id="Collision importer", title="真實 mesh 走我們的 URDF importer",
+             verdict="決定性實測(ADR-0020 核心主張確認)",
+             log=".verify-urdf-mesh-collision.json",
+             cmd=f"{PY} {W}/test/verify_urdf_mesh_collision_path.py "
+                 f"--out {W}/test/.verify-urdf-mesh-collision.json",
+             tbl=t_urdf_mesh(dumesh),
+             concl="前面的實驗都動「預先授權好的 USD」,沒走到我們的匯入路徑。這支把同一份"
+                   "真實幾何繞回自家 pipeline:pallet mesh -> OBJ -> URDF <collision>"
+                   "<mesh> -> model_import._convert_urdf。結果 importer 一律寫 "
+                   "convexHull,匯入後 entry 面開口 0 格、tunnel 全滅。也就是說「作者在 "
+                   "URDF 裡想指定別的近似法」這條路不存在,任何第三方 URDF 帶凹形碰撞 mesh "
+                   "進來都會無聲失去口袋。這正是 ADR-0020 選 box-union 的實證依據 —— "
+                   "<collision><box> 會匯入成真正的 UsdGeom.Cube(見 Collision A1/A2),"
+                   "是唯一繞得開這道硬寫死關卡的授權方式。"),
         dict(id="限制①",
              title="articulation + kinematic maximal loop-joint SIGSEGV",
              verdict="MINOR (陳述正確;上游 bug)",
@@ -716,127 +1001,553 @@ def build_registry(test_dir):
              concl="確認純粹 asset 卡關、非技術不可能:DAE 顏色匯入 pipeline(ADR-0020)"
                    "與 CAD 依賴(ADR-0021)都已明訂,只差模型。"),
     ]
+    _maps = [("boundingCube", dmapB), ("convexHull", dmapH),
+             ("convexDecomposition", dmapD)]
     charts = {
-        "#212": lambda fig: _chart_212(fig, d212),
-        "D2": lambda fig: _chart_d2(fig, dd2, dd2f),
-        "#227": lambda fig: _chart_227(fig, d227),
-        "#218": lambda fig: _chart_218(fig, d218),
-        "#221": lambda fig: _chart_221(fig, d221),
-        "#219": lambda fig: _chart_219(fig, d219),
+        "#212": (lambda fig, r: _chart_212(fig, d212, r), 0.34, None),
+        "D2": (lambda fig, r: _chart_d2(fig, dd2, dd2f, r), 0.24, None),
+        "#227": (lambda fig, r: _chart_227(fig, d227, r), 0.22, None),
+        "#218": (lambda fig, r: _chart_218(fig, d218, r), 0.22, None),
+        "#221": (lambda fig, r: _chart_221(fig, d221, r), 0.22, None),
+        "#219": (lambda fig, r: _chart_219(fig, d219, r), 0.22, None),
+        "Collision entry 圖": (
+            lambda fig, r: _chart_entry_maps(fig, _maps, r), 0.29,
+            "同一顆棧板的進叉面,三種近似法並排:深色=該處實心(射線立刻被擋住),"
+            "淺色=射線穿過去,也就是開口。兩條貫穿的叉孔只在 convexDecomposition 出現;"
+            "convexHull 只剩最左邊那條細縫,那是射線擦過棧板外緣,不是叉孔。"),
+        "Collision 插入": (
+            lambda fig, r: _chart_insertion(fig, dins, r), 0.28,
+            "被擋住的組別穿透深度接近 0,長條圖上等於看不見,因此每一列都標上實際數值。"),
     }
     for e in reg:
-        if e["id"] in charts:
-            e["chart"] = charts[e["id"]]
+        c = charts.get(e["id"])
+        if c:
+            e["chart"], e["chart_h"], e["chart_cap"] = c
+    # column widths where the default even split reads badly
+    _widths = {
+        "Collision 真實資產": [1.5, 0.5, 0.7, 0.6, 1.6, 1.5],
+        "Collision entry 圖": [1.3, 1.0, 0.5, 2.6],
+        "Collision importer": [1.6, 3.0],
+        "Collision 插入": [1.5, 1.2, 1.2, 1.2, 1.0, 0.6],
+    }
+    for e in reg:
+        if e["id"] in _widths:
+            e["widths"] = _widths[e["id"]]
     return reg
 
 
+_TOKEN_RE = None
+
+
+def _dw(ch):
+    """Display columns: CJK / fullwidth glyphs occupy two, everything else one."""
+    o = ord(ch)
+    return 2 if (0x1100 <= o <= 0x115F or 0x2E80 <= o <= 0xA4CF
+                 or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF
+                 or 0xFE30 <= o <= 0xFE4F or 0xFF00 <= o <= 0xFF60
+                 or 0xFFE0 <= o <= 0xFFE6) else 1
+
+
+def _width(s):
+    return sum(_dw(c) for c in s)
+
+
+# Characters that must not be pushed to the start of a new line.
+_NO_LINE_START = set("，。、；：？！）」』】》〉·…%),;:.?!]}>")
+
+
 def _wrap(text, width=52):
-    import textwrap
+    """CJK-aware greedy wrap in DISPLAY columns.
+
+    textwrap treats a run of CJK as one unbreakable word and then chops it at an
+    arbitrary offset, which is what made the old pages ragged. Here ASCII tokens
+    (paths, flags, numbers) stay intact while CJK breaks per character, and
+    closing punctuation is never orphaned onto the next line.
+    """
+    global _TOKEN_RE
+    if _TOKEN_RE is None:
+        import re
+        _TOKEN_RE = re.compile(
+            r"[A-Za-z0-9_@:/\\.\-+=$%#\[\]{}<>*'\"()]+|\s+|.", re.S)
+
     out = []
     for para in text.split("\n"):
-        out.extend(textwrap.wrap(para, width=width) or [""])
-    return out
+        toks = _TOKEN_RE.findall(para)
+        line, w = "", 0
+        for t in toks:
+            if t.isspace():
+                if w == 0:
+                    continue
+                t, tw = " ", 1
+            else:
+                tw = _width(t)
+            # An ASCII run longer than the whole measure (e.g. a long identifier
+            # or a path) cannot be kept intact -- split it, or it overflows the
+            # cell and collides with the next column.
+            if tw > width:
+                if w > 0:
+                    out.append(line.rstrip())
+                    line, w = "", 0
+                while _width(t) > width:
+                    cut, cw = "", 0
+                    for ch in t:
+                        chw = _dw(ch)
+                        if cw + chw > width:
+                            break
+                        cut += ch
+                        cw += chw
+                    out.append(cut)
+                    t = t[len(cut):]
+                tw = _width(t)
+                if not t:
+                    continue
+            if w + tw > width and w > 0 and t not in _NO_LINE_START:
+                out.append(line.rstrip())
+                line, w = "", 0
+                if t == " ":
+                    continue
+            line += t
+            w += tw
+        out.append(line.rstrip())
+    return out or [""]
 
 
-def title_page(pdf, test_dir):
-    fig = plt.figure(figsize=(8.27, 11.69))
-    ax = fig.add_subplot(111)
-    ax.axis("off")
-    lines = [
-        ("Isaac Sim 6.0.1 物理再驗證 —— 驗收資料表", 16, "bold", "sans"),
-        ("審查後修正版;每支實驗可追溯 log + 可重現", 10, "italic", "sans"),
-        ("", 8, "normal", "sans"),
-        ("環境", 12, "bold", "sans"),
-        ("  Isaac Sim 6.0.1 / Isaac Lab 3.0 (v3.0.0-beta2.patch1), Kit Python 3.12",
-         9, "normal", "sans"),
-        ("  GPU: NVIDIA GeForce RTX 5090 (31 GiB); driver 610.43.02; Warp 1.13.0",
-         9, "normal", "sans"),
-        ("  容器 image: yunchien/isaac:devel (BASE_IMAGE=nvcr.io/nvidia/isaac-sim:"
-         "6.0.1)", 9, "normal", "sans"),
-        ("  physics dt: 1/60 s(除非某支的 fine-dt 對照另有標示)", 9, "normal",
-         "sans"),
-        ("", 8, "normal", "sans"),
-        ("重現方式(在 isaac worktree 根目錄)", 12, "bold", "sans"),
-        ("  W=/home/<user>/work/worktree/<wt>   # this worktree inside container",
-         9, "mono", "mono"),
-        ("  just setup apply && just run -t devel -d       # start devel container",
-         9, "mono", "mono"),
-        ("  # then run each per-page command (env PYTHONPATH=$W/framework is only",
-         9, "mono", "mono"),
-        ("  # needed by URDF-import drivers, harmless elsewhere)", 9, "mono",
-         "mono"),
-        ("", 8, "normal", "sans"),
-        ("判定圖例(2026-09 對抗式物理有效性審查)", 12, "bold", "sans"),
-        ("  FLAWED       headline 結論錯了;已修 + 重新驗證", 9, "normal", "sans"),
-        ("  QUESTIONABLE 設計/provenance 有洞;已修(加對照/重跑)或改稿", 9,
-         "normal", "sans"),
-        ("  MINOR        結論成立;僅措辭/數字對齊", 9, "normal", "sans"),
-        ("  SOUND        乾淨", 9, "normal", "sans"),
-        ("", 8, "normal", "sans"),
-        ("統計:1 FLAWED, 7 QUESTIONABLE, 5 MINOR, 1 SOUND -> 皆已處理。", 10,
-         "bold", "sans"),
-        ("定性 L2/L2.5/L3 階層一直是對的;這次修的是框架要依賴的量化 / 機制宣稱。",
-         9, "normal", "sans"),
-    ]
-    y = 0.96
-    for txt, sz, style, fam in lines:
-        weight = "bold" if style == "bold" else "normal"
-        st = "italic" if style == "italic" else "normal"
-        family = "monospace" if fam == "mono" else "sans-serif"
-        ax.text(0.02, y, txt, fontsize=sz, fontweight=weight, fontstyle=st,
-                family=family, transform=ax.transAxes, va="top")
-        y -= 0.023 + sz * 0.0013
-    pdf.savefig(fig)
-    plt.close(fig)
+# ---------------------------------------------------------------------------
+# Flowing document layout engine.
+#
+# The previous revision drew ONE experiment per fixed-position page, which left
+# roughly two thirds of every page empty and stranded the conclusion in 8pt type
+# at the bottom edge. This engine instead flows content top-to-bottom across
+# pages like a normal technical document: headings, full-width tables with a
+# navy header, left-bar callouts for the takeaway, inline charts, and code
+# blocks -- each measures itself and breaks to a new page only when it must.
+# ---------------------------------------------------------------------------
+_PAGE_W, _PAGE_H = 8.27, 11.69
+_ML, _MR, _MTOP, _MBOT = 0.075, 0.955, 0.945, 0.058
+_TEXTW_IN = (_MR - _ML) * _PAGE_W
+_INK = "#1a1a1a"
+_MUTED = "#5b6672"
+_RULE = "#c9d0d8"
+_OKC = "#1c6b2e"
+_BADC = "#a8271a"
+
+_KIND = {
+    "info": ("#1f3b57", "#eef2f7"),
+    "ok": ("#2e7d32", "#edf6ee"),
+    "warn": ("#b06a00", "#fdf4e6"),
+    "bad": ("#b0281a", "#fbeded"),
+}
 
 
-def exp_page(pdf, exp, test_dir):
-    fig = plt.figure(figsize=(8.27, 11.69))
+def _lh(pt, k=1.62):
+    """Line height in figure fraction for a given point size."""
+    return pt * k / (_PAGE_H * 72.0)
 
-    hax = fig.add_axes([0.06, 0.86, 0.91, 0.11])
-    hax.axis("off")
-    hax.text(0.0, 1.0, f"{exp['id']}  {exp['title']}", fontsize=13,
-             fontweight="bold", va="top")
-    hax.text(0.0, 0.52, f"判定: {exp['verdict']}", fontsize=10,
-             color="#8a1500", va="top")
-    log = exp.get("log")
-    prov = "log: (none -- see reproduce command)" if not log else (
-        f"log: test/{log}   sha256:{_sha256(Path(test_dir) / log)}")
-    hax.text(0.0, 0.16, prov, fontsize=8, family="monospace", va="top")
 
-    cols, rows = exp["tbl"]
-    tax = fig.add_axes([0.06, 0.34, 0.91, 0.5])
-    tax.axis("off")
+def _cols(pt, frac=1.0, mono=False):
+    """How many display columns fit across the text measure at this size."""
+    per = (0.60 if mono else 0.50) * pt / 72.0
+    return max(12, int(_TEXTW_IN * frac / per))
+
+
+class Doc:
+    """Minimal flowing-layout renderer over matplotlib PdfPages."""
+
+    def __init__(self, pdf, note=""):
+        self.pdf = pdf
+        self.note = note
+        self.fig = None
+        self.y = 0.0
+        self.page = 0
+
+    # -- primitives ---------------------------------------------------------
+    def _rect(self, x, y, w, h, fc, ec="none", lw=0.0):
+        from matplotlib.patches import Rectangle
+        self.fig.add_artist(Rectangle((x, y), w, h, facecolor=fc, edgecolor=ec,
+                                      linewidth=lw,
+                                      transform=self.fig.transFigure))
+
+    def _hline(self, x1, x2, y, color=_RULE, lw=0.8):
+        from matplotlib.lines import Line2D
+        self.fig.add_artist(Line2D([x1, x2], [y, y], color=color, lw=lw,
+                                   transform=self.fig.transFigure))
+
+    def _close_page(self):
+        if self.fig is None:
+            return
+        self._hline(_ML, _MR, 0.044, color="#e2e6ea", lw=0.7)
+        self.fig.text(_ML, 0.030, self.note, fontsize=6.8, color="#98a2ad",
+                      va="center")
+        self.fig.text(_MR, 0.030, str(self.page), fontsize=7.5, color="#98a2ad",
+                      va="center", ha="right")
+        self.pdf.savefig(self.fig)
+        plt.close(self.fig)
+        self.fig = None
+
+    def newpage(self):
+        self._close_page()
+        self.page += 1
+        self.fig = plt.figure(figsize=(_PAGE_W, _PAGE_H))
+        self.y = _MTOP
+
+    def need(self, h):
+        if self.fig is None or self.y - h < _MBOT:
+            self.newpage()
+
+    def space(self, h=0.010):
+        self.y -= h
+
+    def close(self):
+        self._close_page()
+
+    # -- blocks -------------------------------------------------------------
+    def para(self, s, pt=8.5, color=_INK, weight="normal", indent=0.0,
+             mono=False, gap=0.009):
+        fam = "monospace" if mono else "sans-serif"
+        frac = 1.0 - indent / (_MR - _ML)
+        for ln in _wrap(str(s), _cols(pt, frac, mono)):
+            self.need(_lh(pt))
+            self.fig.text(_ML + indent, self.y, ln, fontsize=pt, color=color,
+                          fontweight=weight, family=fam, va="top")
+            self.y -= _lh(pt)
+        self.y -= gap
+
+    def bullets(self, items, pt=8.5):
+        for it in items:
+            lines = _wrap(str(it), _cols(pt, 0.95))
+            for i, ln in enumerate(lines):
+                self.need(_lh(pt))
+                if i == 0:
+                    self.fig.text(_ML + 0.004, self.y, "•", fontsize=pt,
+                                  color="#1f3b57", va="top")
+                self.fig.text(_ML + 0.020, self.y, ln, fontsize=pt, color=_INK,
+                              va="top")
+                self.y -= _lh(pt)
+        self.y -= 0.009
+
+    def h1(self, s):
+        self.space(0.016)
+        self.need(_lh(15) + 0.030)
+        self.fig.text(_ML, self.y, s, fontsize=14.5, fontweight="bold",
+                      color="#1f3b57", va="top")
+        self.y -= _lh(14.5) + 0.004
+        self._hline(_ML, _MR, self.y, color="#1f3b57", lw=1.1)
+        self.y -= 0.014
+
+    def h2(self, s, tag=None, tag_color=_MUTED):
+        self.space(0.010)
+        self.need(_lh(11) * 3 + 0.020)
+        self.fig.text(_ML, self.y, s, fontsize=10.8, fontweight="bold",
+                      color=_INK, va="top")
+        self.y -= _lh(10.8) + 0.002
+        if tag:
+            self.fig.text(_ML, self.y, tag, fontsize=7.8, color=tag_color,
+                          va="top")
+            self.y -= _lh(7.8)
+        self.y -= 0.007
+
+    def callout(self, title, body, kind="info", pt=8.4):
+        bar, bg = _KIND.get(kind, _KIND["info"])
+        blines = _wrap(str(body), _cols(pt, 0.92)) if body else []
+        h = 0.010 + (_lh(8.8) if title else 0.0) + len(blines) * _lh(pt) + 0.010
+        if h > (_MTOP - _MBOT) * 0.75:      # too tall to box -> plain text
+            if title:
+                self.para(title, pt=8.8, weight="bold", color=bar, gap=0.003)
+            self.para(body, pt=pt)
+            return
+        self.need(h + 0.009)
+        top = self.y
+        self._rect(_ML, top - h, _MR - _ML, h, bg)
+        self._rect(_ML, top - h, 0.0055, h, bar)
+        yy = top - 0.010
+        if title:
+            self.fig.text(_ML + 0.020, yy, title, fontsize=8.8,
+                          fontweight="bold", color=bar, va="top")
+            yy -= _lh(8.8)
+        for ln in blines:
+            self.fig.text(_ML + 0.020, yy, ln, fontsize=pt, color=_INK,
+                          va="top")
+            yy -= _lh(pt)
+        self.y = top - h - 0.011
+
+    def code(self, s, pt=7.0):
+        lines = []
+        for para in str(s).split("\n"):
+            lines.extend(_wrap(para, _cols(pt, 0.95, mono=True)))
+        h = 0.008 + len(lines) * _lh(pt, 1.5) + 0.008
+        self.need(h + 0.006)
+        top = self.y
+        self._rect(_ML, top - h, _MR - _ML, h, "#f4f6f8", "#e2e6ea", 0.5)
+        yy = top - 0.008
+        for ln in lines:
+            self.fig.text(_ML + 0.011, yy, ln, fontsize=pt, family="monospace",
+                          color="#33414f", va="top")
+            yy -= _lh(pt, 1.5)
+        self.y = top - h - 0.010
+
+    def table(self, cols, rows, widths=None, pt=7.3, marks=None):
+        n = len(cols)
+        widths = widths or [1.0] * n
+        tot = float(sum(widths)) or 1.0
+        W = _MR - _ML
+        cw = [W * w / tot for w in widths]
+        pad = 0.005
+
+        def wrap_cell(v, i, fs):
+            avail_in = (cw[i] - 2 * pad) * _PAGE_W
+            return _wrap(str(v), max(4, int(avail_in / (0.5 * fs / 72.0))))
+
+        def draw_header():
+            cells = [wrap_cell(c, i, pt) for i, c in enumerate(cols)]
+            h = max(len(c) for c in cells) * _lh(pt) + 0.008
+            self.need(h + _lh(pt) * 4)
+            top = self.y
+            self._rect(_ML, top - h, W, h, "#1f3b57")
+            x = _ML
+            for i, ls in enumerate(cells):
+                yy = top - 0.005
+                for ln in ls:
+                    self.fig.text(x + pad, yy, ln, fontsize=pt, color="white",
+                                  fontweight="bold", va="top")
+                    yy -= _lh(pt)
+                x += cw[i]
+            self.y = top - h
+
+        draw_header()
+        for ri, row in enumerate(rows):
+            cells = [wrap_cell(v, i, pt) for i, v in enumerate(row)]
+            h = max(len(c) for c in cells) * _lh(pt) + 0.008
+            if self.y - h < _MBOT:
+                self.newpage()
+                draw_header()
+            top = self.y
+            self._rect(_ML, top - h, W, h,
+                       "#ffffff" if ri % 2 == 0 else "#f6f8fa", "#e4e8ed", 0.5)
+            x = _ML
+            for i, ls in enumerate(cells):
+                mk = (marks or {}).get((ri, i))
+                col = {"ok": _OKC, "bad": _BADC}.get(mk, _INK)
+                yy = top - 0.005
+                for ln in ls:
+                    self.fig.text(x + pad, yy, ln, fontsize=pt, color=col,
+                                  fontweight="bold" if mk else "normal",
+                                  va="top")
+                    yy -= _lh(pt)
+                x += cw[i]
+            self.y = top - h
+        self.y -= 0.011
+
+    def chart(self, fn, h=0.20, caption=None):
+        self.need(h + 0.014)
+        top = self.y
+        fn(self.fig, [_ML, top - h, _MR - _ML, h])
+        self.y = top - h - 0.008
+        if caption:
+            self.para(caption, pt=7.4, color=_MUTED)
+
+    def image(self, png, width_frac=0.84, caption=None):
+        """Place a raster image at true aspect ratio, centred on the measure."""
+        try:
+            import matplotlib.image as mpimg
+            im = mpimg.imread(png)
+        except Exception:  # noqa: BLE001
+            return
+        ih, iw = im.shape[0], im.shape[1]
+        w = (_MR - _ML) * width_frac
+        h = w * (_PAGE_W / _PAGE_H) * (ih / float(iw))
+        self.need(h + 0.016)
+        top = self.y
+        ax = self.fig.add_axes([_ML + ((_MR - _ML) - w) / 2.0, top - h, w, h])
+        ax.imshow(im)
+        ax.axis("off")
+        self.y = top - h - 0.007
+        if caption:
+            self.para(caption, pt=7.4, color=_MUTED)
+
+
+# ---------------------------------------------------------------------------
+# Document content
+# ---------------------------------------------------------------------------
+def _verdict_kind(v):
+    for key, kind in (("FLAWED", "bad"), ("QUESTIONABLE", "warn"),
+                      ("決定性", "ok"), ("實測", "ok"), ("MINOR", "info"),
+                      ("SOUND", "ok")):
+        if key in v:
+            return kind
+    return "info"
+
+
+# One-line takeaway per experiment: the single sentence a reader should carry
+# away. Everything else on the page is evidence for this line.
+_KEYS = {
+    "#212": "高剛度下的 undershoot 是 solver 假象,不是真實剛性 —— 固定 k 只改 damping,"
+            "下垂就從 -0.10 擺到 +0.05 mm,真穩態下它應該恆等於 mg/k。",
+    "#215": "kinematic body 撐到 float32 讀數地板(6e-8 m),同條件的 dynamic body 一步掉 "
+            "1.36 mm —— kinematic 與 dynamic 的分野成立。",
+    "#216": "原稿把角度當距離:這支報的是 mrad,不是 mm;而且此關節重力零力矩,根本沒有 "
+            "mg/k 地板可比。",
+    "#219": "maxForce 只要小於負載重量就 stall 在行程底,不是「下垂變大」—— 兩者是不同的失效。",
+    "#218": "載運速度上限是 mu 相依的門檻,不是硬性上限;超速後的「發射」是穿透假象,不是物理。",
+    "#220": "kinematic 推 dynamic 是單向傳遞:被推的箱子有反應,推板完全不受反作用力影響。",
+    "#221": "接縫 give 在 float32 讀數地板之下,所以這支只能給出「上界」,不能宣稱剛性數值。",
+    "#227": "三關節下垂就是各關節下垂的幾何疊加,沒有額外的耦合放大。",
+    "#229": "浮動 articulation 不會被 kinematic 的 USD 父層帶動 —— 畫面上看起來被拖著走是 "
+            "USD 階層的視覺假象,物理上 follow_ratio 約等於 0。",
+    "D1": "推板的 back-off 是 drive 跟隨落後,不是接觸反作用 —— 拿掉箱子的對照組 back-off 幾乎一樣。",
+    "D2": "高剛度時 payload 打滑是 (k·dt) 離散化假象:dt 一細化就消失。L2.5 載得動,但 dt 要配剛度。",
+    "Collision A1/A2": "URDF 裡寫 3 個 box,匯入後就是 3 個真正的 UsdGeom.Cube 碰撞體 —— "
+                       "沒有被轉成 hull、沒有多餘分組。",
+    "Collision decomp": "convexDecomposition 保得住功能性口袋(maxHulls 8 與 64 都可以),"
+                        "所以「原理上不可行」的說法不成立,那是 hull 數的調參問題。",
+    "Collision A3/A4": "CAD 慣量與 link 原點在 URDF→USD 轉換中原封不動 —— sw2urdf 最有價值的"
+                       "輸出不會被轉換破壞。",
+    "Collision 真實資產": "同樣一種棧板,NVIDIA 自己出了三種碰撞狀態(方塊/分解/根本沒有)——"
+                          "所以凹槽能不能用,取決於 authoring 選的近似法,與 mesh 品質無關。",
+    "Collision entry 圖": "把進叉面掃成佔據圖後,叉孔的有無一眼可見:方塊與 hull 是整片實心,"
+                          "只有 decomposition 出現兩條貫穿的孔。",
+    "Collision 插入": "決定性證據:decomposition 讓牙叉插進兩條真叉孔、卻在真中柱擋住 —— "
+                      "它不是「什麼都放行」,而是忠實還原真實幾何。",
+    "Collision importer": "我們的 URDF importer 對 <collision><mesh> 一律寫死 convexHull,"
+                          "作者想指定別的近似法這條路並不存在 —— 這就是必須用 box-union 的原因。",
+    "限制①": "把 kinematic 錨點焊進 articulation 會讓 PhysX tensor 直接 SIGSEGV,是上游引擎缺陷,"
+             "改用 plain dynamic body 可繞開。",
+    "限制②": "PhysX 明文禁止 articulation 內的 link 是 kinematic,所以真 L2 只能做在散裝 rigid body。",
+    "限制③": "這三支不是技術做不到,是還沒拿到真實 CAD 模型。",
+}
+
+
+def _key_of(exp):
+    k = _KEYS.get(exp["id"])
+    if k:
+        return k
+    head = str(exp.get("concl", "")).split("。")[0]
+    return head + "。" if head else ""
+
+
+def cover(doc, reg):
+    doc.newpage()
+    doc.y = 0.895
+    doc.fig.text(_ML, doc.y, "Isaac Sim 6.0.1 物理再驗證", fontsize=26,
+                 fontweight="bold", color=_INK, va="top")
+    doc.y -= 0.056
+    doc.fig.text(_ML, doc.y, "驗收資料表 —— 每支實驗附量化資料、可追溯 log、可重現",
+                 fontsize=11.5, color=_MUTED, va="top")
+    doc.y -= 0.026
+    doc._hline(_ML, _MR, doc.y, color="#1f3b57", lw=1.8)
+    doc.y -= 0.034
+
+    doc.callout(
+        "這份文件在回答什麼",
+        "2026-09 的對抗式審查對 14 支物理實驗逐一挑錯,再加上 collision pipeline 的"
+        "獨立查證。每一節都是同一個結構:先給一句結論,再給支撐它的量化表格,"
+        "最後給重跑指令。所有數字都來自 test/ 下的 JSON log,頁面附 sha256 可對帳。",
+        kind="info")
+
+    doc.h1("環境")
+    doc.table(
+        ["項目", "值"],
+        [["Isaac Sim / Isaac Lab", "6.0.1 / 3.0 (v3.0.0-beta2.patch1)、Kit Python 3.12"],
+         ["GPU / 驅動", "NVIDIA GeForce RTX 5090 (31 GiB)、driver 610.43.02"],
+         ["Warp", "1.13.0"],
+         ["容器 image", "yunchien/isaac:devel (BASE_IMAGE=nvcr.io/nvidia/isaac-sim:6.0.1)"],
+         ["physics dt", "1/60 s(fine-dt 對照另有標示)"]],
+        widths=[1.0, 3.2])
+
+    doc.h1("判定圖例")
+    doc.table(
+        ["判定", "意義"],
+        [["FLAWED", "headline 結論本身是錯的;已修正並重新驗證"],
+         ["QUESTIONABLE", "設計或資料來源有洞;已補對照組 / 重跑,或改寫論述"],
+         ["MINOR", "結論成立,只修措辭或對齊數字"],
+         ["SOUND / 實測確認", "乾淨,或由本次實測直接證實"]],
+        widths=[1.0, 4.0])
+    doc.para("統計:1 FLAWED、7 QUESTIONABLE、5 MINOR、1 SOUND,皆已處理。"
+             "定性的 L2 / L2.5 / L3 階層一直是對的;這次修的是框架要依賴的量化與機制宣稱。",
+             pt=8.5)
+
+    doc.h1("結果總覽")
+    doc.para("每列一支實驗。詳細資料表與重跑指令見後續各節。", pt=8.3, color=_MUTED)
+    rows, marks = [], {}
+    for i, e in enumerate(reg):
+        rows.append([e["id"], e["title"], e["verdict"], _key_of(e)])
+        k = _verdict_kind(e["verdict"])
+        marks[(i, 2)] = "ok" if k == "ok" else ("bad" if k == "bad" else None)
+    marks = {k: v for k, v in marks.items() if v}
+    doc.table(["編號", "實驗", "判定", "一句話結論"], rows,
+              widths=[0.60, 1.50, 1.45, 4.2], pt=6.9, marks=marks)
+
+    doc.h1("影片索引")
+    doc.para("PDF 無法播放影片,因此每支有影片的實驗都在該節附一張關鍵幀,"
+             "檔案本身放在 doc/viz/。影片只做給「動作在畫面上看得清、而且動作本身就是結論」"
+             "的實驗;效應在 mm/µm 級或動作會誤導結論的,一律用圖表而不出影片。",
+             pt=8.3, color=_MUTED)
+    vrows = [[eid, "doc/viz/" + _VIDEOS[eid][0], _VIDEOS[eid][2]]
+             for eid in _VIDEOS]
+    vrows += [["(本審查範圍外)", "doc/viz/" + n, c] for n, c in _EXTRA_VIDEOS]
+    doc.table(["實驗", "檔案", "畫面內容"], vrows,
+              widths=[1.0, 1.6, 5.0], pt=7.0)
+
+
+def section(doc, title, blurb=None):
+    doc.h1(title)
+    if blurb:
+        doc.para(blurb, pt=8.5, color=_MUTED)
+
+
+def experiment(doc, exp, test_dir, viz_dir=None):
+    kind = _verdict_kind(exp["verdict"])
+    doc.h2(f"{exp['id']}  {exp['title']}", tag=f"判定:{exp['verdict']}",
+           tag_color=_KIND.get(kind, _KIND["info"])[0])
+    doc.callout("結論", _key_of(exp), kind=kind)
+
+    tbl = exp["tbl"]
+    cols, rows = tbl[0], tbl[1]
+    marks = tbl[2] if len(tbl) > 2 else None
+    widths = exp.get("widths")
     if rows:
-        tbl = tax.table(cellText=[[str(c) for c in r] for r in rows],
-                        colLabels=cols, loc="upper left", cellLoc="left")
-        tbl.auto_set_font_size(False)
-        tbl.set_fontsize(7.0)
-        tbl.scale(1.0, 1.3)
-        for (r, _c), cell in tbl.get_celld().items():
-            cell.set_edgecolor("#cccccc")
-            if r == 0:
-                cell.set_facecolor("#1f3b57")
-                cell.set_text_props(color="white", fontweight="bold")
+        doc.table(cols, rows, widths=widths, marks=marks)
 
-    cax = fig.add_axes([0.06, 0.20, 0.91, 0.12])
-    cax.axis("off")
-    cax.text(0.0, 1.0, "重跑:", fontsize=9, fontweight="bold", va="top")
-    y = 0.78
-    for ln in _wrap(exp["cmd"], width=104):
-        cax.text(0.0, y, ln, fontsize=7, family="monospace", va="top")
-        y -= 0.16
+    if exp.get("chart"):
+        doc.chart(exp["chart"], h=exp.get("chart_h", 0.21),
+                  caption=exp.get("chart_cap"))
 
-    concax = fig.add_axes([0.06, 0.03, 0.91, 0.16])
-    concax.axis("off")
-    concax.text(0.0, 1.0, "修正結論:", fontsize=9, fontweight="bold", va="top")
-    y = 0.88
-    for ln in _wrap(exp["concl"], width=52):
-        concax.text(0.0, y, ln, fontsize=8.5, va="top")
-        y -= 0.075
+    vid = _VIDEOS.get(exp["id"])
+    if vid and viz_dir:
+        name, frac, cap = vid
+        still = _video_still(Path(viz_dir) / name,
+                             Path(test_dir) / (".still_" + name + ".png"), frac)
+        if still:
+            doc.image(still, caption="影片 doc/viz/%s 的畫面。%s" % (name, cap))
 
-    pdf.savefig(fig)
-    plt.close(fig)
+    doc.para("說明", pt=9.0, weight="bold", gap=0.003)
+    doc.para(exp["concl"], pt=8.4)
+
+    log = exp.get("log")
+    prov = ("log: (none -- see the reproduce command below)" if not log else
+            f"log: test/{log}   sha256: {_sha256(Path(test_dir) / log)}")
+    doc.para(prov, pt=7.0, color=_MUTED, mono=True, gap=0.004)
+    doc.code(exp["cmd"])
+
+
+_SECTIONS = [
+    ("1. L2.5 / L3 馬達位置控制(會下垂)",
+     "用最小幾何(cube / prismatic)隔離單一物理行為,避免真車模型的複雜幾何汙染量測。",
+     ["#212", "#227", "#216", "#219"]),
+    ("2. 真 L2 kinematic(瞬移、無視外力)",
+     "只能做在散裝 rigid body —— PhysX 禁止 articulation 內的 link 是 kinematic。",
+     ["#215", "#218", "#220"]),
+    ("3. Hybrid 與整合", None, ["#221", "#229"]),
+    ("4. L2.5 動態互動(實際部署的 actuator)",
+     "dynamic body + 高剛度 drive,才是實際會部署的形態。",
+     ["D1", "D2"]),
+    ("5. Collision pipeline",
+     "這一節回答一個具體問題:為什麼牙叉插不進棧板的叉孔?先用合成幾何隔離,"
+     "再用 NVIDIA 官方資產驗證,最後把同一份真實幾何送回我們自己的 importer。",
+     ["Collision A1/A2", "Collision decomp", "Collision A3/A4",
+      "Collision 真實資產", "Collision entry 圖", "Collision 插入",
+      "Collision importer"]),
+    ("6. 已知限制", None, ["限制①", "限制②", "限制③"]),
+]
 
 
 def main():
@@ -846,21 +1557,30 @@ def main():
     ap.add_argument("--font", default=None,
                     help="Path to a CJK font (.ttc/.otf) for zh-TW rendering. "
                          "Default: test/.notocjk.ttc then host Noto paths.")
+    ap.add_argument("--viz-dir", default=None,
+                    help="Directory holding the MP4s (default: <out dir>/viz). "
+                         "One still per video is embedded in its section.")
     args = ap.parse_args()
+    viz_dir = Path(args.viz_dir) if args.viz_dir else Path(args.out).parent / "viz"
 
     _init_cjk_font(args.font, args.test_dir)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     reg = build_registry(args.test_dir)
-    n_pages = 1
+    by_id = {e["id"]: e for e in reg}
+
     with PdfPages(args.out) as pdf:
-        title_page(pdf, args.test_dir)
-        for exp in reg:
-            exp_page(pdf, exp, args.test_dir)
-            n_pages += 1
-            if exp.get("chart"):
-                chart_page(pdf, exp, args.test_dir)
-                n_pages += 1
-    print("wrote", args.out, "with", n_pages, "pages; font:", _CJK_NAME)
+        doc = Doc(pdf, note="Isaac Sim 6.0.1 物理再驗證 — 驗收資料表")
+        cover(doc, reg)
+        for title, blurb, ids in _SECTIONS:
+            section(doc, title, blurb)
+            for eid in ids:
+                e = by_id.get(eid)
+                if e is None:
+                    continue
+                experiment(doc, e, args.test_dir, viz_dir=viz_dir)
+        doc.close()
+        n = doc.page
+    print("wrote", args.out, "with", n, "pages; font:", _CJK_NAME)
 
 
 if __name__ == "__main__":
