@@ -311,6 +311,24 @@ def t_colB(d):
     return cols, rows
 
 
+def t_fidelity(d):
+    a = d.get("authored", {})
+    cols = ["項目", "授權值 (URDF)", "USD 讀回", "保真"]
+    rows = [
+        ["mass (kg)", f(a.get("mass")), f(d.get("mass_read")),
+         str(d.get("A4_mass_exact"))],
+        ["diagonal inertia",
+         "[%s, %s, %s]" % (f(a.get("ixx")), f(a.get("iyy")), f(a.get("izz"))),
+         str([round(v, 4) for v in (d.get("diagonal_inertia_read") or [])]),
+         str(d.get("A4_inertia_preserved"))],
+        ["collider world xyz (m)",
+         str(d.get("A3_expected_world_translate")),
+         str(d.get("collider_world_translate_read")),
+         str(d.get("A3_origin_preserved"))],
+    ]
+    return cols, rows
+
+
 # ---------------------------------------------------------------------------
 # Charts: for subtle (mm/um/nm-scale, near-static) experiments a plot conveys
 # the quantitative story better than a video ever could. Each draws onto a fig.
@@ -485,6 +503,7 @@ def build_registry(test_dir):
     d218 = _load(test_dir, ".prove-B-218-carry.json")
     dcolA = _load(test_dir, ".verify-collision-import.json")
     dcolB = _load(test_dir, ".verify-decomp-pocket.json")
+    dfid = _load(test_dir, ".verify-import-fidelity.json")
     d220 = _load(test_dir, ".prove-B-220-push.json")
     d221 = _load(test_dir, ".prove-C-221-seam.json")
     d227 = _load(test_dir, ".prove-A-227-multijoint.json")
@@ -641,6 +660,17 @@ def build_registry(test_dir):
                    "= base_top 0.3 + 半高 0.15)。所以 decomposition 能保住功能性口袋 —— "
                    "對乾淨可 box 分解的矩形件(pallet/牙叉)可行,forklift_b 那種薄多零件 "
                    "美術資產才 hull 數爆掉。文件 §2.2「disqualified」overstated。"),
+        dict(id="Collision A3/A4", title="link 原點 + CAD 慣量 匯入保真",
+             verdict="實測確認(A3 origin + A4 inertia 保真)",
+             log=".verify-import-fidelity.json",
+             cmd=f"{PY} {W}/src/script/../test/verify_import_fidelity.py "
+                 f"--out {W}/test/.verify-import-fidelity.json",
+             tbl=t_fidelity(dfid),
+             concl="合成 URDF(已知 mass 7.5、三個相異對角慣量、box 在非零原點)匯入後讀 "
+                   "USD:mass 精確、diagonalInertia 與 URDF 張量一致(未被重算)、collider "
+                   "world 原點 = 授權原點 x joint。A3(原點)+ A4(CAD 慣量)保真成立 —— "
+                   "sw2urdf 的最高價值輸出(CAD 慣量)不會在轉換中被破壞;留作 CI regression "
+                   "guard 防匯入器版本漂移。"),
         dict(id="限制①",
              title="articulation + kinematic maximal loop-joint SIGSEGV",
              verdict="MINOR (陳述正確;上游 bug)",
