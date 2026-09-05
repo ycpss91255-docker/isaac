@@ -1,0 +1,98 @@
+{
+  "check": "A1/A2 multi-box <collision> import fidelity",
+  "isaac_variant": "6.0.1",
+  "authored_boxes": [
+    {
+      "name": "cb_a",
+      "size": [
+        0.2,
+        0.2,
+        0.2
+      ],
+      "xyz": [
+        0.3,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "cb_b",
+      "size": [
+        0.1,
+        0.4,
+        0.1
+      ],
+      "xyz": [
+        -0.3,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "cb_c",
+      "size": [
+        0.15,
+        0.15,
+        0.3
+      ],
+      "xyz": [
+        0.0,
+        0.0,
+        0.3
+      ]
+    }
+  ],
+  "error": null,
+  "produced_usd": "/tmp/multibox.usd",
+  "n_colliders": 3,
+  "colliders": [
+    {
+      "path": "/multibox/Geometry/base_link/box_1",
+      "type": "Cube",
+      "is_analytic_cube": true,
+      "has_mesh_collision_api": false,
+      "approximation": null,
+      "world_translate": [
+        0.3,
+        0.0,
+        0.0
+      ],
+      "parent_path": "/multibox/Geometry/base_link",
+      "parent_type": "Xform"
+    },
+    {
+      "path": "/multibox/Geometry/base_link/box_2",
+      "type": "Cube",
+      "is_analytic_cube": true,
+      "has_mesh_collision_api": false,
+      "approximation": null,
+      "world_translate": [
+        -0.3,
+        0.0,
+        0.0
+      ],
+      "parent_path": "/multibox/Geometry/base_link",
+      "parent_type": "Xform"
+    },
+    {
+      "path": "/multibox/Geometry/base_link/box_3",
+      "type": "Cube",
+      "is_analytic_cube": true,
+      "has_mesh_collision_api": false,
+      "approximation": null,
+      "world_translate": [
+        0.0,
+        0.0,
+        0.3
+      ],
+      "parent_path": "/multibox/Geometry/base_link",
+      "parent_type": "Xform"
+    }
+  ],
+  "A1_all_three_kept": true,
+  "A2_all_analytic_boxes_no_hull": true,
+  "colliders_parent_paths": [
+    "/multibox/Geometry/base_link"
+  ],
+  "colliders_grouped_under_scope": false
+}

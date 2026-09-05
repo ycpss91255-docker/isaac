@@ -1,0 +1,68 @@
+{
+  "isaac_variant": "6.0.1",
+  "experiment": "drive_precision_under_external_contact_load",
+  "issue": 184,
+  "link_mass_kg": 0.1,
+  "payload_mass_kg": 10.0,
+  "supported_mass_kg": 10.1,
+  "gravity": 9.81,
+  "contact_load_force_N": 98.10000000000001,
+  "supported_load_force_N": 99.081,
+  "target_m": 0.3,
+  "payload_center_z_authored_m": 0.622,
+  "settle_steps": 1000,
+  "physics_dt": 0.016666666666666666,
+  "points": [
+    {
+      "label": "L2.5",
+      "stiffness": 100000.0,
+      "damping_critical": 2009.975124224178,
+      "stored_stiffness": 100000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "set_target_method": "set_joint_positions",
+      "settled_position_m": 0.2990809679031372,
+      "error_mm": 0.9190320968627819,
+      "predicted_mm": 0.99081,
+      "drift_mm": 0.1518726348876953,
+      "payload_z_m": 0.6188533902168274,
+      "payload_rest_expected_m": 0.6190809679031372,
+      "payload_gap_mm": -0.2275776863097656
+    },
+    {
+      "label": "L3",
+      "stiffness": 5000.0,
+      "damping_critical": 449.44410108488466,
+      "stored_stiffness": 5000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "set_target_method": "set_joint_positions",
+      "settled_position_m": 0.2802344262599945,
+      "error_mm": 19.765573740005483,
+      "predicted_mm": 19.8162,
+      "drift_mm": 0.2967715263366699,
+      "payload_z_m": 0.600026547908783,
+      "payload_rest_expected_m": 0.6002344262599945,
+      "payload_gap_mm": -0.207878351211499
+    }
+  ],
+  "api": {
+    "joint_path": "/prismatic_lift_contact/Physics/lift_joint",
+    "root_path": "/prismatic_lift_contact/Geometry",
+    "payload_path": "/payload",
+    "articulation_cls": "SingleArticulation"
+  },
+  "error": null,
+  "comparison": {
+    "l25_error_mm": 0.9190320968627819,
+    "l3_error_mm": 19.765573740005483,
+    "l3_over_l25_ratio": 21.506946065841948,
+    "stiffness_ratio": 20.0
+  }
+}

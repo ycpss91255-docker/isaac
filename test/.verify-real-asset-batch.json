@@ -1,0 +1,324 @@
+{
+  "check": "real-asset collision probe (Hub-bypass via direct HTTPS)",
+  "isaac_variant": "6.0.1",
+  "asset_count": 4,
+  "assets": [
+    {
+      "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/o3dyn_pallet.usd",
+      "opened_over_https": true,
+      "error": null,
+      "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/o3dyn_pallet.usd",
+      "mesh_count": 19,
+      "total_triangles": 126590,
+      "collider_count": 3,
+      "colliders": [
+        {
+          "path": "/GroundPlane/CollisionPlane",
+          "type": "Plane",
+          "approximation": null
+        },
+        {
+          "path": "/pallet_loaded/SM_PalletWood_B1_002",
+          "type": "Mesh",
+          "approximation": "convexDecomposition"
+        },
+        {
+          "path": "/pallet_loaded/collision_boxes",
+          "type": "Cube",
+          "approximation": null
+        }
+      ],
+      "meshes": [
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_017",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_018",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_019",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_020",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_021",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_022",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_023",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_024",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_PalletWood_B1_002",
+          "tris": 6108,
+          "has_collision_api": true
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_009",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_010",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_011",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_012",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_013",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_014",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_015",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_016",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_PlasticTape_A1_002",
+          "tris": 1056,
+          "has_collision_api": false
+        },
+        {
+          "path": "/GroundPlane/CollisionMesh",
+          "tris": 2,
+          "has_collision_api": false
+        }
+      ],
+      "world_bbox_min": [
+        -0.6015,
+        -0.4014,
+        0.0018
+      ],
+      "world_bbox_max": [
+        0.6015,
+        0.4014,
+        0.5888
+      ],
+      "world_size": [
+        1.203,
+        0.8028,
+        0.5869
+      ]
+    },
+    {
+      "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet_holder.usd",
+      "opened_over_https": true,
+      "error": null,
+      "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet_holder.usd",
+      "mesh_count": 3,
+      "total_triangles": 75104,
+      "collider_count": 0,
+      "colliders": [],
+      "meshes": [
+        {
+          "path": "/Root/IGES_Independant_Entities",
+          "tris": 61706,
+          "has_collision_api": false
+        },
+        {
+          "path": "/Root/IGES_Independant_EntitiesJpf",
+          "tris": 12507,
+          "has_collision_api": false
+        },
+        {
+          "path": "/Root/IGES_Independant_EntitiesgE5",
+          "tris": 891,
+          "has_collision_api": false
+        }
+      ],
+      "world_bbox_min": [
+        -0.5885,
+        -0.9178,
+        -0.6597
+      ],
+      "world_bbox_max": [
+        0.5885,
+        0.9178,
+        0.6598
+      ],
+      "world_size": [
+        1.177,
+        1.8355,
+        1.3196
+      ]
+    },
+    {
+      "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/KLT_Bin/small_KLT.usd",
+      "opened_over_https": true,
+      "error": null,
+      "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/KLT_Bin/small_KLT.usd",
+      "mesh_count": 3,
+      "total_triangles": 2884,
+      "collider_count": 9,
+      "colliders": [
+        {
+          "path": "/SmallKLT/Collision/Cube",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_01",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_02",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_03",
+          "type": "Cube",
+          "approximation": "boundingCube"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_04",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_05",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_06",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_07",
+          "type": "Cube",
+          "approximation": "none"
+        },
+        {
+          "path": "/SmallKLT/Collision/Cube_08",
+          "type": "Cube",
+          "approximation": "none"
+        }
+      ],
+      "meshes": [
+        {
+          "path": "/SmallKLT/Visuals/FOF_Mesh_Magenta_Box",
+          "tris": 2880,
+          "has_collision_api": false
+        },
+        {
+          "path": "/SmallKLT/Visuals/FOF_Mesh_Label_1",
+          "tris": 2,
+          "has_collision_api": false
+        },
+        {
+          "path": "/SmallKLT/Visuals/FOF_Mesh_Label_6_Small",
+          "tris": 2,
+          "has_collision_api": false
+        }
+      ],
+      "world_bbox_min": [
+        -0.0989,
+        -0.1483,
+        -0.0732
+      ],
+      "world_bbox_max": [
+        0.0989,
+        0.1483,
+        0.0732
+      ],
+      "world_size": [
+        0.1978,
+        0.2966,
+        0.1464
+      ]
+    },
+    {
+      "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/KLT_Bin/small_KLT_visual_collision.usd",
+      "opened_over_https": true,
+      "error": null,
+      "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/KLT_Bin/small_KLT_visual_collision.usd",
+      "mesh_count": 3,
+      "total_triangles": 2884,
+      "collider_count": 1,
+      "colliders": [
+        {
+          "path": "/Root/Visuals/FOF_Mesh_Magenta_Box",
+          "type": "Mesh",
+          "approximation": "boundingCube"
+        }
+      ],
+      "meshes": [
+        {
+          "path": "/Root/Visuals/FOF_Mesh_Magenta_Box",
+          "tris": 2880,
+          "has_collision_api": true
+        },
+        {
+          "path": "/Root/Visuals/FOF_Mesh_Label_1",
+          "tris": 2,
+          "has_collision_api": false
+        },
+        {
+          "path": "/Root/Visuals/FOF_Mesh_Label_6_Small",
+          "tris": 2,
+          "has_collision_api": false
+        }
+      ],
+      "world_bbox_min": [
+        -0.0989,
+        -0.1483,
+        -0.0732
+      ],
+      "world_bbox_max": [
+        0.0989,
+        0.1483,
+        0.0732
+      ],
+      "world_size": [
+        0.1978,
+        0.2966,
+        0.1464
+      ]
+    }
+  ],
+  "error": null
+}

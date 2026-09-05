@@ -1,0 +1,138 @@
+{
+  "isaac_variant": "6.0.1",
+  "mass_kg": 10.0,
+  "gravity": 9.81,
+  "load_force_N": 98.10000000000001,
+  "target_m": 0.3,
+  "settle_steps": 600,
+  "physics_dt": 0.016666666666666666,
+  "points": [
+    {
+      "stiffness": 5000.0,
+      "damping_critical": 447.21359549995793,
+      "stored_stiffness": 5000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2805993854999542,
+      "droop_mm": 19.400614500045766,
+      "predicted_mm": 19.62,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 10000.0,
+      "damping_critical": 632.4555320336759,
+      "stored_stiffness": 10000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2904103994369507,
+      "droop_mm": 9.589600563049306,
+      "predicted_mm": 9.81,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 100000.0,
+      "damping_critical": 2000.0,
+      "stored_stiffness": 100000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2992088794708252,
+      "droop_mm": 0.7911205291747936,
+      "predicted_mm": 0.9810000000000001,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 500000.0,
+      "damping_critical": 4472.13595499958,
+      "stored_stiffness": 500000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.29992368817329407,
+      "droop_mm": 0.07631182670592151,
+      "predicted_mm": 0.1962,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 1000000.0,
+      "damping_critical": 6324.555320336759,
+      "stored_stiffness": 1000000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.299981951713562,
+      "droop_mm": 0.01804828643797718,
+      "predicted_mm": 0.0981,
+      "drift_mm": 0.0
+    }
+  ],
+  "damping_control": {
+    "purpose": "at a FIXED k (the largest swept), sweep damping = factor * critical to test whether steady-state droop depends on damping. At true steady state (v=0) the damping force vanishes so droop must equal m*g/k independent of damping; any variation is an implicit-drive spring-stiffening artifact, which would refute the ADR-0021 D1a 'precision bounded only by stiffness' claim.",
+    "fixed_stiffness": 1000000.0,
+    "predicted_mm": 0.0981,
+    "damping_factors": [
+      0.25,
+      0.5,
+      1.0,
+      2.0
+    ],
+    "points": [
+      {
+        "stiffness": 1000000.0,
+        "damping_factor": 0.25,
+        "damping": 1581.1388300841897,
+        "settled_position_m": 0.3001023232936859,
+        "droop_mm": -0.10232329368592419,
+        "predicted_mm": 0.0981,
+        "drift_mm": 0.0
+      },
+      {
+        "stiffness": 1000000.0,
+        "damping_factor": 0.5,
+        "damping": 3162.2776601683795,
+        "settled_position_m": 0.3000293970108032,
+        "droop_mm": -0.02939701080323376,
+        "predicted_mm": 0.0981,
+        "drift_mm": 0.0
+      },
+      {
+        "stiffness": 1000000.0,
+        "damping_factor": 1.0,
+        "damping": 6324.555320336759,
+        "settled_position_m": 0.299981951713562,
+        "droop_mm": 0.01804828643797718,
+        "predicted_mm": 0.0981,
+        "drift_mm": 0.0
+      },
+      {
+        "stiffness": 1000000.0,
+        "damping_factor": 2.0,
+        "damping": 12649.110640673518,
+        "settled_position_m": 0.29994988441467285,
+        "droop_mm": 0.050115585327137335,
+        "predicted_mm": 0.0981,
+        "drift_mm": 0.0
+      }
+    ],
+    "droop_spread_mm": 0.15243887901306152,
+    "verdict": "droop_depends_on_damping_ARTIFACT"
+  },
+  "api": {
+    "joint_path": "/prismatic_lift/Physics/lift_joint",
+    "root_path": "/prismatic_lift/Geometry",
+    "articulation_cls": "SingleArticulation"
+  },
+  "error": null
+}

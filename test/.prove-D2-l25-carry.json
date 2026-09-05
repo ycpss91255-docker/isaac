@@ -1,0 +1,89 @@
+{
+  "mode": "carry",
+  "issue": "isaac#217/#218 (L2.5 re-validation)",
+  "actuator": "L2.5 = dynamic platform on high-stiffness prismatic X drive",
+  "isaac_variant": "6.0.1",
+  "warmup_steps": 60,
+  "move_steps": 300,
+  "settle_steps": 120,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "carrier_mass_kg": 1.0,
+  "payload_mass_kg": 1.0,
+  "friction_mu": 0.5,
+  "plate_dims_m": [
+    2.0,
+    0.6,
+    0.2
+  ],
+  "payload_size_m": 0.2,
+  "accel_mps2": 0.75,
+  "total_travel_m": 4.6875,
+  "peak_velocity_mps": 1.875,
+  "peak_per_tick_m": 0.03125,
+  "stiffness_sweep": [
+    10000.0,
+    100000.0,
+    1000000.0,
+    10000000.0
+  ],
+  "l2_baseline_ref": "#217/#218 kinematic carry: clean carry <=0.05 m/tick, launches at 0.2 m/tick; kinematic tracking error ~0",
+  "metric": "per k: (a) payload rides: payload +X travel vs carrier +X travel + retention (payload z stayed on platform top); (b) carrier tracking error |slider_x - commanded_x| in mm: max over move, steady on accel plateau, residual in settle",
+  "drive_api": "UsdPhysics.PrismaticJoint (axis X, maximal joint between kinematic anchor + dynamic platform) with UsdPhysics.DriveAPI('linear') stiffness=k, damping=2*sqrt(k*m), maxForce=inf; constant accel/decel target per tick; carrier + payload read via SingleRigidPrim",
+  "friction_api": "isaacsim.core.api.materials.PhysicsMaterial + SingleGeometryPrim.apply_physics_material on platform AND payload",
+  "points": [
+    {
+      "stiffness": 10000.0,
+      "damping_critical": 200.0,
+      "carrier_travel_x_m": 4.687502039779815,
+      "payload_travel_x_m": 4.6836044422025225,
+      "payload_lag_m": 0.0038975975772927995,
+      "payload_z_final_m": 0.8000051975250244,
+      "payload_rel_x_m": -0.0038933753967285156,
+      "payload_rode": true,
+      "carrier_track_err_max_mm": 23.360013961791992,
+      "carrier_track_err_plateau_mm": 12.679219312138,
+      "carrier_track_err_settle_mm": 0.0025113423665364585
+    },
+    {
+      "stiffness": 100000.0,
+      "damping_critical": 632.4555320336759,
+      "carrier_travel_x_m": 4.68750037911591,
+      "payload_travel_x_m": 4.546386136344154,
+      "payload_lag_m": 0.14111424277175644,
+      "payload_z_final_m": 0.8000015616416931,
+      "payload_rel_x_m": -0.14110898971557617,
+      "payload_rode": true,
+      "carrier_track_err_max_mm": 1.6331672668457031,
+      "carrier_track_err_plateau_mm": 0.8849110868241779,
+      "carrier_track_err_settle_mm": 0.0017325083414713542
+    },
+    {
+      "stiffness": 1000000.0,
+      "damping_critical": 2000.0,
+      "carrier_travel_x_m": 4.687500221887376,
+      "payload_travel_x_m": 4.478687750175595,
+      "payload_lag_m": 0.20881247171178074,
+      "payload_z_final_m": 0.8000110983848572,
+      "payload_rel_x_m": -0.20880460739135742,
+      "payload_rode": true,
+      "carrier_track_err_max_mm": 0.036077102025355856,
+      "carrier_track_err_plateau_mm": 0.004972336027368647,
+      "carrier_track_err_settle_mm": 0.0007073084513346355
+    },
+    {
+      "stiffness": 10000000.0,
+      "damping_critical": 6324.555320336759,
+      "carrier_travel_x_m": 4.687501445395142,
+      "payload_travel_x_m": 4.492302483121421,
+      "payload_lag_m": 0.19519896227372158,
+      "payload_z_final_m": 0.8000044226646423,
+      "payload_rel_x_m": -0.1951904296875,
+      "payload_rode": true,
+      "carrier_track_err_max_mm": 0.005868673324589679,
+      "carrier_track_err_plateau_mm": 0.001133614116272108,
+      "carrier_track_err_settle_mm": 0.0007152557373046875
+    }
+  ],
+  "error": null
+}

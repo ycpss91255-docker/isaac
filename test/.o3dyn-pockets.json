@@ -1,0 +1,165 @@
+{
+  "check": "real-asset collision probe (Hub-bypass via direct HTTPS)",
+  "isaac_variant": "6.0.1",
+  "asset_count": 1,
+  "assets": [
+    {
+      "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/o3dyn_pallet.usd",
+      "opened_over_https": true,
+      "error": null,
+      "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/o3dyn_pallet.usd",
+      "mesh_count": 19,
+      "total_triangles": 126590,
+      "collider_count": 3,
+      "colliders": [
+        {
+          "path": "/GroundPlane/CollisionPlane",
+          "type": "Plane",
+          "approximation": null,
+          "world_bbox": null
+        },
+        {
+          "path": "/pallet_loaded/SM_PalletWood_B1_002",
+          "type": "Mesh",
+          "approximation": "convexDecomposition",
+          "world_bbox": {
+            "min": [
+              -0.6,
+              -0.3978,
+              0.0018
+            ],
+            "max": [
+              0.6,
+              0.3978,
+              0.1423
+            ],
+            "size": [
+              1.2,
+              0.7956,
+              0.1405
+            ]
+          }
+        },
+        {
+          "path": "/pallet_loaded/collision_boxes",
+          "type": "Cube",
+          "approximation": null,
+          "world_bbox": null
+        }
+      ],
+      "meshes": [
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_017",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_018",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_019",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_020",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_021",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_022",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_023",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethylene_C2_024",
+          "tris": 9608,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_PalletWood_B1_002",
+          "tris": 6108,
+          "has_collision_api": true
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_009",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_010",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_011",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_012",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_013",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_014",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_015",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_BoxPlastic_EuroCasePolyethyleneLid_C2_016",
+          "tris": 5320,
+          "has_collision_api": false
+        },
+        {
+          "path": "/pallet_loaded/SM_PlasticTape_A1_002",
+          "tris": 1056,
+          "has_collision_api": false
+        },
+        {
+          "path": "/GroundPlane/CollisionMesh",
+          "tris": 2,
+          "has_collision_api": false
+        }
+      ],
+      "world_bbox_min": [
+        -0.6015,
+        -0.4014,
+        0.0018
+      ],
+      "world_bbox_max": [
+        0.6015,
+        0.4014,
+        0.5888
+      ],
+      "world_size": [
+        1.203,
+        0.8028,
+        0.5869
+      ]
+    }
+  ],
+  "error": null
+}
