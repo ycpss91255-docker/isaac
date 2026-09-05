@@ -1,0 +1,60 @@
+{
+  "issue": "isaac#201",
+  "adr": "ADR-0008 L2/L3 one-way force transfer (coexistence rule 1)",
+  "isaac_variant": "6.0.1",
+  "warmup_steps": 60,
+  "push_steps": 300,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "plate_sweep_m": 2.0,
+  "metric": "(a) plate: max ||actual-commanded|| position err (m) + geodesic orientation err (deg), overall and restricted to contact frames; (b) cube: +X displacement (m) from settled baseline + max speed (finite-diff ||dpos||/dt, m/s) + ground-height hold",
+  "expectation_5_1_baseline": "plate ~0 m / ~0 deg overall AND during contact (ADR-0008 openbase L2 migration: pose tracking 0.0000 err; PhysX 'nothing pushes it back'); cube pushed forward ~0.9 m with non-zero peak speed, z steady on ground (PhysX 'kinematic pushes away dynamic objects')",
+  "drive_api": "isaacsim.core.prims.SingleRigidPrim.set_world_pose per tick on a physics:kinematicEnabled plate (routes to kinematic target, not setGlobalPose) + World.step; cube is a free dynamic rigid body",
+  "plate": {
+    "path": "/World/kin_plate",
+    "kind": "kinematic box plate",
+    "dims": [
+      0.1,
+      1.0,
+      0.6
+    ],
+    "max_pos_err_m": 6.000595636368444e-08,
+    "max_ang_err_deg": 0.0,
+    "max_pos_err_contact_m": 6.000595636368444e-08,
+    "contact_frames": 182,
+    "tracking_exact": true,
+    "tracking_exact_under_contact": true
+  },
+  "cube": {
+    "path": "/World/dyn_cube",
+    "kind": "free dynamic rigid cube",
+    "size_m": 0.3,
+    "baseline_pos_m": [
+      1.0000030994415283,
+      1.7159067056127242e-06,
+      0.14999999105930328
+    ],
+    "final_pos_m": [
+      2.1933343410491943,
+      0.0017951498739421368,
+      0.15000060200691223
+    ],
+    "displacement_m": [
+      1.193331241607666,
+      0.001793433967236524,
+      6.109476089477539e-07
+    ],
+    "displacement_x_m": 1.193331241607666,
+    "max_speed_mps": 0.4000801669767222,
+    "final_z_m": 0.15000060200691223,
+    "min_z_m": 0.14999985694885254,
+    "max_z_m": 0.1500009000301361,
+    "pushed": true,
+    "stayed_on_ground": true
+  },
+  "one_way_transfer_ok": true,
+  "error": null,
+  "mp4": "/home/yunchien/work/doc/viz/l2_push.mp4",
+  "mp4_frames": 48,
+  "mp4_nonblack": 48
+}

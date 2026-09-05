@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.41.0
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.42.0
     with:
       image_name: docker
       # Isaac Sim base image is itself the runtime (15+ GB binary tree);
@@ -35,11 +35,40 @@ jobs:
       # GHC tool-cache before buildx starts.
       free_disk_space: true
 
-  # Per ADR-0011 (ycpss91255/isaac): Python tests run on the
-  # self-hosted GPU runner because Isaac Sim Kit refuses to boot
-  # without an NVIDIA GPU runtime. This job runs in parallel with
-  # call-docker-build (which uses GHA hosted runner and covers
-  # Dockerfile build + bats smoke).
+  # M1 hosted-unit gate (ADR-0017 section 7, isaac#130). The hosted unit
+  # suite needs no Isaac runtime and no GPU: assert_pytest_baseline.sh runs it
+  # in a plain slim-python container (docker run), so this gate lives on
+  # ubuntu-latest instead of the single self-hosted GPU runner. That frees the
+  # GPU box to do only GPU work (gpu-integration below) and lets the two run in
+  # parallel -- previously both were one serial job pinned to the GPU runner.
+  # Outside-collaborator PRs do NOT auto-trigger -- the org-level "Approval for
+  # outside collaborators" gate holds them until a maintainer approves. This job
+  # needs no fork gate of its own: ubuntu-latest runners are ephemeral and
+  # GitHub-hosted, so untrusted code there costs nothing of ours.
+  hosted-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # The four READMEs' producer version table is generated, not written.
+      # They carried `:0.0.1` for as long as `:0.0.2` existed, which is what a
+      # hand-maintained table about "which Isaac Sim am I running" degrades
+      # into. This fails the build instead of letting a reader find out.
+      - name: Producer version table is current
+        run: python3 script/ci/sync_producer_versions.py --check
+
+      # Enforces all-green + collected >= the committed baseline (ratchet) +
+      # framework pure-surface coverage >= 80%. This is the M1 acceptance floor.
+      - name: Hosted unit pytest + baseline + coverage gate
+        run: ./test/assert_pytest_baseline.sh
+
+  # M2 GPU integration gate (PRD #4-int / isaac#132): boots headless Isaac for
+  # real on the self-hosted GPU runner (Kit refuses to boot without an NVIDIA
+  # GPU runtime). needs: hosted-unit so a fast M1 failure skips the expensive
+  # GPU run; it does NOT need call-docker-build (it builds its own devel-test
+  # image locally, warm-cached on the runner). The --gpu gate reads the
+  # HOSTED_UNIT baseline NUMBER (it does not re-run the hosted suite).
   #
   # Fork-PR safety: this job is *structurally* gated to same-repo refs
   # (push / workflow_dispatch / PRs whose head is THIS repo), so a forked
@@ -51,7 +80,8 @@ jobs:
   # dispatches onto the fork owner's runner, never this host. See the
   # ycpss91255-docker/github_runner security model for the host-side
   # rationale (runner user is in the docker group == root-equivalent).
-  python-tests:
+  gpu-integration:
+    needs: hosted-unit
     # Non-PR events (push / tag / workflow_dispatch) always run; PR events
     # run only when the PR head repo IS this repo (a collaborator branch),
     # never a fork. Keeps untrusted fork code off the self-hosted GPU host.
@@ -81,14 +111,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
-
-      # M1 stage gate (ADR-0017 section 7, isaac#130): hosted unit pytest
-      # needs no Isaac runtime and no GPU, so it runs in a plain Python
-      # container and gates every PR. The script enforces all-green +
-      # collected >= the committed baseline (ratchet) + framework
-      # pure-surface coverage >= 80%. This is the M1 acceptance floor.
-      - name: Hosted unit pytest + baseline + coverage gate
-        run: ./test/assert_pytest_baseline.sh
 
       # base detect_ws_path mis-detects the self-CI _work/<repo>/<repo>
       # layout: none of its strategies (docker_* sibling, *_ws ancestor)
@@ -147,11 +169,20 @@ jobs:
       # ros:humble siblings keep publishing /cmd_vel -- cannot bleed into
       # io.latest(). See the env-wrapper note in assert_pytest_baseline.sh.
       - name: GPU integration pytest + aggregate gate (M2)
+        env:
+          # Per-run-unique compose project so run.sh's EXIT-trap _app_cleanup
+          # (project-wide `compose down --remove-orphans`) can never reap a
+          # co-hosted manual stream stack on this shared GPU host (owv#55).
+          # base v0.42.0 removed --instance (base#666); the isolation seam is
+          # now a distinct PROJECT_NAME the script pins in .env.generated.
+          # Follows base's self-test.yaml convention -- run_id + run_attempt
+          # (NOT sha/job): stable across a job's steps, unique per re-run.
+          BASELINE_PROJECT: isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}
         run: GPU_ROS_DOMAIN_ID="$(( (GITHUB_RUN_ID % 99) + 1 ))" ./test/assert_pytest_baseline.sh --gpu
 
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.41.0
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.42.0
     with:
       archive_name_prefix: docker

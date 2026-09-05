@@ -362,6 +362,11 @@ Framework tests living in this repo is therefore a **continuation** of ADR-0013'
 not a violation of it. The `test/<category>/<tool>/` sublayer decision is untouched and
 remains the layout for the converged repo. Recorded as an Update section in ADR-0013.
 
+> **Narrowed (2026-08-26, ADR-0022).** "The sublayer decision is untouched" now holds for the
+> pytest layers only. The base v0.42.0 subtree (isaac#246) moves the bats smoke layer to base's
+> canonical `test/bats/smoke/` (tool-first); pytest unit / integration stay category-first. See
+> ADR-0022.
+
 ## Amendment: ADR-0012
 
 The research -> docker monorepo merge (#78) already undid the research/docker split for the
@@ -437,3 +442,23 @@ the grill record: ADR-0018 + PRD.
   appended), 0009 (lifecycle pattern carried forward), 0011 (CI split — the 4-bucket
   allocation this test contract rides on), 0014 (stage taxonomy — `headless` for GPU CI,
   orthogonal), 0016 (per-instance bring-up, unaffected).
+
+## Update (2026-08-28) -- superseded/amended by the 6.0.1 migration (isaac#247, isaac#248)
+
+The base-image and base-tool pins recorded above (`nvcr.io/nvidia/isaac-sim:5.1.0`, Isaac Lab
+pinned to 2.3, Kit Python 3.11) are superseded by the Isaac Sim 5.1.0 -> 6.0.1 migration. The
+convergence contract itself (base tools baked + pinned, framework mounted + git-commit
+versioned; the module set and API contract) is UNCHANGED -- only the concrete versions move:
+
+- **Base image**: `nvcr.io/nvidia/isaac-sim:5.1.0` -> `nvcr.io/nvidia/isaac-sim:6.0.1`.
+- **Kit interpreter**: Python 3.11 -> **3.12**.
+- **Isaac Lab base-tool pin**: 2.3 (`v2.3.2`) -> **`v3.0.0-beta2.patch1`**, still baked via a
+  Dockerfile layer against the bundled Isaac Sim binary. torch is now explicitly installed
+  (torch 2.11 + cu128) because 6.0.1's bundled torch is deprecated/broken. See ADR-0018 and
+  ADR-0020 for the API-level effects of the Isaac Lab 3.0 bump.
+
+**Driver decision (why this migration exists).** Isaac Sim 5.1 required the NVIDIA 580.x driver
+line and segfaulted on driver 610; the self-hosted GPU runner had moved to 610. Isaac Sim 6.0.1
+runs on driver 610 (and keeps the published 580.95.05+ minimum). The migration was done
+specifically so the runner stays on 610 rather than being pinned back to 580.x. All 31 GPU
+integration tests are green on 6.0.1 / driver 610.

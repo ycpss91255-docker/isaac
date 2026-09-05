@@ -10,10 +10,18 @@
 #   2. starts the web-viewer :runtime container (stream-only) on the
 #      default WebRTC signaling + serve ports.
 #
-# Single-sim only: same-repo multi-instance was removed (ADR-0019; the
-# design is preserved in multi_run#15 and base keeps the `--instance`
-# primitive, base #465). The Isaac container is the default
-# ${USER_NAME}-${IMAGE_NAME}-stream and the viewer is `owv`.
+# Naming: the Isaac container is ${USER_NAME}-${IMAGE_NAME}-stream and the
+# viewer is the symmetric ${USER_NAME}-${IMAGE_NAME}-owv, so two isolated
+# stacks on one host no longer share a viewer name (#237). base v0.42.0
+# removed the --instance primitive / INSTANCE_SUFFIX (base#666); isolation is
+# now the resolved PROJECT_NAME. The viewer carries an isaac-owned suffix
+# derived from PROJECT_NAME (empty for the default project
+# ${DOCKER_HUB_USER}-${IMAGE_NAME}, reproducing today's exact name; a per-
+# project tag otherwise) so co-hosted stacks get distinct viewer names. The
+# Isaac stream container is base-fixed by compose.yaml (container_name, no
+# suffix), so the docker cp/exec target is that fixed name -- the residual
+# co-host collision on it is filed upstream as base#920 (fail-loud, not a
+# silent reap: project-scoped teardown still cannot cross projects).
 #
 # It does NOT launch Isaac Sim: that stays an explicit `exec` step
 # (driver or runheadless), matching the documented stream flow and
@@ -50,8 +58,21 @@ USER_NAME=""; IMAGE_NAME="isaac"
 # shellcheck source=/dev/null
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
+# Viewer suffix derived from the resolved compose project (replaces base's
+# removed INSTANCE_SUFFIX, base#666): empty when PROJECT_NAME is the default
+# ${DOCKER_HUB_USER}-${IMAGE_NAME} (byte-identical to today's names) or unset,
+# "-<remainder>" for any distinct project so co-hosted stacks get distinct
+# viewer names.
+_default_project="${DOCKER_HUB_USER:-local}-${IMAGE_NAME}"
+if [ -n "${PROJECT_NAME:-}" ] && [ "${PROJECT_NAME}" != "${_default_project}" ]; then
+  _viewer_suffix="-${PROJECT_NAME#"${_default_project}-"}"
+else
+  _viewer_suffix=""
+fi
+# Isaac stream container: base-fixed name (compose.yaml container_name, no
+# suffix). Viewer: isaac-owned, per-project.
 isaac_container="${USER_NAME}-${IMAGE_NAME}-stream"
-wv_container="owv"
+wv_container="${USER_NAME}-${IMAGE_NAME}-owv${_viewer_suffix}"
 wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"
 
@@ -63,26 +84,62 @@ _docker() {
   fi
 }
 
+# Shared host.yaml parser (public_ip + livestream port resolvers). Sourced
+# unconditionally: the resolvers no-op (empty, rc 0) on an absent file, so
+# the omit path reproduces today's defaults (#231).
+# shellcheck source=/dev/null
+. "${HOST_YAML_LIB:-${repo_root}/script/host_yaml.sh}"
+
 # 1. host.yaml -> Isaac container (validate on the host first; abort on garbage).
 hy_mount=()
 if [ -f "${host_yaml}" ]; then
-  # shellcheck source=/dev/null
-  . "${HOST_YAML_LIB:-${repo_root}/script/host_yaml.sh}"
   resolve_public_ip "${host_yaml}" >/dev/null || exit 1
   _docker cp "${host_yaml}" "${isaac_container}:/etc/host.yaml"
   hy_mount=(-v "${host_yaml}:/etc/host.yaml:ro")
 fi
 
-# 2. web-viewer (idempotent: drop a stale container first).
+# 2. Resolve the livestream ports from host.yaml (#231). Empty == omitted;
+# a present-but-invalid value aborts. Omitting any key reproduces today's
+# exact behavior: signal -> Kit default 49100 (which the viewer is told),
+# media -> not pinned (viewer negotiates via SDP), serve -> viewer default
+# 5173, api -> Kit default HTTP port.
+port_signal="$(resolve_port "${host_yaml}" signal)" || exit 1
+port_media="$(resolve_port "${host_yaml}" media)"   || exit 1
+port_serve="$(resolve_port "${host_yaml}" serve)"   || exit 1
+port_api="$(resolve_port "${host_yaml}" api)"       || exit 1
+
+# 3. Isaac container ports. The stream container is already running and
+# runheadless-host-config.sh is launched later by a separate `exec` step
+# (it reads ISAAC_*_PORT from env, unchanged). So the set ports are handed
+# off as an env file the launch step sources; only keys that are set are
+# written, and when none are set no file is copied at all (exact current
+# behavior -- Kit falls back to its own defaults).
+isaac_env=()
+if [ -n "${port_signal}" ]; then isaac_env+=("ISAAC_SIGNAL_PORT=${port_signal}"); fi
+if [ -n "${port_media}" ];  then isaac_env+=("ISAAC_MEDIA_PORT=${port_media}"); fi
+if [ -n "${port_api}" ];    then isaac_env+=("ISAAC_API_PORT=${port_api}"); fi
+if [ "${#isaac_env[@]}" -gt 0 ] && [ -f "${host_yaml}" ]; then
+  isaac_env_file="$(mktemp)"
+  printf '%s\n' "${isaac_env[@]}" > "${isaac_env_file}"
+  _docker cp "${isaac_env_file}" "${isaac_container}:/etc/isaac/livestream-ports.env"
+  rm -f "${isaac_env_file}"
+fi
+
+# 4. web-viewer (idempotent: drop a stale container first). Ports come from
+# host.yaml with the documented omit-fallbacks; MEDIA_PORT is passed only
+# when pinned (closes the un-wired media link, PRD-viewer-architecture:94).
 if [ "${POST_RUN_DRYRUN:-0}" = "1" ]; then
   printf 'docker rm -f %s\n' "${wv_container}"
 else
   docker rm -f "${wv_container}" >/dev/null 2>&1 || true
 fi
 
+viewer_env=(-e "SIGNALING_PORT=${port_signal:-49100}" -e "SERVE_PORT=${port_serve:-5173}")
+if [ -n "${port_media}" ]; then viewer_env+=(-e "MEDIA_PORT=${port_media}"); fi
+
 _docker run --rm -d --name "${wv_container}" --network=host \
   ${hy_mount[@]+"${hy_mount[@]}"} \
-  -e "SIGNALING_PORT=49100" -e "SERVE_PORT=5173" \
+  "${viewer_env[@]}" \
   -e "VIEWER_UI_MODE=stream-only" \
   "${wv_image}"
 

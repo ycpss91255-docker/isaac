@@ -1,4 +1,4 @@
-# Dockerfile - Isaac Sim 5.1.0 dev container (rebased onto base v0.28.0
+# Dockerfile - Isaac Sim 6.0.1 dev container (rebased onto base v0.28.0
 # Dockerfile.example baseline; isaac-specific additions layered on top).
 #
 # Upstream baseline: .base/dockerfile/Dockerfile.example (subtree pinned
@@ -35,10 +35,11 @@
 # `devel-base` / `devel-test` here). They will be removed from the
 # blocklist in a future major.
 
-ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
+ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:6.0.1"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE} AS sys
 
 ARG USER_NAME="user"
@@ -49,7 +50,7 @@ ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
 ARG DEBIAN_FRONTEND=noninteractive
 
-# [isaac] Isaac Sim 5.1.0 base image ships with a non-root default user
+# [isaac] Isaac Sim 6.0.1 base image ships with a non-root default user
 # (isaac-sim, UID 1234); switch to root so the system-setup steps below
 # (apt, locale-gen, useradd) have permission. devel stage drops back to
 # USER_NAME at the end. DL3002 false-positive is acknowledged upstream
@@ -143,11 +144,12 @@ ARG CONFIG_SRC="config"
 # (driver). Installed against the bundled Isaac Sim binary via the
 # documented _isaac_sim symlink, into /isaac-sim's Python, so every stage
 # deriving from devel (headless / stream / devel-test) has it. Pinned to a
-# 2.3 tag (built on Isaac Sim 5.1, Python 3.11 -- NVIDIA's recommended
+# 2.3 tag (built on Isaac Sim 5.1, Python 3.12 -- NVIDIA's recommended
 # pairing). Kept early in devel so day-to-day config / app COPY changes
 # below do not invalidate this large layer. The framework (isaac_devkit)
 # stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
-# framework mounted).
+# framework mounted). Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab
+# pairing for Isaac Sim 6.0.0 / 6.0.1 (Isaac Lab 3.0 Beta 2, Python 3.12).
 #
 # RL learning frameworks (rl_games / rsl_rl / sb3 / skrl / robomimic) are
 # NOT installed yet (`--install none` below): the current product is
@@ -164,21 +166,38 @@ ARG CONFIG_SRC="config"
 #
 #     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
 #
-# Pinned to v2.3.0 (NOT the latest 2.3.x) on purpose. Isaac Lab PR #4000
-# (merged 2025-12-02, first shipped in v2.3.1/v2.3.2) made UrdfConverter
-# hard-enable the URDF importer extension "isaacsim.asset.importer.urdf-2.4.31"
-# and call ImportConfig.set_merge_fixed_ignore_inertia(). Isaac Sim 5.1.0
-# bundles importer 2.4.30, and the offline GPU runner cannot reach the Kit
-# extension registry to fetch 2.4.31 -- so the enable fails and the call
-# raises AttributeError ("ImportConfig has no attribute
-# set_merge_fixed_ignore_inertia"), leaving model_import unable to emit a USD.
-# v2.3.0 predates #4000: it enables the bundled importer generically and
-# never calls the missing method, so URDF->USD conversion works against the
-# 2.4.30 importer that ships in isaac-sim:5.1.0. Patching v2.3.2 to skip the
-# call would just fall back to 2.4.30 anyway -- same result, extra vendored
-# hackery. Bump back to >= v2.3.2 once an isaac-sim image bundles importer
-# 2.4.31 (no 5.1.x patch exists yet; 6.0 is a separate major migration).
-ARG ISAACLAB_VERSION="v2.3.0"
+# Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab pairing for Isaac
+# Sim 6.0.1 (Isaac Lab 3.0 Beta 2; IsaacSim#655 GA + IsaacLab compat
+# matrix). Bumped from the 5.1-line v2.3.2 as part of the 6.0.1 upgrade.
+#
+# [round 2 -- torch] Isaac Sim 6.0.1 DEPRECATED its bundled PyTorch: the
+# 2.11.0+cu128 wheel now lives under /isaac-sim/extsDeprecated/
+# omni.isaac.ml_archive/pip_prebundle and is NOT on python.sh's default
+# sys.path (Isaac Sim now prints "pip install torch" and expects a
+# USER-installed torch). Isaac Lab pulls torch hard, so leaving install
+# resolution to isaaclab.sh let it drag in a torch whose bundled
+# nvidia-nccl-cu12 predates ncclCommShrink (added in NCCL 2.28); the
+# deprecated 2.11 libtorch_cuda.so then failed to load with
+# "undefined symbol: ncclCommShrink" and Kit boot aborted with
+# "PyTorch (torch) dependency is not installed/enabled" (round-1 GPU run:
+# 29/31 integration tests down from this single cause). Fix: install one
+# canonical torch (2.11.0+cu128, matching the deprecated bundle and Isaac
+# Lab 3.0's `torch>=2.10` + download.pytorch.org/whl/cu128 pin) into
+# /isaac-sim's python BEFORE isaaclab.sh runs (RUN below), so the nccl
+# 2.28.9 that ships with that wheel is the one on the path. cu128 wheels
+# carry sm_120 (Blackwell / RTX 5090) kernels -- verified
+# torch.cuda.get_arch_list() includes sm_120 and a GPU matmul runs.
+#
+# NOTE (URDF importer, deferred to a later round): the 5.1 line needed a
+# boot-time experience pin ("isaacsim.asset.importer.urdf-2.4.31", ADR-0020
+# decision 4 / #177) because 5.1 bundled the older 2.4.30 importer that
+# lacked set_merge_fixed_ignore_inertia(). Isaac Sim 6.0.1 instead bundles
+# isaacsim.asset.importer.urdf-3.11.2, and Isaac Lab 3.0's own
+# isaaclab.python.kit experience targets that line -- so the 2.4.31 pin in
+# framework/isaac_devkit/model_import.py (_simulation_app_kwargs) is now
+# stale. It is left as-is here because it does NOT block torch import / Kit
+# boot; the URDF-import path is revisited in a dedicated round.
+ARG ISAACLAB_VERSION="v3.0.0-beta2.patch1"
 # Two build-env quirks are worked around here:
 #   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
 #      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
@@ -192,6 +211,19 @@ ARG ISAACLAB_VERSION="v2.3.0"
 #      never installs (`pip show isaaclab` then fails the build). PIP_CONSTRAINT
 #      pins setuptools < 80 (still ships pkg_resources) for every install AND
 #      the isolated build envs (pip >= 22.1 applies constraints to build deps).
+# [isaac round 2] Install the canonical PyTorch FIRST (see the torch note
+# above). Isaac Sim 6.0.1 no longer ships an importable torch on the
+# default path, and Isaac Lab depends on it hard. Pinning torch==2.11.0
+# from the cu128 index here -- before isaaclab.sh --install -- makes
+# isaaclab.sh see `torch>=2.10` already satisfied and leaves the matching
+# nvidia-nccl-cu12 2.28.9 (which HAS ncclCommShrink) as the one on the
+# path, avoiding the round-1 "undefined symbol: ncclCommShrink" boot
+# abort. cu128 wheels include sm_120 (RTX 5090) kernels. Baked in `devel`
+# so every derived stage (headless / stream / devel-test) inherits it.
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
+        "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128 && \
+    /isaac-sim/python.sh -c "import torch; assert torch.cuda.is_available() is not None; print('torch', torch.__version__)"
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
     git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
@@ -205,6 +237,14 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# xacro: the offline URDF preprocess (isaac_devkit.model_import,
+# ADR-0020 decision 6, isaac#169) expands a .xacro input to plain URDF
+# before the Isaac importer runs. The standalone PyPI 'xacro' package is
+# pure Python and expands without a live ROS environment (xacro.process_file).
+# Installed into the Isaac python so the offline commit step
+# (/isaac-sim/python.sh -m isaac_devkit.model_import) can import it.
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir xacro
+
 # Add your application-specific packages here
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
@@ -216,7 +256,7 @@ RUN apt-get update && \
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Layer 1: .base/config/ defaults (subtree-managed, updates with
 # .base/upgrade.sh).
-COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/dist/config "${CONFIG_DIR}"
 # Layer 2: <repo>/config/ overrides (per-repo, survives subtree pull).
 # Files here overlay matching paths from layer 1.
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 "${CONFIG_SRC}" "${CONFIG_DIR}"
@@ -255,7 +295,7 @@ RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
 # /etc/isaac/ros-distro at every container start, hard-baking against
 # runtime override.
 ENV ROS_DISTRO=${ROS_DISTRO} \
-    LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib
+    LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/${ROS_DISTRO}/lib
 
 # [isaac] ENTRYPOINT shim for headless / stream stages: re-reads
 # /etc/isaac/ros-distro and unconditionally exports ROS_DISTRO +
@@ -327,6 +367,7 @@ CMD ["bash"]
 
 ############################## devel-test ##############################
 # Resolves to test-tools:local (local build.sh) or ghcr.io/.../test-tools:vX.Y.Z (CI).
+# hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
@@ -355,9 +396,9 @@ COPY script/*.sh /lint/script/
 # and all libs consolidated under script/docker/lib/. _lib.sh, i18n.sh,
 # _tui_conf.sh are now under lib/. Preserve the lib/ subdirectory in
 # /lint/ so the source paths inside _lib.sh resolve identically to the
-# normal .base/ layout. The `COPY .base/script/docker/lib /lint/lib`
+# normal .base/ layout. The `COPY .base/dist/script/docker/lib /lint/lib`
 # below brings ALL of these in one shot.
-COPY .base/script/docker/lib /lint/lib
+COPY .base/dist/script/docker/lib /lint/lib
 # Lint coverage for repo-local Dockerfile-internal build helpers
 # (base #275). Uncomment if your repo has any <repo>/script/docker/*.sh
 # build helpers (see the commented example in the devel stage above);
@@ -369,7 +410,13 @@ RUN shellcheck -S warning /lint/*.sh /lint/lib/*.sh
 # (nested, so the flat /lint/*.sh glob above misses them). Lint them here.
 COPY script/hooks /lint/hooks
 RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
-RUN cd /lint && hadolint Dockerfile
+# [#233] Host-side CI drivers (script/ci/) are likewise missed by the flat
+# /lint/*.sh glob. The whole dir is copied so `-x` can follow
+# stream_smoke.sh -> stream_smoke_lib.sh.
+COPY script/ci /lint/ci
+RUN shellcheck -S warning -x /lint/ci/*.sh
+WORKDIR /lint
+RUN hadolint Dockerfile
 
 # [isaac] Python testing toolkit (pytest + common deps). Installed into
 # Isaac Sim's bundled Python (/isaac-sim/python.sh) because PEP 668
@@ -387,14 +434,29 @@ RUN ln -sf /opt/bats/bin/bats /usr/local/bin/bats
 
 ENV BATS_LIB_PATH="/usr/lib/bats"
 
-# Smoke test (shared from base + repo-specific). Repo-local .bats
-# files live under test/smoke/bats/ per isaac#64 (separating tool
-# layers under test/<category>/<tool>/), so future Python smoke tests
-# under test/smoke/pytest/ do not collide with bats discovery.
-COPY .base/test/smoke/ /smoke_test/
-COPY test/smoke/bats/ /smoke_test/
+# Smoke test (shared from base + repo-specific). base v0.42.0 ships its
+# smoke templates under the canonical tool-first layout
+# .base/dist/test/bats/smoke/{shared,devel-test,runtime-test}/ (base#650 /
+# base#835). Repo-local .bats files move to the matching test/bats/smoke/
+# (base's canonical consumer layout; this is what release-worker.yaml's
+# archive keep-list expects). Selective COPY of base's shared baseline +
+# the devel-test stage specs, then the repo's own smoke specs, flattened
+# into /smoke_test/ for `bats /smoke_test/` (see .base/doc/test/smoke.md).
+COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
+COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
+COPY test/bats/smoke/ /smoke_test/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
+# [#233] Tier A stream-smoke decision logic (client-connect sequence +
+# dwell/liveness assertions), baked next to stream_smoke_lib_spec.bats.
+COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
+# [owv#55] The Tier A GPU driver itself, baked next to
+# stream_smoke_isolation_spec.bats so the spec can exercise its compose-
+# project isolation (distinct PROJECT_NAME bring-up + project-scoped
+# teardown; base v0.42.0 removed --instance, base#666) against stub
+# run.sh / docker -- behavioral, no docker, no GPU. The GPU path stays
+# host-side and nightly-only (stream-smoke.yaml).
+COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
 # inside their post dir, so they are baked under distinct flat names that
@@ -404,11 +466,25 @@ COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 COPY --chmod=0755 script/runheadless-host-config.sh /smoke_test/runheadless-host-config.sh
 COPY --chmod=0755 script/hooks/post/run.sh /smoke_test/post_run_hook.sh
 COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
+# [owv#55] The GPU-pytest baseline gate, baked next to
+# assert_pytest_baseline_isolation_spec.bats so the spec can exercise its
+# --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
+COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_baseline.sh
 
-ARG USER
+ARG USER="${USER_NAME}"
 USER "${USER}"
 
 RUN bats /smoke_test/
+
+# Restore the runtime working directory to the workspace mount. The
+# hadolint step above uses `WORKDIR /lint` (base v0.42.0's declarative
+# migration of `cd /lint && hadolint`, avoiding hadolint DL3003), but
+# that WORKDIR persists into the image -- leaving the devel-test runtime
+# CWD at /lint. `./script/run.sh -t test -- ... pytest test/integration/
+# pytest/` passes a workspace-relative path, so a /lint CWD makes pytest
+# collect 0 items ("rootdir: /lint"). Reset to ${HOME}/work (the bind
+# mount target, same as the devel stage) so relative test paths resolve.
+WORKDIR "${HOME}/work"
 
 # [isaac #127] Idle on startup so the `test` compose service survives
 # `compose up -d` and `./script/run.sh -t test -- <cmd>` (up -d + exec)
@@ -450,6 +526,54 @@ FROM devel AS stream
 
 ENV ISAAC_LIVESTREAM=2
 CMD ["sleep", "infinity"]
+
+############################## producer ##############################
+# [isaac #223 / owv#48 / #173] Deterministic WebRTC stream-source producer.
+# Published as a pullable, pinned GHCR image
+# (ghcr.io/ycpss91255-docker/isaac-stream-source:<tag>, via
+# .github/workflows/publish-stream-source.yaml) so the omniverse_web_viewer
+# visual e2e (owv#48) and the Tier B browser-frames smoke (isaac#173) always
+# have a real, reproducible WebRTC source without a live desktop Isaac
+# session. Unlike the headless / stream stages (which idle and have driver
+# scripts exec'd in from the bind-mounted workspace), this stage BAKES its
+# driver and boots it directly, so `docker run --network=host -e
+# PUBLIC_IP=<ip> <image>` launches a running producer with no volume mount.
+#
+# src/ is not carried by any base stage (it is bind-mounted at runtime for
+# the devel / headless / stream stages), so the single driver file is COPY'd
+# in explicitly here. COPY writes as the builder (not the image USER), so it
+# lands root-owned 0644 (world-readable) under /opt without a USER switch;
+# /isaac-sim/python.sh reads it fine. The driver reads PUBLIC_IP /
+# ISAAC_SIGNAL_PORT from env (its argparse defaults); ISAAC_LIVESTREAM=2 is
+# inherited from the stream stage.
+FROM stream AS producer
+
+# What this image is, in the image, so nobody has to run an 18 GB container to
+# find out (isaac#252 aftermath). The version tag deliberately does NOT encode
+# the Isaac Sim version -- it just increments -- so the base image is recorded
+# here instead, where it cannot drift from what was actually built.
+#
+#   docker inspect <image> \
+#     --format '{{index .Config.Labels "org.opencontainers.image.base.name"}}'
+#
+# script/ci/sync_producer_versions.py reads exactly this label, from the
+# registry and without pulling, to regenerate the READMEs' version table.
+# `org.opencontainers.image.*` are the OCI-specified keys; MAINTAINER is the
+# deprecated instruction these replaced.
+ARG BASE_IMAGE
+ARG GIT_SHA="unknown"
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.source="https://github.com/ycpss91255-docker/isaac"
+LABEL org.opencontainers.image.description="Deterministic WebRTC stream-source producer for downstream viewer e2e (isaac#223)"
+
+COPY --chmod=0644 src/script/stream_source_producer.py \
+     /opt/isaac-producer/stream_source_producer.py
+
+ENV PUBLIC_IP="" \
+    ISAAC_SIGNAL_PORT=49100
+
+CMD ["/isaac-sim/python.sh", "/opt/isaac-producer/stream_source_producer.py"]
 
 ############################## builder + runtime split (optional) ##############################
 # Three concrete stages for repos that need a separate runtime image

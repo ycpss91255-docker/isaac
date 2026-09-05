@@ -1,0 +1,97 @@
+name: Publish Stream-Source Producer (GHCR)
+
+# isaac#223: publish the deterministic WebRTC stream-source producer image
+# (the Dockerfile `producer` stage) to GHCR as a pullable, pinned tag, so
+# the omniverse_web_viewer visual e2e (owv#48) and the Tier B browser-frames
+# smoke (isaac#173) always have a real, reproducible WebRTC source.
+#
+# MANUAL ONLY. There is deliberately no push / tag trigger: the image must
+# publish only when the maintainer dispatches this workflow (issue #223
+# requires a pinned, immutable tag, not a `:latest` that moves on merge), so
+# nothing is pushed to GHCR as a side effect of merging to main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Immutable image tag to publish (e.g. 0.0.1)'
+        required: true
+        default: '0.0.3'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # GPU runner, and the reason is isaac#252. This job used to say "Hosted
+    # runner is fine ... No GPU needed -- Kit never boots at build time", and
+    # that was exactly the defect: a workflow that never boots Kit cannot
+    # discover that Kit will not stream. `:0.0.2` was built, pushed and
+    # consumed before anyone learned it bound no port. The image is now proven
+    # to stream on this runner BEFORE it is pushed, which needs a GPU.
+    runs-on: [self-hosted, gpu]
+    # One Kit on the GPU at a time, and never cancel mid-teardown.
+    concurrency:
+      group: isaac-publish-stream-source
+      cancel-in-progress: false
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Isaac Sim BASE_IMAGE is ~15 GB extracted; ubuntu-latest's ~14 GB free
+      # disk risks "no space left on device" during the BuildKit COPY of the
+      # base tree. Free the tool-cache first (mirrors main.yaml's
+      # free_disk_space, base#470).
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/share/boost "${AGENT_TOOLSDIRECTORY}" || true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # BUILD, do not push. Nothing leaves this runner until it has streamed.
+      - name: Build the producer image locally
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          target: producer
+          push: false
+          load: true
+          # Recorded in the image so the version table (and anyone holding the
+          # image) can answer "which Isaac Sim / which commit" without pulling.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
+
+      # THE GATE. Boots the image the way a consumer does and asserts it
+      # binds its signalling port and serves a client. No override, no
+      # continue-on-error: an image that cannot be proven to stream is
+      # precisely the image that must not be published (isaac#252).
+      - name: Prove the built image actually streams
+        timeout-minutes: 30
+        run: bash script/ci/producer_smoke.sh
+             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
+
+      - name: Upload producer log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: producer-smoke-log-${{ inputs.tag }}
+          path: .producer-smoke/
+          if-no-files-found: ignore
+
+      # Only now.
+      - name: Push the proven image
+        run: docker push
+             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}

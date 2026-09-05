@@ -1,0 +1,208 @@
+{
+  "issue": "isaac#94",
+  "adr": "ADR-0004 Model A-hybrid kinematic forklift block model",
+  "isaac_variant": "6.0.1",
+  "usd_asset": "/home/yunchien/work/worktree/isaac-revalidate-6.0.1/src/model/usd/robot/forklift_blocky/forklift_blocky.usda",
+  "steps": 2400,
+  "warmup_steps": 120,
+  "physics_dt": 0.016666666666666666,
+  "sim_seconds": 40.0,
+  "gravity": 9.81,
+  "forklift_cubes": [
+    "body",
+    "mast_lower",
+    "mast_upper",
+    "carriage",
+    "left_fork",
+    "right_fork"
+  ],
+  "clutter": [
+    {
+      "name": "light_a",
+      "role": "path",
+      "mass": 0.5
+    },
+    {
+      "name": "light_b",
+      "role": "path",
+      "mass": 0.5
+    },
+    {
+      "name": "medium_a",
+      "role": "path",
+      "mass": 5.0
+    },
+    {
+      "name": "heavy_backstop",
+      "role": "backstop",
+      "mass": 50.0
+    },
+    {
+      "name": "baffle_wall",
+      "role": "baffle",
+      "mass": 30.0
+    },
+    {
+      "name": "drop_a",
+      "role": "drop",
+      "mass": 2.0
+    },
+    {
+      "name": "drop_b",
+      "role": "drop",
+      "mass": 2.0
+    },
+    {
+      "name": "drop_c",
+      "role": "drop",
+      "mass": 1.0
+    }
+  ],
+  "drive_api": "physics tensor RigidBodyView.set_kinematic_targets (pos xyz + quat xyzw) per tick on each physics:kinematicEnabled forklift cube -> real PhysX kinematic target with solver velocity + World.step; RigidBodyView.get_transforms for read-back (all bodies)",
+  "metric": "per cube: max pos/ang tracking err (actual read-back vs commanded Rz(yaw)*rest_offset); chassis z/roll/pitch lock max deviation; nan on any body any tick; max |coord| over all bodies (explosion); per dynamic obstacle max speed + settle-window mean speed + displacement (finite-diff of read-back poses)",
+  "expectation_5_1_baseline": "cubes track ~0 m / ~0 deg (L2 kinematic exactness, ADR-0008 openbase migration 0.0000); z/roll/pitch locked through bumps; no NaN; coordinates bounded; dynamic neighbours settle (~0 m/s) by the end",
+  "cubes": [
+    {
+      "cube": "body",
+      "max_pos_track_err_m": 2.415799108779145e-07,
+      "mean_pos_track_err_m": 1.0131330824437133e-07,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    },
+    {
+      "cube": "mast_lower",
+      "max_pos_track_err_m": 2.597931113151946e-07,
+      "mean_pos_track_err_m": 9.880489622006314e-08,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    },
+    {
+      "cube": "mast_upper",
+      "max_pos_track_err_m": 2.597931113151946e-07,
+      "mean_pos_track_err_m": 9.880489622006314e-08,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    },
+    {
+      "cube": "carriage",
+      "max_pos_track_err_m": 2.6391637620816055e-07,
+      "mean_pos_track_err_m": 8.784958505746274e-08,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    },
+    {
+      "cube": "left_fork",
+      "max_pos_track_err_m": 2.578435231291383e-07,
+      "mean_pos_track_err_m": 1.0468262559369066e-07,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    },
+    {
+      "cube": "right_fork",
+      "max_pos_track_err_m": 2.582109300479121e-07,
+      "mean_pos_track_err_m": 9.242594965076179e-08,
+      "max_ang_track_err_deg": 3.4150945850063755e-06,
+      "tracks_exact": true
+    }
+  ],
+  "chassis_lock": {
+    "rest_body_z_m": 0.5,
+    "z_lock_max_dev_m": 0.0,
+    "roll_lock_max_dev_deg": 0.0,
+    "pitch_lock_max_dev_deg": 0.0,
+    "locked": true
+  },
+  "obstacles": [
+    {
+      "name": "Pallet",
+      "role": "pallet",
+      "max_speed_mps": 1.028765508313602,
+      "settle_mean_speed_mps": 2.95859300759683e-05,
+      "displacement_m": 4.805448871227783,
+      "final_z_m": 0.07499994337558746,
+      "settled": true
+    },
+    {
+      "name": "light_a",
+      "role": "path",
+      "max_speed_mps": 0.4242818365871234,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 0.3649740805141951,
+      "final_z_m": 0.10999992489814758,
+      "settled": true
+    },
+    {
+      "name": "light_b",
+      "role": "path",
+      "max_speed_mps": 0.3832889548729576,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 0.2991756770129641,
+      "final_z_m": 0.11000005900859833,
+      "settled": true
+    },
+    {
+      "name": "medium_a",
+      "role": "path",
+      "max_speed_mps": 7.329190325231265e-05,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 1.0186336136289e-06,
+      "final_z_m": 0.1599999964237213,
+      "settled": true
+    },
+    {
+      "name": "heavy_backstop",
+      "role": "backstop",
+      "max_speed_mps": 0.7982271619767636,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 0.34827755066656924,
+      "final_z_m": 0.3000001013278961,
+      "settled": true
+    },
+    {
+      "name": "baffle_wall",
+      "role": "baffle",
+      "max_speed_mps": 2.8666643296375275e-05,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 4.851710533862478e-07,
+      "final_z_m": 0.34999775886535645,
+      "settled": true
+    },
+    {
+      "name": "drop_a",
+      "role": "drop",
+      "max_speed_mps": 3.9150094985961914,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 0.833740875126508,
+      "final_z_m": 0.1499999314546585,
+      "settled": true
+    },
+    {
+      "name": "drop_b",
+      "role": "drop",
+      "max_speed_mps": 4.5116351544857025,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 1.0837496549889014,
+      "final_z_m": 0.15000002086162567,
+      "settled": true
+    },
+    {
+      "name": "drop_c",
+      "role": "drop",
+      "max_speed_mps": 3.613699972629547,
+      "settle_mean_speed_mps": 0.0,
+      "displacement_m": 0.7087408751272672,
+      "final_z_m": 0.12499995529651642,
+      "settled": true
+    }
+  ],
+  "nan_seen": false,
+  "explosion_max_abs_coord_m": 6.962604522705078,
+  "no_explosion": true,
+  "all_cubes_track_exact": true,
+  "all_obstacles_settled": true,
+  "stable": true,
+  "error": null,
+  "mp4": "/home/yunchien/work/doc/viz/modela_forklift.mp4",
+  "mp4_frames": 60,
+  "mp4_nonblack": 60
+}

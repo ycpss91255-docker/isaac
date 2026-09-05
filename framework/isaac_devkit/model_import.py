@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import a URDF into a single Isaac Lab instanceable USD.
+"""Import a URDF into a single Isaac Lab self-contained USD.
 
 Run inside the Isaac Sim 5.1 / Isaac Lab 2.3 container:
 
@@ -9,10 +9,10 @@ Run inside the Isaac Sim 5.1 / Isaac Lab 2.3 container:
         --output /home/yunchien/work/src/model/usd/robot/openbase/ \\
         --name openbase
 
-Output (ADR-0018 decision 6 -- a single instanceable USD):
+Output (ADR-0018 decision 6 -- a single self-contained USD):
 
     <output>/
-    └── <name>.usd      # Isaac-Lab-produced instanceable USD (the whole artifact)
+    └── <name>.usd      # Isaac-Lab-produced self-contained USD (the whole artifact)
 
 Re-import with ``--force`` regenerates ``<name>.usd`` cleanly. There is no
 longer a separate geometry / material / textures layout (the old "Asset
@@ -33,8 +33,18 @@ URDF -> USD conversion is delegated to Isaac Lab's
 ``isaaclab.sim.converters.UrdfConverterCfg`` / ``UrdfConverter``
 (ADR-0018 decision 6), which wraps the same
 ``isaacsim.asset.importer.urdf`` engine the legacy ``omni.kit.commands``
-path drove, while producing an instanceable USD (the format ADR-0018's
-deferred "C" scene cloning needs).
+path drove.
+
+Isaac Lab 3.0 output-model note (ADR-0018 decision 6, re-based): the 3.0
+URDF importer's default (``run_asset_transformer=True``) emits a DIRECTORY-
+structured *layered* asset (``<robot>/<robot>.usda`` + a ``payloads/``
+tree), not a single file. ``_convert_urdf`` sets ``run_asset_transformer=
+False`` so the importer saves the fully-composed, self-contained stage to a
+single file, then re-exports it to the canonical ``<name>.usd`` -- so the
+repo's single-USD contract holds. (Un-instancing on the
+``convex_decomposition`` path drops the instanceable wrapper ADR-0018's
+deferred "C" scene cloning wanted; that instanceable-format decision is a
+recalibration target once "C" lands.)
 """
 
 import argparse
@@ -46,10 +56,111 @@ import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import NamedTuple
 
+# Built-in collision approximations exposed by ``UrdfConverterCfg`` (ADR-0020
+# decision 2). ``"convex_hull"`` is Isaac Lab's default: the whole part's
+# convex hull, which fills in every concavity. ``"convex_decomposition"``
+# breaks the mesh into multiple convex pieces, preserving a concavity (e.g. the
+# gap between a forklift's forks). Neither is a full-resolution triangle-mesh
+# collider; full-mesh (static-only) and SDF colliders are out of scope (#167).
+#
+# The repo's public collider_type values (snake_case) stay stable; Isaac Lab
+# 3.0 renamed the cfg field ``collider_type`` -> ``collision_type`` and changed
+# its Literal values to title-case-with-spaces
+# (``isaaclab/sim/converters/urdf_converter_cfg.py:150`` in v3.0.0-beta2.patch1:
+# ``collision_type: Literal["Convex Hull", "Convex Decomposition",
+# "Bounding Sphere", "Bounding Cube"]``). ``_ISAACLAB_COLLISION_TYPE`` maps our
+# stable values onto the 3.0 field at construction time.
+#
+# A3 caveat: Isaac Lab 3.0's URDF importer consumes ``collision_type`` ONLY for
+# the opt-in ``collision_from_visuals`` path. For URDF ``<collision>`` MESH
+# geometry the underlying ``urdf_usd_converter`` hard-codes ``convexHull``
+# (``geometry.py:82``) and ``URDFImporter`` never forwards ``collision_type``
+# to it, so ``"convex_decomposition"`` has no effect at import time. We enforce
+# it with a post-import USD edit (``_author_convex_decomposition``).
+_COLLIDER_TYPES = ("convex_hull", "convex_decomposition")
+_DEFAULT_COLLIDER_TYPE = "convex_hull"
+_ISAACLAB_COLLISION_TYPE = {
+    "convex_hull": "Convex Hull",
+    "convex_decomposition": "Convex Decomposition",
+}
+
+# Isaac Lab's Kit experience file (cloned to /opt/IsaacLab in the image,
+# ADR-0018 decision 4 / 5). It pins the URDF importer extension
+# "isaacsim.asset.importer.urdf" to {version = "2.4.31", exact = true}
+# (Isaac Lab PR #4000, shipped in v2.3.1+). model_import boots its
+# SimulationApp with this experience so the converter loads the 2.4.31
+# importer (which restores merge_fixed_joints; ADR-0020 decision 4)
+# instead of the default Isaac Sim 5.1 experience, which loads the bundled
+# 2.4.30 importer FIRST and then makes the manager's swap to 2.4.31 a
+# constraint conflict ("isaacsim.asset.importer.urdf-2.4.31 is incompatible
+# with other constraints"). Pinning the experience means 2.4.30 is never
+# loaded, so UrdfConverter's enable of 2.4.31 resolves cleanly (the GPU
+# runner HAS network and fetches it from the Kit extension registry).
+# Overridable via ISAACLAB_KIT_EXPERIENCE for a non-default install path.
+_ISAACLAB_KIT_EXPERIENCE = "/opt/IsaacLab/apps/isaaclab.python.kit"
+
+# Isaac Sim 6.0.1's URDF importer imports ``newton_usd_schemas`` at load time,
+# but Isaac Lab 3.0's Kit experience excludes ``isaacsim.pip.newton``, so that
+# extension's ``pip_prebundle`` directory is never put on ``sys.path`` -- the
+# import then fails with ``ModuleNotFoundError`` and every URDF conversion dies
+# before it starts (issue #247). This directory holds the module.
+_NEWTON_PREBUNDLE = "/isaac-sim/exts/isaacsim.pip.newton/pip_prebundle"
+
+
+def _ensure_newton_usd_schemas_importable():
+    """Make ``newton_usd_schemas`` importable for the 6.0.1 URDF importer (#247).
+
+    Isaac Sim 6.0.1's URDF importer imports ``newton_usd_schemas`` on load, but
+    Isaac Lab 3.0's experience excludes ``isaacsim.pip.newton`` so the module is
+    not on ``sys.path`` -> ``ModuleNotFoundError`` -> all URDF imports fail. We
+    only need the *module* resolvable; we do NOT enable the Newton extension or
+    physics backend.
+
+    We APPEND (never prepend) the prebundle dir. That dir bundles ~20 packages
+    (mujoco, coacd, OpenGL, glfw, imgui_bundle, etils, absl, cbor2, numpy_stl,
+    ...); prepending would shadow the already-installed versions of those.
+    Appending lets existing installs win on name resolution while still letting
+    ``newton_usd_schemas`` (which nothing else provides) resolve. Defensive
+    no-op if the module already imports (e.g. a future image that ships it on
+    the path) or if the prebundle dir is absent (non-6.0.1 / hosted box).
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("newton_usd_schemas") is not None:
+        return
+    if os.path.isdir(_NEWTON_PREBUNDLE) and _NEWTON_PREBUNDLE not in sys.path:
+        sys.path.append(_NEWTON_PREBUNDLE)
+
+
+def _simulation_app_kwargs():
+    """SimulationApp kwargs that pin Isaac Lab's 2.4.31-importer experience.
+
+    Boots Kit with Isaac Lab's ``isaaclab.python.kit`` experience (which
+    pins ``isaacsim.asset.importer.urdf-2.4.31`` exact) instead of the
+    default Isaac Sim experience that pre-loads the bundled 2.4.30 importer
+    -- the pre-load is the root cause of the ``set_merge_fixed_ignore_inertia``
+    ``AttributeError`` (#177): with 2.4.30 already resolved, the manager
+    cannot swap to 2.4.31 and ``UrdfConverter`` runs against the older
+    importer that lacks the merge method.
+
+    The experience path is taken from ``ISAACLAB_KIT_EXPERIENCE`` if set,
+    else the baked default ``/opt/IsaacLab/apps/isaaclab.python.kit``. If
+    the file does not exist (e.g. a hosted/dev box with no Isaac Lab clone),
+    the experience key is omitted so ``SimulationApp`` falls back to its
+    default experience rather than failing on a missing file.
+    """
+    kwargs = {"headless": True}
+    experience = os.environ.get(
+        "ISAACLAB_KIT_EXPERIENCE", _ISAACLAB_KIT_EXPERIENCE
+    )
+    if experience and Path(experience).exists():
+        kwargs["experience"] = experience
+    return kwargs
+
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        description="Import a URDF into a single Isaac Lab instanceable USD.",
+        description="Import a URDF into a single Isaac Lab self-contained USD.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -82,6 +193,36 @@ def _parse_args():
         "--no-merge-fixed",
         action="store_true",
         help="Keep fixed-joint links separate (default: merge into rigid body).",
+    )
+    parser.add_argument(
+        "--collider-type",
+        choices=_COLLIDER_TYPES,
+        default=_DEFAULT_COLLIDER_TYPE,
+        help=(
+            "Collision approximation (ADR-0020 decision 2). Default "
+            "'convex_hull' fills concavities (the whole part's hull); a "
+            "concave part (e.g. forklift forks) must opt into "
+            "'convex_decomposition' (multiple convex pieces) or supply a "
+            "hand-authored simplified collision mesh. Importing the visual "
+            "mesh does NOT give full-resolution collision."
+        ),
+    )
+    parser.add_argument(
+        "--joint-drive-stiffness",
+        type=float,
+        default=None,
+        help=(
+            "Import-time default-drive position Kp (ADR-0020 decision 3). "
+            "Maps to UrdfConverterCfg.joint_drive=JointDriveCfg(position/"
+            "force). Must be paired with --joint-drive-damping; omit both "
+            "to keep the fixed-joint-safe joint_drive=None default."
+        ),
+    )
+    parser.add_argument(
+        "--joint-drive-damping",
+        type=float,
+        default=None,
+        help="Import-time default-drive velocity Kd (pairs with stiffness).",
     )
     return parser.parse_args()
 
@@ -125,9 +266,172 @@ def _ensure_dirs(paths):
 
 _PACKAGE_URI_RE = re.compile(r'filename="package://([^/]+)/([^"]+)"')
 
+# Heuristic threshold for the URDF units sanity check (#170, ADR-0020
+# decision 6). URDF carries NO units field -- it is meters by convention
+# (ROS REP-103). A hard "assert meters" is therefore impossible from
+# metadata, so this is a best-effort WARNING, not a hard failure.
+#
+# A mm-export looks like a metre-export with every length multiplied by
+# ~1000. We flag a URDF whose largest length magnitude (joint origin xyz,
+# box/cylinder/sphere geometry dims, or a <mesh scale="...">) exceeds this
+# threshold. 100.0 metres is chosen so a generously large real robot
+# (e.g. a 30 m gantry, or a few-metre forklift with margin) never trips
+# it, while an mm export of even a 10 cm part (0.1 m -> 100 mm == 100.0)
+# sits right at the boundary and a realistic robot (sub-metre to several
+# metres of geometry) in mm (hundreds to thousands) trips it cleanly. It
+# is a heuristic for a likely-mm export, not a precise unit detector.
+_UNIT_WARN_MAGNITUDE_M = 100.0
+
+
+def _check_urdf_units(urdf_path):
+    """Best-effort sanity check that a URDF looks like meters (REP-103).
+
+    URDF has no unit field; it is meters by convention (ROS REP-103).
+    A CAD exporter can silently emit millimetres, which produces a
+    wrongly-sized USD. The reference SolidWorks exporter emits meters,
+    so this guard is cheap insurance against a mis-exported URDF.
+
+    Because there is no metadata to assert against, this is a documented
+    HEURISTIC that emits a WARNING (it does not raise): if the largest
+    length magnitude in the model -- joint ``<origin xyz=...>``,
+    primitive ``<box>``/``<cylinder>``/``<sphere>`` dimensions, or a
+    ``<mesh scale=...>`` factor -- exceeds ``_UNIT_WARN_MAGNITUDE_M``
+    metres, the URDF is most likely a millimetre (or otherwise mis-scaled)
+    export. The threshold (100 m) is far above any plausible single robot
+    dimension in meters yet well below the hundreds/thousands a mm export
+    produces. The user normalizes units upstream if their exporter does
+    not emit meters.
+
+    Args:
+        urdf_path: Path to the (already xacro-expanded) URDF file.
+
+    Returns:
+        ``True`` if a likely-mm / mis-scaled magnitude was found and a
+        warning was emitted; ``False`` if the URDF looks like meters.
+    """
+    return _check_urdf_units_text(urdf_path.read_text())
+
+
+def _check_urdf_units_text(content):
+    """Units sanity check on URDF XML text; see ``_check_urdf_units``."""
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        # Malformed XML is the importer's problem to report, not the
+        # unit check's; do not mask it with a unit warning.
+        return False
+
+    max_mag = 0.0
+    worst = ""
+
+    def consider(values, label):
+        nonlocal max_mag, worst
+        for token in values:
+            try:
+                mag = abs(float(token))
+            except (TypeError, ValueError):
+                continue
+            if mag > max_mag:
+                max_mag = mag
+                worst = label
+
+    for origin in root.iter("origin"):
+        xyz = origin.get("xyz")
+        if xyz:
+            consider(xyz.split(), f"<origin xyz=\"{xyz}\">")
+    for box in root.iter("box"):
+        size = box.get("size")
+        if size:
+            consider(size.split(), f"<box size=\"{size}\">")
+    for cyl in root.iter("cylinder"):
+        consider([cyl.get("radius"), cyl.get("length")],
+                 "<cylinder radius/length>")
+    for sphere in root.iter("sphere"):
+        consider([sphere.get("radius")], "<sphere radius>")
+    for mesh in root.iter("mesh"):
+        scale = mesh.get("scale")
+        if scale:
+            consider(scale.split(), f"<mesh scale=\"{scale}\">")
+
+    if max_mag > _UNIT_WARN_MAGNITUDE_M:
+        print(
+            "  warning: URDF unit sanity check -- largest length magnitude "
+            f"{max_mag:g} (from {worst}) exceeds {_UNIT_WARN_MAGNITUDE_M:g} m; "
+            "URDF is assumed meters (REP-103) and this looks like a "
+            "millimetre or mis-scaled export. If your CAD exporter does not "
+            "emit meters, normalize units upstream before import.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+    return False
+
+
+def _is_xacro(urdf_path, content):
+    """Detect a xacro input by extension or by xacro namespace/tags.
+
+    A xacro URDF is either named ``*.xacro`` or carries the xacro XML
+    namespace (``xmlns:xacro=...``) / ``xacro:`` element prefixes. The
+    Isaac importer cannot read xacro, so a positive detection means the
+    preprocess must expand it to plain URDF first (#169).
+    """
+    if urdf_path.suffix == ".xacro" or urdf_path.name.endswith(".urdf.xacro"):
+        return True
+    return "xmlns:xacro" in content or "xacro:" in content
+
+
+def _expand_xacro(urdf_path):
+    """Expand a xacro URDF to plain-URDF text (offline, no ROS env).
+
+    Uses the standalone ``xacro`` PyPI package: ``xacro.process_file``
+    expands macros and properties without a live ROS environment
+    (verified in a plain ``python:3.11-slim`` container). Only declared
+    property/macro defaults are resolved -- runtime ROS launch args are
+    out of scope (#169); a passed ``mappings`` dict is the supported way
+    to override defaults, not a full ROS launch context.
+
+    Args:
+        urdf_path: Path to the ``.xacro`` (or xacro-tagged) URDF.
+
+    Returns:
+        Plain-URDF XML as a string, with all ``xacro:`` macros/properties
+        expanded.
+
+    Raises:
+        RuntimeError: If the ``xacro`` package is not importable, with an
+            actionable message (it is a pure-Python PyPI dep; install it
+            in the offline commit environment).
+    """
+    try:
+        import xacro
+    except ImportError as exc:
+        raise RuntimeError(
+            "xacro input detected but the 'xacro' package is not installed. "
+            "Install it in the offline commit environment "
+            "('pip install xacro'), or expand manually with "
+            f"'xacro {urdf_path} > expanded.urdf' before import."
+        ) from exc
+
+    doc = xacro.process_file(str(urdf_path))
+    return doc.toprettyxml(indent="  ")
+
 
 def _preprocess_urdf(urdf_path):
-    """Substitute package://<name>/<rel> URIs with absolute file paths.
+    """Expand xacro, sanity-check units, and resolve ``package://`` URIs.
+
+    The deterministic, offline cleanup of a CAD-exported URDF
+    (ADR-0020 decision 6), in order:
+
+    1. **xacro (#169)**: if the input is a xacro (``.xacro`` extension or
+       ``xmlns:xacro`` / ``xacro:`` tags), expand it to plain URDF first
+       -- the Isaac importer cannot read xacro. Expansion is standalone
+       (the ``xacro`` PyPI package, no live ROS).
+    2. **units (#170)**: a best-effort meters sanity check on the
+       expanded URDF (REP-103); a likely-mm / mis-scaled export emits a
+       WARNING (does not raise).
+    3. **``package://``**: substitute ``package://<name>/<rel>`` mesh URIs
+       with resolved file paths (DAE refs kept intact, ADR-0020
+       decision 1).
 
     Isaac Sim's URDF importer resolves package:// via ROS_PACKAGE_PATH,
     which is not set in our container. The URDFs in this repo use names
@@ -144,6 +448,16 @@ def _preprocess_urdf(urdf_path):
     """
     urdf_dir = urdf_path.parent
     content = urdf_path.read_text()
+
+    if _is_xacro(urdf_path, content):
+        print(f"  xacro input detected: expanding {urdf_path.name}",
+              flush=True)
+        content = _expand_xacro(urdf_path)
+
+    # Units sanity check (#170) runs on the expanded URDF, before the
+    # path substitution (which does not change any magnitudes).
+    _check_urdf_units_text(content)
+
     unresolved = []
 
     def resolve(match):
@@ -173,14 +487,270 @@ def _preprocess_urdf(urdf_path):
     return tmp
 
 
-def _convert_urdf(urdf_path, usd_path, *, fix_base, merge_fixed_joints):
-    """Convert a URDF to a single instanceable USD via Isaac Lab.
+def _validate_collider_type(collider_type):
+    """Validate a ``collider_type`` against the built-in approximations.
+
+    Pure (host-runnable): the plumbing guard that fails fast before any
+    Isaac import if a caller passes an unsupported collision approximation.
+    Only Isaac Lab's two built-ins are accepted (ADR-0020 decision 2);
+    full-resolution triangle-mesh and SDF colliders are out of scope (#167).
+
+    Args:
+        collider_type: One of ``"convex_hull"`` / ``"convex_decomposition"``.
+
+    Returns:
+        The validated ``collider_type`` unchanged.
+
+    Raises:
+        ValueError: If ``collider_type`` is not a built-in approximation.
+    """
+    if collider_type not in _COLLIDER_TYPES:
+        raise ValueError(
+            f"unsupported collider_type {collider_type!r}; expected one of "
+            f"{_COLLIDER_TYPES} (ADR-0020 decision 2; full-mesh / SDF "
+            "colliders are out of scope, #167)"
+        )
+    return collider_type
+
+
+def _resolve_joint_drive_gains(stiffness, damping):
+    """Normalize import-time joint-drive gains into a ``(stiffness, damping)``.
+
+    Pure (host-runnable): the scalar plumbing that maps a CLI / kwarg
+    stiffness+damping pair into the gains a ``JointDriveCfg`` needs, without
+    importing Isaac Lab. The actual ``JointDriveCfg`` is built function-local
+    in ``_build_joint_drive_cfg`` from this validated pair.
+
+    Both must be supplied together or both omitted: a position drive needs a
+    Kp (stiffness) and a Kd (damping). ``None`` for both means "no import-time
+    drive" -- the fixed-joint-safe default (ADR-0020 decision 3).
+
+    Args:
+        stiffness: Position-control Kp, or ``None`` for no drive.
+        damping: Velocity Kd, or ``None`` for no drive.
+
+    Returns:
+        ``None`` if both are ``None`` (no drive), else the validated
+        ``(stiffness, damping)`` float pair.
+
+    Raises:
+        ValueError: If exactly one of the two is supplied, or a supplied
+            gain is negative.
+    """
+    if stiffness is None and damping is None:
+        return None
+    if stiffness is None or damping is None:
+        raise ValueError(
+            "joint drive needs BOTH stiffness and damping (got "
+            f"stiffness={stiffness!r}, damping={damping!r}); supply both for "
+            "a position drive or neither for the fixed-joint-safe default"
+        )
+    stiffness = float(stiffness)
+    damping = float(damping)
+    if stiffness < 0.0 or damping < 0.0:
+        raise ValueError(
+            f"joint drive gains must be non-negative (got stiffness="
+            f"{stiffness}, damping={damping})"
+        )
+    return (stiffness, damping)
+
+
+def _build_joint_drive_cfg(stiffness, damping):
+    """Build an import-time ``JointDriveCfg`` from stiffness/damping scalars.
+
+    Returns ``None`` (the fixed-joint-safe default, ADR-0020 decision 3) when
+    both gains are ``None``. Otherwise maps the validated pair to::
+
+        JointDriveCfg(
+            gains=PDGainsCfg(stiffness=..., damping=...),
+            drive_type="force",
+            target_type="position",
+        )
+
+    a position drive in force mode -- the survey-confirmed import-time form
+    (#168). Deliberately does NOT use ``ImplicitActuatorCfg``: that needs a
+    constructed ``Articulation`` + a playing ``SimulationContext`` to reach
+    sim, re-introducing the #151 shutdown-hang surface.
+
+    The ``isaaclab`` import is function-local (ADR-0017 section 8); this
+    helper is therefore only callable inside a Kit-running context, while the
+    pure ``_resolve_joint_drive_gains`` validation stays host-runnable.
+
+    Args:
+        stiffness: Position Kp, or ``None`` for no drive.
+        damping: Velocity Kd, or ``None`` for no drive.
+
+    Returns:
+        A ``JointDriveCfg`` for a position drive, or ``None`` for no drive.
+    """
+    gains = _resolve_joint_drive_gains(stiffness, damping)
+    if gains is None:
+        return None
+    # JointDriveCfg / PDGainsCfg are NESTED configclasses on
+    # UrdfConverterCfg in Isaac Lab 3.0
+    # (UrdfConverterCfg.JointDriveCfg.PDGainsCfg), not module-top classes.
+    from isaaclab.sim.converters import UrdfConverterCfg
+
+    drive_cfg = UrdfConverterCfg.JointDriveCfg
+    return drive_cfg(
+        gains=drive_cfg.PDGainsCfg(stiffness=gains[0], damping=gains[1]),
+        drive_type="force",
+        target_type="position",
+    )
+
+
+def apply_joint_drive(
+    prim_path, stiffness, damping, *, drive_type="force", stage=None
+):
+    """Apply a per-joint drive to an already-imported joint prim (runtime).
+
+    The "set Kp/Kd on an existing joint" path the driver / scene adapter
+    calls after import. Delegates to Isaac Lab's
+    ``isaaclab.sim.schemas.modify_joint_drive_properties`` -- its typed
+    wrapper over ``UsdPhysics.DriveAPI`` (ADR-0020 decision 3 / #168 survey).
+    That function operates **stage-only**: it applies the ``DriveAPI`` to the
+    joint prim (auto-detecting the ``"angular"`` axis for a revolute joint /
+    ``"linear"`` for a prismatic one from the prim's USD type) and writes the
+    gains -- no ``Articulation``, no PhysX view, no ``SimulationContext``, so
+    it does NOT touch the #151 shutdown-hang surface. (Do NOT reach for
+    ``ImplicitActuatorCfg`` here: its gains only reach sim through
+    ``Articulation.write_joint_*_to_sim``, which needs a playing
+    ``SimulationContext``.)
+
+    The ``isaaclab`` import is function-local (ADR-0017 section 8): this
+    module still imports cleanly on a host without Isaac Sim.
+
+    NOTE: this CONFIGURES the drive (applies the DriveAPI + sets gains). A
+    joint physically reaching / holding a commanded target needs stepped
+    physics (a ``SimulationContext``, deferred #151) and is out of scope
+    here -- the structural "DriveAPI present with the right gains" check is
+    what is verified.
+
+    Return contract (why we re-read the prim instead of trusting the
+    delegate's return): ``modify_joint_drive_properties`` is wrapped by
+    Isaac Lab's ``@apply_nested`` decorator, whose wrapper returns ``None``
+    unconditionally -- it never propagates the inner function's success
+    bool (Isaac Lab ``sim/utils/prims.py``). Trusting that return therefore
+    always reads as falsy even on success. Instead we apply the drive and
+    then VERIFY by reading the joint prim's ``DriveAPI`` back from the stage,
+    returning that verified boolean. (``apply_nested`` also silently skips
+    prims inside an instanced/prototype subtree -- the joint prim must be a
+    defining prim, not an instance proxy, for the DriveAPI to land; the
+    read-back surfaces that case as ``False`` too.)
+
+    Stage binding (A4, Isaac Lab 3.0 API change): 3.0's ``get_current_stage``
+    reads a thread-local stage populated ONLY by ``sim_utils.use_stage(...)``
+    (``sim/utils/stage.py:496-524``); opening a stage on the ``omni.usd``
+    context (the driver / runner path) no longer populates it, so it returns
+    ``None`` and ``modify_joint_drive_properties`` crashes at
+    ``GetPrimAtPath`` on ``None`` (2.3 resolved the stage internally). We
+    resolve the stage explicitly -- caller-supplied, else ``get_current_stage``,
+    else the ``omni.usd`` context stage -- and pass it through both the modify
+    call and the read-back (mirroring the scene adapter's use_stage fix).
+
+    Args:
+        prim_path: USD prim path of the joint to drive. The angular /
+            linear DriveAPI axis is auto-detected from the prim's joint
+            type by Isaac Lab.
+        stiffness: Position-control Kp.
+        damping: Velocity Kd.
+        drive_type: ``UsdPhysics`` drive mode, ``"force"`` (default) or
+            ``"acceleration"`` -- how the joint effort is applied (NOT the
+            angular/linear axis, which is auto-detected).
+        stage: The ``Usd.Stage`` holding the joint prim. Defaults to
+            ``None``, in which case it is resolved from Isaac Lab's current
+            stage, then the ``omni.usd`` context stage.
+
+    Returns:
+        ``True`` when the ``DriveAPI`` is present on the joint prim after
+        the apply (verified by re-reading the prim from the resolved stage),
+        ``False`` otherwise (no stage, prim invalid, not a
+        revolute/prismatic joint, or skipped as an instance proxy).
+
+    Raises:
+        ValueError: If a gain is missing/negative (validated host-side
+            first).
+    """
+    gains = _resolve_joint_drive_gains(stiffness, damping)
+    if gains is None:
+        raise ValueError(
+            "apply_joint_drive needs both stiffness and damping"
+        )
+    from isaaclab.sim.schemas import (
+        JointDrivePropertiesCfg,
+        modify_joint_drive_properties,
+    )
+    from isaaclab.sim.utils import get_current_stage
+    from pxr import UsdPhysics
+
+    # Resolve the stage the 3.0 way (see docstring): caller arg, then Isaac
+    # Lab's thread-local current stage, then the omni.usd context stage.
+    if stage is None:
+        stage = get_current_stage()
+    if stage is None:
+        import omni.usd
+
+        stage = omni.usd.get_context().get_stage()
+    if stage is None:
+        return False
+
+    cfg = JointDrivePropertiesCfg(
+        drive_type=drive_type,
+        stiffness=gains[0],
+        damping=gains[1],
+    )
+    # modify_joint_drive_properties is @apply_nested-wrapped and returns
+    # None even on success (it does NOT forward the inner bool), so we
+    # cannot trust its return. It applies the DriveAPI itself when absent
+    # (it is "modify" but does DriveAPI.Apply when none exists), so a
+    # drive-less import is fine. Pass the resolved stage explicitly (3.0's
+    # get_current_stage would otherwise be None) and verify by read-back.
+    modify_joint_drive_properties(prim_path, cfg, stage=stage)
+
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim or not prim.IsValid():
+        return False
+    # The axis is angular for a revolute joint, linear for a prismatic one;
+    # Isaac Lab applies the matching named DriveAPI. Accept either so the
+    # helper works for both joint kinds without re-deriving the type.
+    for axis in ("angular", "linear"):
+        if prim.HasAPI(UsdPhysics.DriveAPI, axis):
+            return True
+    return False
+
+
+def _convert_urdf(
+    urdf_path,
+    usd_path,
+    *,
+    fix_base,
+    merge_fixed_joints,
+    collider_type=_DEFAULT_COLLIDER_TYPE,
+    joint_drive_stiffness=None,
+    joint_drive_damping=None,
+):
+    """Convert a URDF to a single self-contained USD via Isaac Lab.
 
     Preprocesses the URDF to resolve ``package://`` URIs, then delegates
     the conversion to ``isaaclab.sim.converters.UrdfConverterCfg`` /
     ``UrdfConverter`` (ADR-0018 decision 6) -- the same engine the legacy
     ``omni.kit.commands`` path drove, now via Isaac Lab's config-driven
-    interface, producing a single instanceable USD at ``usd_path``.
+    interface, producing a single self-contained USD at ``usd_path``.
+
+    Isaac Lab 3.0 output-model change (ADR-0018 decision 6, re-based): the
+    3.0 URDF importer no longer writes a single ``<name>.usd``. With
+    ``run_asset_transformer=True`` (its default) it emits a DIRECTORY-
+    structured *layered* asset -- ``<robot>/<robot>.usda`` plus a
+    ``payloads/`` tree (base / instances / geometry / materials / Physics),
+    named after the *asset file stem*, not ``usd_file_name`` (which it
+    overrides, ``urdf_converter.py:64-67`` in v3.0.0-beta2.patch1). To keep
+    the repo's single-USD contract we:
+
+    * set ``run_asset_transformer=False`` so the importer saves the fully-
+      composed, already-flattened stage to ONE self-contained file
+      (``converter.py:239-241`` -> ``Stage.Export``); and
+    * convert into a scratch ``usd_dir`` and re-export that single stage to
+      the canonical ``usd_path``, so ``<output>/`` holds only ``<name>.usd``.
 
     The caller is responsible for creating and closing the
     ``SimulationApp`` (Kit) before/after this runs: the converters
@@ -188,35 +758,138 @@ def _convert_urdf(urdf_path, usd_path, *, fix_base, merge_fixed_joints):
     Isaac imports stay function-local (ADR-0017 section 8); isaaclab
     transitively pulls in omni, so its imports are local too.
 
+    Args:
+        collider_type: Collision approximation (ADR-0020 decision 2, #167).
+            ``"convex_hull"`` (default) fills concavities. Isaac Lab 3.0's
+            URDF importer honors ``collision_type`` ONLY for the opt-in
+            ``collision_from_visuals`` path; for URDF ``<collision>`` mesh
+            geometry it always authors ``convexHull`` (``urdf_usd_converter``
+            ``geometry.py:82`` hard-codes it). ``"convex_decomposition"`` is
+            therefore selected by a post-import edit of the produced stage
+            (``_author_convex_decomposition``), not the cfg field.
+        joint_drive_stiffness: Position-control Kp for the import-time
+            default drive (#168), or ``None`` for no drive.
+        joint_drive_damping: Velocity Kd for the import-time default drive,
+            or ``None`` for no drive. Both gains must be supplied together
+            or both omitted; both ``None`` keeps the fixed-joint-safe
+            ``joint_drive=None`` default (ADR-0020 decision 3).
+
     Returns:
-        Path to the produced USD (``converter.usd_path``, the
-        authoritative ``usd_dir / usd_file_name`` location).
+        Path to the produced single USD (``usd_path``).
     """
+    import shutil
+
     from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
+    # Isaac Sim 6.0.1's URDF importer imports newton_usd_schemas at load, but
+    # Isaac Lab 3.0's experience excludes isaacsim.pip.newton (issue #247).
+    # Make the module resolvable before UrdfConverter runs.
+    _ensure_newton_usd_schemas_importable()
+
+    _validate_collider_type(collider_type)
     resolved_urdf = _preprocess_urdf(urdf_path)
 
-    cfg = UrdfConverterCfg(
-        asset_path=str(resolved_urdf),
-        usd_dir=str(usd_path.parent),
-        usd_file_name=usd_path.name,
-        fix_base=fix_base,
-        merge_fixed_joints=merge_fixed_joints,
-        # Fixed-joint robots fail without an explicit joint_drive
-        # ("Missing values for ... joint_drive.gains.stiffness"); None
-        # leaves drives unconfigured, which is correct for the offline
-        # convert-and-commit artifact (drive gains are a runtime concern).
-        joint_drive=None,
-        # Always regenerate: the offline commit step wants a fresh,
-        # deterministic artifact, not a cache hit.
-        force_usd_conversion=True,
-    )
-    converter = UrdfConverter(cfg)
+    # Convert into a scratch dir (the 3.0 importer writes a <robot>/ subdir +
+    # sidecar .asset_hash / config.yaml); we re-export the single stage to the
+    # canonical usd_path, keeping <output>/ clean.
+    scratch_dir = tempfile.mkdtemp(prefix="urdf_convert_")
+    try:
+        cfg = UrdfConverterCfg(
+            asset_path=str(resolved_urdf),
+            usd_dir=scratch_dir,
+            usd_file_name=usd_path.name,
+            fix_base=fix_base,
+            merge_fixed_joints=merge_fixed_joints,
+            # Collision approximation (ADR-0020 decision 2, #167). Isaac Lab
+            # 3.0 renamed collider_type -> collision_type with title-case
+            # values (urdf_converter_cfg.py:150). NOTE: the 3.0 importer only
+            # consumes this for collision_from_visuals; URDF <collision> meshes
+            # are always authored convexHull, so convex_decomposition is
+            # enforced post-import (see _author_convex_decomposition below).
+            collision_type=_ISAACLAB_COLLISION_TYPE[collider_type],
+            # Import-time default drive (#168). None leaves drives unconfigured
+            # -- the fixed-joint-safe default (a fixed-joint robot fails with an
+            # under-specified JointDriveCfg, "Missing values for ...
+            # joint_drive.gains.stiffness"). A JointDriveCfg(position/force) is
+            # built only when stiffness+damping are supplied.
+            joint_drive=_build_joint_drive_cfg(
+                joint_drive_stiffness, joint_drive_damping
+            ),
+            # A2 (#168): Isaac Lab 3.0's multi-physics conversion re-reads
+            # urdf:dynamics:damping and CLOBBERS the joint_drive override
+            # damping back to the URDF value -- apply_joint_drives sets the
+            # override, then urdf_to_mjc_physx_conversion_utils
+            # .convert_urdf_to_physx overwrites damping (it does NOT touch
+            # stiffness, which is why only damping regressed). We drive PhysX
+            # only (no MuJoCo), so disable it -- both override gains survive.
+            run_multi_physics_conversion=False,
+            # A1 (ADR-0018 decision 6): emit a single self-contained USD, not
+            # the layered payloads/ asset the transformer profile produces.
+            run_asset_transformer=False,
+            # Always regenerate: the offline commit step wants a fresh,
+            # deterministic artifact, not a cache hit.
+            force_usd_conversion=True,
+        )
+        converter = UrdfConverter(cfg)
 
-    # ``converter.usd_path`` is the produced USD file path
-    # (AssetConverterBase property = usd_dir / usd_file_name). Trust it
-    # over a precomputed path in case Isaac Lab normalizes the name.
-    return Path(converter.usd_path)
+        # ``converter.usd_path`` (= scratch usd_dir / <asset-stem>/<asset-stem>
+        # .usda) is the single self-contained file the importer produced.
+        produced = Path(converter.usd_path)
+        if not produced.exists():
+            raise ValueError(
+                f"UrdfConverter did not produce {produced} "
+                f"(requested {usd_path})"
+            )
+
+        from pxr import Usd
+
+        stage = Usd.Stage.Open(str(produced))
+        if collider_type == "convex_decomposition":
+            _author_convex_decomposition(stage)
+        usd_path.parent.mkdir(parents=True, exist_ok=True)
+        # Stage.Export re-flattens the composed stage into a single
+        # self-contained file at the canonical path (scratch is discarded).
+        stage.Export(str(usd_path))
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    return usd_path
+
+
+def _author_convex_decomposition(stage):
+    """Author the ``convexDecomposition`` collision token post-import (A3).
+
+    Isaac Lab 3.0's URDF importer honors ``collision_type`` only for the
+    opt-in collision-from-visuals path; URDF ``<collision>`` mesh geometry is
+    always authored ``convexHull`` (``urdf_usd_converter`` ``geometry.py:82``
+    hard-codes ``UsdPhysics.Tokens.convexHull``, and ``URDFImporter`` never
+    forwards ``collision_type`` to that library). Selecting a decomposition
+    therefore requires a post-import edit of the produced stage: set every
+    collision mesh's ``UsdPhysics.MeshCollisionAPI`` approximation to
+    ``convexDecomposition`` -- the same token ``collision_from_visuals`` would
+    write; PhysX cooks the convex pieces at sim time from this token, so no
+    extra USD prims are authored.
+
+    USD forbids authoring on an instancing prototype, so any instanceable
+    prims are first un-instanced (the importer may emit an instanceable stage;
+    the composed collision meshes then become directly editable). The
+    ``isaaclab`` / ``pxr`` imports are function-local (ADR-0017 section 8).
+
+    Args:
+        stage: The produced ``Usd.Stage`` (opened from the converter output),
+            edited in place before it is exported to the canonical USD.
+    """
+    from pxr import UsdGeom, UsdPhysics
+
+    for prim in stage.Traverse():
+        if prim.IsInstanceable():
+            prim.SetInstanceable(False)
+    for prim in stage.Traverse():
+        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
+            mesh_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+            mesh_api.CreateApproximationAttr().Set(
+                UsdPhysics.Tokens.convexDecomposition
+            )
 
 
 class PrimSummary(NamedTuple):
@@ -393,8 +1066,15 @@ def _summarize_prim_records(prim_records, usd_path):
     )
 
 
-def import_urdf(urdf_path, out_usd_path):
-    """Import a URDF into a single instanceable USD; return its ``PrimSummary``.
+def import_urdf(
+    urdf_path,
+    out_usd_path,
+    *,
+    collider_type=_DEFAULT_COLLIDER_TYPE,
+    joint_drive_stiffness=None,
+    joint_drive_damping=None,
+):
+    """Import a URDF into a single self-contained USD; return its ``PrimSummary``.
 
     ADR-0017 section 9 contract (greenfield -- not ported behavior),
     re-based onto Isaac Lab per ADR-0018 decision 6: the URDF -> USD
@@ -420,6 +1100,15 @@ def import_urdf(urdf_path, out_usd_path):
         out_usd_path: Output USD file path (parent dirs are created). The
             converter writes to this file's directory and name; the
             traversal uses ``converter.usd_path``.
+        collider_type: Collision approximation (ADR-0020 decision 2, #167):
+            ``"convex_hull"`` (default, fills concavities) or
+            ``"convex_decomposition"`` (preserves them). Validated before
+            any Isaac import.
+        joint_drive_stiffness: Import-time default-drive Kp (#168), or
+            ``None`` for no drive.
+        joint_drive_damping: Import-time default-drive Kd, or ``None`` for
+            no drive. Both gains are supplied together or both omitted; both
+            ``None`` keeps the fixed-joint-safe default.
 
     Returns:
         ``PrimSummary`` describing the produced stage.
@@ -427,11 +1116,17 @@ def import_urdf(urdf_path, out_usd_path):
     Raises:
         FileNotFoundError: If ``urdf_path`` does not exist (raised
             before Isaac Sim is touched).
-        ValueError: If the converter produces no output file.
+        ValueError: If ``collider_type`` is unsupported, the joint-drive
+            gains are inconsistent, or the converter produces no output
+            file (all validated before / around the Isaac import).
     """
     urdf = Path(urdf_path).resolve()
     if not urdf.exists():
         raise FileNotFoundError(f"URDF not found: {urdf}")
+    # Validate the plumbing inputs BEFORE booting Kit so a hosted caller
+    # fails fast with a normal Python error (no Isaac import touched).
+    _validate_collider_type(collider_type)
+    _resolve_joint_drive_gains(joint_drive_stiffness, joint_drive_damping)
     out_usd = Path(out_usd_path).resolve()
     out_usd.parent.mkdir(parents=True, exist_ok=True)
 
@@ -439,15 +1134,24 @@ def import_urdf(urdf_path, out_usd_path):
     # the converters submodule pulls in omni modules that need a running
     # Kit app (same ordering the Isaac Lab AppLauncher runners rely on).
     # All Isaac imports are function-local (ADR-0017 section 8): isaaclab
-    # transitively pulls in omni, so its imports must be local too.
+    # transitively pulls in omni, so its imports must be local too. The
+    # experience pins the 2.4.31 URDF importer (see _simulation_app_kwargs
+    # / #177); without it the default experience pre-loads 2.4.30 and the
+    # converter raises AttributeError: set_merge_fixed_ignore_inertia.
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    app = SimulationApp(_simulation_app_kwargs())
     try:
         from pxr import Usd
 
         produced = _convert_urdf(
-            urdf, out_usd, fix_base=True, merge_fixed_joints=True
+            urdf,
+            out_usd,
+            fix_base=True,
+            merge_fixed_joints=True,
+            collider_type=collider_type,
+            joint_drive_stiffness=joint_drive_stiffness,
+            joint_drive_damping=joint_drive_damping,
         )
         if not produced.exists():
             raise ValueError(
@@ -474,14 +1178,28 @@ def main():
     print(f"import_model: {paths['urdf']} -> {paths['usd']}")
     print(f"  name: {args.name}")
     print(f"  force: {args.force}")
+    print(f"  collider_type: {args.collider_type}")
+    if args.joint_drive_stiffness is not None or \
+            args.joint_drive_damping is not None:
+        print(
+            f"  joint_drive: stiffness={args.joint_drive_stiffness} "
+            f"damping={args.joint_drive_damping}"
+        )
+
+    # Fail fast on inconsistent joint-drive gains before booting Kit.
+    _resolve_joint_drive_gains(
+        args.joint_drive_stiffness, args.joint_drive_damping
+    )
 
     _check_existing(paths, args.force)
     _ensure_dirs(paths)
 
     # SimulationApp (Kit) must be created BEFORE importing isaaclab.sim.
+    # The experience pins the 2.4.31 URDF importer (see
+    # _simulation_app_kwargs / #177).
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    app = SimulationApp(_simulation_app_kwargs())
     produced = None
     try:
         produced = _convert_urdf(
@@ -489,6 +1207,9 @@ def main():
             paths["usd"],
             fix_base=not args.no_fix_base,
             merge_fixed_joints=not args.no_merge_fixed,
+            collider_type=args.collider_type,
+            joint_drive_stiffness=args.joint_drive_stiffness,
+            joint_drive_damping=args.joint_drive_damping,
         )
     except Exception as exc:  # noqa: BLE001
         # The converter can raise on mesh-resolution warnings while still
@@ -506,7 +1227,7 @@ def main():
     ok = produced is not None and Path(produced).exists()
     if ok:
         size = Path(produced).stat().st_size
-        print("done: single instanceable USD produced", flush=True)
+        print("done: single self-contained USD produced", flush=True)
         print(f"  usd: {produced} ({size} bytes)", flush=True)
     else:
         print(

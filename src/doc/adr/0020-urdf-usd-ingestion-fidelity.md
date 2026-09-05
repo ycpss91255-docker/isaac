@@ -1,0 +1,253 @@
+# URDF -> USD Ingestion Fidelity and Pipeline Policy
+
+ADR-0018 decision 6 re-based `model_import` onto Isaac Lab `UrdfConverterCfg`. That settled the
+*engine*; it did not settle the *ingestion policy* for a real, CAD-originated robot. The base
+repo's `v1.0.0` promise is that a user can take their own robot through the full
+**SolidWorks -> URDF -> USD** pipeline and drive the `new-workspace` template, so the
+conversion-fidelity gaps that bite a real robot must be pinned down as decisions rather than
+re-discovered per robot.
+
+This ADR records what survives, what is lost, and what must be configured (not inferred) when a
+CAD-exported URDF is ingested, for the reference exporter
+`ycpss91255-research/solidworks_urdf_exporter` and the pinned importer stack
+(Isaac Sim 5.1.0 + Isaac Lab `v2.3.2` -> URDF importer `2.4.31`, loaded via Isaac Lab's Kit
+experience; #177, see decision 4). It amends ADR-0018
+decision 6. The running example stays the camera-bot; this ADR is the contract a real forklift
+ingestion is checked against.
+
+## Context
+
+URDF is a *robot* description (XML, kinematic tree). USD is a *scene* superset. The conversion is
+mostly faithful for geometry + basic physics (links, joints, inertia, collision); the gaps are
+in the ROS / control / Gazebo periphery (no USD equivalent) and in a handful of importer choices
+that default to something a CAD robot does not want. Investigated against the pinned stack and
+the reference exporter; sources cited inline.
+
+## Decision
+
+### 1. Mesh meshes are DAE, not STL (color preservation)
+
+The reference SW exporter emits **3DXML** and provides a convert step to **DAE (COLLADA)** that
+carries the SolidWorks appearance color (its stated purpose: colored meshes in RViz). DAE color
+flows through: `SW -> 3DXML -> DAE` (color in mesh) `-> URDF references DAE -> Isaac URDF
+importer reads the DAE material -> USD prim gets a colored material`. **STL carries no color.**
+
+- The URDF cleanup/preprocess step resolves `package://` paths but **keeps DAE references**; it
+  does not down-convert to STL.
+- If a model ships STL only, color is not a conversion loss to chase -- it is re-applied on the
+  USD side (the `materials` spawn-cfg color path, ADR-0018 decision 7).
+
+### 2. Collision approximation is a choice; the default convex hull is wrong for concave parts
+
+`UrdfConverterCfg.collider_type` defaults to **`"convex_hull"`** -- the whole part's convex hull,
+which fills in every concavity. The only other built-in is `"convex_decomposition"` (multiple
+convex pieces). Neither is a full-resolution triangle-mesh collider. For a concave part (e.g. a
+forklift's forks) the convex hull is a wrong collider (the gap between the forks is filled
+solid).
+
+- The ingestion config exposes `collider_type` to the consumer; concave parts use
+  `convex_decomposition` or a hand-authored simplified collision mesh.
+- "Import the mesh and you get full-resolution collision" is **false**; treat collision geometry
+  as an explicit decision per part.
+
+### 3. Joint drive (Kp/Kd/target) is configured in code, not carried by URDF
+
+URDF carries joint type / axis / origin / limit (lower/upper/effort/velocity) / dynamics
+(damping/friction) -- the kinematics and limits transfer and are sufficient. URDF has **no
+position-control stiffness (Kp) field** -- that is a controller concept. Drives are set in code,
+not inferred from URDF, and **not** via OmniGraph/action-graph and **not** GUI-only (confirmed on
+both Isaac Sim 5.1 and 6.0):
+
+- USD schema: `UsdPhysics.DriveAPI.Apply(joint, "angular"|"linear")` +
+  `CreateStiffnessAttr` / `CreateDampingAttr` / `CreateTargetPositionAttr|TargetVelocity`.
+- Isaac Lab: `isaaclab.actuators` (e.g. `ImplicitActuatorCfg`, grouped config) or
+  `isaaclab.sim.schemas.modify_joint_drive_properties()`.
+- At import: `UrdfConverterCfg.joint_drive = JointDriveCfg(target_type, gains=PDGainsCfg(...) |
+  NaturalFrequencyGainsCfg(...))`.
+
+There is no "plugin tag inside the URDF" equivalent to Gazebo plugins; robot control logic lives
+in Python (the `IsaacDriver` / a standalone app / an extension), keeping model and control
+decoupled.
+
+### 4. Importer `merge_fixed_joints` behavior is version-sensitive; mount sensors on a surviving link + offset
+
+`UrdfConverterCfg.merge_fixed_joints` defaults to `True` (it consolidates fixed-jointed links).
+The URDF importer bundled in Isaac Sim 5.1.0 (`2.4.30`) **removed** merge-joints support (IsaacLab
+PR #4000: "Latest URDF importer in Isaac Sim 5.1 removed the support for merge-joints"; issue
+#3943); importer **`2.4.31`** (shipped with the Isaac Lab `v2.3.1+` line) **restores** it.
+
+**The pin is now Isaac Lab `v2.3.2` + URDF importer `2.4.31`** (#177, superseding the earlier
+`v2.3.0`-downgrade workaround). `v2.3.1+` makes `UrdfConverter` hard-enable
+`isaacsim.asset.importer.urdf-2.4.31` and call `ImportConfig.set_merge_fixed_ignore_inertia()`.
+A bare `SimulationApp({"headless": True})` loads the **default** Isaac Sim experience, which
+pre-loads the bundled `2.4.30`; the manager then cannot swap to `2.4.31` (constraint conflict:
+"isaacsim.asset.importer.urdf-2.4.31 is incompatible with other constraints"), so the converter
+runs against `2.4.30` and raises `AttributeError: set_merge_fixed_ignore_inertia` -- the original
+v2.3.2 failure. The fix is to boot Kit with **Isaac Lab's own experience**
+(`/opt/IsaacLab/apps/isaaclab.python.kit`), which pins
+`"isaacsim.asset.importer.urdf" = {version = "2.4.31", exact = true}`: `2.4.30` is never loaded,
+and the enable resolves `2.4.31` from the Kit registry (the GPU runner has network). This is a
+**boot-config** change in `model_import` (`_simulation_app_kwargs`), not a build-time fetch -- the
+image build runs on a non-GPU host where Kit cannot start, and the importer is not on pypi.
+
+With `2.4.31`, fixed-jointed **massless** frames merge into their parent rigid body by default;
+**inertia-bearing** fixed links are still NOT merged (the documented caveat). On a fresh import
+the committed `camera_bot.usd`'s massless `camera_mount` would now merge into `base_link` -- so
+prim/joint counts on a fresh `2.4.31` import differ from the legacy-importer committed asset
+(GPU-side test recalibration, #177). The committed `camera_bot.usd` is NOT regenerated here
+(issue 3b follow-up); sensor placement is `base_link` + offset (below), unaffected by the merge.
+
+- Do not rely on a massless fixed-joint frame surviving an importer change. The robust pattern
+  (already used by the example): declare sensor placements on a **surviving link (`base_link`) +
+  an `xyz`/`rpy` offset** in the scene YAML, not on a fixed-joint frame -- this holds under both
+  the non-merging `2.4.30` and the merging `2.4.31`.
+
+### 5. Inertia is the CAD's responsibility, not a conversion loss
+
+A full 3x3 inertia tensor from CAD transfers faithfully (diagonalized to
+`physics:diagonalInertia` + `physics:principalAxes`). Missing/garbage inertia is a CAD-export
+quality problem, not a URDF->USD gap; `UrdfConverterCfg.link_density` (default `0.0`) is only a
+stop-gap for missing inertials. Garbage in CAD -> garbage downstream is expected and out of scope
+for the conversion.
+
+### 6. The cleanup/preprocess step owns xacro, `package://`, and units
+
+The URDF preprocess (extending `model_import._preprocess_urdf`, which today only resolves
+`package://`) owns the deterministic, scriptable cleanup of a CAD-exported URDF:
+
+- **xacro**: expand any `.xacro` to plain URDF before import (the importer does not read xacro).
+- **`package://`**: resolve to absolute/relative paths while **keeping DAE** (decision 1).
+- **units**: assert/normalize to meters (REP-103). The SW exporter emits meters; a check is
+  cheap and prevents silent mm/scale surprises.
+
+### 7. Joint types from the SW exporter: no floating/planar
+
+The SW exporter derives joints from SolidWorks mates and only emits
+`fixed` / `revolute` / `prismatic` / `continuous`, all of which convert cleanly. It does not emit
+`floating` / `planar` (the awkward types). A free-floating base is the `fix_base=False` import
+option, not a URDF joint. No script handling is required for floating/planar in this pipeline.
+
+## Consequences
+
+- `model_import` / the scene adapter expose `collider_type` and `joint_drive` (decisions 2, 3) and
+  the preprocess gains xacro + units handling (decision 6); these land as the pre-`v1.0.0`
+  ingestion issues (milestone "Ingestion - SW->URDF->USD pipeline + template").
+- The `v1.0.0` acceptance (`doc/v1.0.0-rc1-acceptance.md`) gains an ingestion-pipeline section
+  checked against this ADR: a representative non-camera-bot robot goes SW -> URDF -> USD -> YAML
+  -> run through the template with color, a correct concave collider, and a driven joint.
+- Decisions 4, 5, 7 are recorded as policy, not work: they need no code change on the current
+  pin (merge off, inertia upstream, no floating/planar from the exporter), only awareness.
+- Supersedes nothing; amends ADR-0018 decision 6 with the ingestion-fidelity detail it deferred.
+
+## Update (2026-08-28) -- amended by the 6.0.1 migration (isaac#247, isaac#248)
+
+The Isaac Sim 5.1.0 -> 6.0.1 migration bumps Isaac Lab to `v3.0.0-beta2.patch1`, whose
+`UrdfConverter` changed shape. The ingestion-fidelity DECISIONS below stand (DAE meshes,
+convex-decomposition for concave parts, code-configured joint drive, xacro/units preprocess);
+how the converter realizes them moved:
+
+- **Decision 2 (collider approximation) -- field renamed + convex decomposition now a
+  post-import USD edit.** `UrdfConverterCfg.collider_type` is renamed **`collision_type`** in
+  Isaac Lab 3.0 (title-case values). The 3.0 importer hard-codes `convexHull` for collision
+  meshes, so `convex_decomposition` can no longer be requested through the converter cfg; it is
+  now enforced by a post-import edit of the produced USD (`UsdPhysics.MeshCollisionAPI`
+  approximation set to `convexDecomposition` on the collision mesh). The decision -- convex hull
+  is wrong for concave parts, concave parts must opt into decomposition -- is unchanged.
+- **Decision 3 (import-time joint drive) -- needs multi-physics conversion OFF.**
+  `JointDriveCfg` stiffness/damping are clobbered by Isaac Lab 3.0's MuJoCo conversion path, so
+  `UrdfConverterCfg` must set `run_multi_physics_conversion=False` for the configured drive
+  gains to survive into the produced USD.
+- **Single-USD output -- now via `run_asset_transformer=False` + `Stage.Export`.** The 3.0
+  converter emits a LAYERED directory by default; to keep the single-instanceable-USD contract
+  (ADR-0018 decision 6) `model_import` runs the converter with `run_asset_transformer=False`
+  and then `Stage.Export`s the single USD.
+- **Decision 4 (importer version pin) -- retired.** 6.0.1 bundles
+  `isaacsim.asset.importer.urdf-3.11.2`; the `2.4.31`-via-Isaac-Lab-Kit-experience pin (#177)
+  is no longer needed.
+- **`newton_usd_schemas` sys.path shim (isaac#247).** Isaac Sim 6.0.1's URDF-import path pulls
+  in `newton_usd_schemas`, which is not on the default Kit `sys.path`; `model_import` prepends
+  its location so the import resolves. This is a migration workaround, not a design change.
+
+See ADR-0018's 2026-08-28 update (spawn `use_stage`), ADR-0017's 2026-08-28 update (image /
+driver), and the CHANGELOG `[Unreleased]` migration entry for the full delta.
+
+## Update (2026-09-05) -- collision authoring policy for concave dynamic parts
+
+Empirically settled how to author collision geometry for the forklift articulation (mast, fork
+carriage, tines) so a fork tine can enter a pallet pocket. Decision 2 (convex hull is wrong for
+concave parts; opt into something else) stands; this pins WHICH route and WHY.
+
+PhysX 5.4 forbids triangle-mesh colliders on non-kinematic bodies, and articulation links are
+dynamic, so a raw mesh collider is out. Three legal routes for a concave collider remain:
+
+1. **box / primitive union** -- hand-authored analytic boxes (the concave gap is just the empty
+   space between boxes -- free).
+2. **convex_decomposition** -- an algorithm chops the mesh into several convex pieces.
+3. **SDF mesh** -- a signed-distance-field grid; GPU collision pipeline only.
+
+**Decision: box-union for the rectilinear parts.** NOT because decomposition "cannot" do it (it
+can -- verified: a U-channel pocket stays open at `maxHulls` 8 and 64, `test/verify_decomp_pocket.py`),
+but on cost / robustness:
+
+- box-union is **exact** for rectangular stock (not an approximation), **deterministic**
+  (byte-stable across Isaac upgrades), and the decision **lives in the URDF** (single source of
+  truth).
+- convex_decomposition is approximate (hulls bulge slightly and can eat a functional gap) and its
+  output **changes across importer / algorithm versions** -- a silent physics change (cf. the
+  #247 importer churn). The decision lives in importer flags, not the URDF.
+- SDF is marginal at our scale (`sdfResolution` = cells along the longest AABB axis; a 2 m tine at
+  256 gives ~8 mm cells, ~3 across a 2.5 cm clearance -> needs 512, ~8x memory), GPU-only, and
+  lives in the USD not the URDF. Reserve it for genuinely arbitrary concavity with no dimensional
+  source (scanned cargo, damaged pallets).
+
+Per-part classification (premise: rectilinear parts with known CAD dimensions; if that fails --
+scanned / damaged / no drawings -- switch those parts to SDF; the table is the durable decision,
+not the technique):
+
+| Part | Collider |
+|---|---|
+| fork tines, mast, fork carriage, chassis | box-union |
+| standard pallet | box-union |
+| wheels | cylinder primitive |
+| non-functional concavity (bracket cutouts, housings) | convexHull (filling the void is harmless) |
+
+Add a separate smaller box for the tapered tine tip (insertion begins there; one box
+over-approximates the taper and its corner can catch the pocket lip).
+
+**Converter scope (verified).** `UrdfConverterCfg.collision_type` is a single GLOBAL scalar and is
+IGNORED for explicit `<collision>` mesh geometry (the importer hard-codes `convexHull` there;
+`collision_type` is honored only on the `collision_from_visuals` path). So `convex_decomposition`
+is not a per-part option through the converter cfg -- only per-prim via a post-import USD edit.
+Another reason box-union (authored in the URDF) is the clean path.
+
+**Import fidelity (verified empirically on 6.0.1; keep as CI regression guards).**
+
+- Multiple `<box>` `<collision>` per link are all preserved as analytic `UsdGeom.Cube` + plain
+  `UsdPhysics.CollisionAPI` (`PxBoxGeometry`) -- no `MeshCollisionAPI` / `approximation` -- placed
+  directly under the link (there is **no `colliders` Scope** in 6.0.1), no ghost/duplicate
+  colliders. (`test/verify_collision_import.py`)
+- Link origin and CAD mass/inertia survive conversion unchanged: mass exact, `diagonalInertia`
+  equals the URDF tensor (not recomputed), collider world origin equals the authored origin.
+  (`test/verify_import_fidelity.py`)
+
+**Contact offset.** "The tine won't enter" has two independent causes with identical symptoms:
+(a) wrong geometry (pocket filled -- visible in the collision view) and (b) contact offset too
+large (view looks correct, tine still blocked; default `contactOffset` 0.02 m -> ~4 cm combined
+against a ~2.5 cm clearance). Fix (b) with a reduced per-shape `contactOffset` + small negative
+`restOffset`, **scoped to fork/pallet colliders only** (a global reduction costs tunnelling
+resistance and solver stability at chassis speed). Exact values pending the offset sweep (B2) and
+the global-stability check (B3).
+
+**Mesh-in-collision guard.** The importer silently convex-hulls any mesh left in a `<collision>`,
+so it becomes a filled hull with no warning (on CAD re-export / new links). The collision-authoring
+tool must hard-error on any mesh `<collision>` in the generated URDF -- turn the silent failure
+loud.
+
+**Tooling location.** The fine-model-simplification work (auto-OBB box fitting, coverage/bloat
+metrics, drift + rename detection, fail-loud checks) lives in a DEDICATED repo, not here. This ADR
+records only the policy (which route, why); that repo implements it.
+
+**vs NVIDIA's forklift_b recommendation.** NVIDIA's forums recommend SDF for that sample's forks
+because it is an ART ASSET with no dimensional drawings. We have CAD dimensions, so hand-authored
+boxes are reading numbers off a drawing, not measuring a mesh -- a different premise, a different
+optimum.

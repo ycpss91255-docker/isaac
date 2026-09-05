@@ -109,6 +109,22 @@ requires Python 3.11, which the container already runs. The supported stack is t
 **Isaac Lab 2.3 + Isaac Sim 5.1 + Python 3.11** — no version blocker. The Compatibility Matrix
 (PRD) gains an "Isaac Lab" axis = 2.3, exercised by the example GPU integration.
 
+The pin within the 2.3 line is **`v2.3.2`** — NVIDIA's official Isaac Sim 5.1.0 pairing
+(recommended/latest 2.3.x) (#177). An earlier interim pin was `v2.3.0`: `v2.3.1+` (Isaac Lab PR
+#4000) makes `UrdfConverter` hard-enable the URDF importer extension
+`isaacsim.asset.importer.urdf-2.4.31` (which restores `merge_fixed_joints`, removed from the
+`2.4.30` importer bundled in `isaac-sim:5.1.0`; ADR-0020 decision 4). The first `v2.3.2` attempt
+failed (`AttributeError: set_merge_fixed_ignore_inertia`, no USD) because `model_import` booted a
+bare `SimulationApp({"headless": True})` — the **default** Isaac Sim experience pre-loads the
+bundled `2.4.30`, so the manager cannot swap to `2.4.31` (constraint conflict) and the converter
+runs against `2.4.30`. The fix is a **boot-config** change: `model_import` now boots Kit with
+Isaac Lab's own experience `/opt/IsaacLab/apps/isaaclab.python.kit`, which pins
+`"isaacsim.asset.importer.urdf" = {version = "2.4.31", exact = true}` so `2.4.30` is never loaded
+and the `2.4.31` enable resolves from the Kit registry (the GPU runner has network). This is not a
+build-time fetch (the image build runs on a non-GPU host where Kit cannot start; the importer is
+not on pypi.nvidia.com). See `framework/isaac_devkit/model_import.py` (`_simulation_app_kwargs`)
+and ADR-0020 decision 4.
+
 ### 6. `model_import` delegates URDF -> USD to Isaac Lab `UrdfConverterCfg`
 
 The hand-rolled `omni.kit.commands` importer is replaced by `isaaclab.sim.converters`
@@ -186,3 +202,24 @@ later:
   Isaac Lab too); `isaaclab.sim.converters` (`UrdfConverterCfg`); AppLauncher deep-dive
   (`HEADLESS` / `LIVESTREAM` env); issue #3250 (headless + enable_cameras watch).
 - Decisions superseded/amended here originate in the M2 MVP (#146) raw-`pxr` scene layer.
+
+## Update (2026-08-28) -- amended by the 6.0.1 migration (isaac#247, isaac#248)
+
+The Isaac Sim 5.1.0 -> 6.0.1 base-image migration bumps Isaac Lab **2.3 (`v2.3.2`) ->
+`v3.0.0-beta2.patch1`** and Kit Python **3.11 -> 3.12**. The spawn-backend DECISION (adopt Isaac
+Lab `sim_utils` spawners + `UrdfConverterCfg`, keep the OmniGraph ROS 2 outlet, `isaac_devkit`
+stays mounted) is unchanged; the API surface it rides on moved in Isaac Lab 3.0:
+
+- **`sim_utils` spawn now needs an explicit stage.** Isaac Lab 3.0 made `get_current_stage()`
+  thread-local, so the spawn path must pass the stage in via `sim_utils.use_stage(stage)` before
+  `cfg.func(...)`; relying on the implicit current stage no longer works.
+- **The 5.1-era exact-URDF-importer pin is retired.** Section 5's `v2.3.2` +
+  `isaacsim.asset.importer.urdf-2.4.31`-via-Isaac-Lab-Kit-experience mechanism (the #177
+  boot-config workaround for the `2.4.30` bundled importer) is gone: Isaac Sim 6.0.1 bundles
+  `isaacsim.asset.importer.urdf-3.11.2`, so `model_import` no longer needs a custom Kit
+  experience to load a specific importer version.
+- **AppLauncher lifecycle unchanged in shape** (still `AppLauncher` + the deferred
+  `SimulationContext` per #151/#154), but runs under Kit Python 3.12.
+
+See ADR-0020's 2026-08-28 update for the `UrdfConverterCfg` field/API changes in Isaac Lab 3.0,
+and the CHANGELOG `[Unreleased]` migration entry for the full environment delta.

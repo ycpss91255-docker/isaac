@@ -43,3 +43,16 @@ test/.xc-pytest-report.xml
 # Scaffold GPU-smoke throwaway workspace (test_scaffold_smoke.py, #134).
 # The fixture writes + cleans this up; ignored as defense if a run aborts.
 test/.scaffold-smoke/
+
+.setup.conf.bak
+.setup.conf.local
+/deploy/
+
+# vendored CJK font for review-PDF generation (not committed; 19MB)
+test/.notocjk.ttc
+
+# rendered verification / experiment videos (local artifacts, not committed)
+viz/
+
+# stills the review PDF extracts from those videos (regenerable cache)
+test/.still_*.png

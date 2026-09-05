@@ -1,0 +1,16 @@
+# release-worker.yaml caller contract.
+#
+# Each non-comment line is ONE thing the reusable release worker needs the
+# calling repo's .github/workflows/main.yaml to supply. release-worker's
+# preflight step runs script/ci/preflight.sh over this file BEFORE building
+# the release archive, so a caller missing an item fails within seconds with
+# the fix below instead of failing late during archive/upload.
+#
+# Reading this file IS the contract. Adding a future requirement is a single
+# new line here.
+#
+# Format: <kind>|<key>|<envvar>|<description>|<hint>
+#   kind=input      -> <envvar> must be non-empty
+#   \n in <hint> is expanded to a newline for a multi-line main.yaml snippet.
+
+input|archive_name_prefix|PREFLIGHT_INPUT_ARCHIVE_NAME_PREFIX|the release archive name prefix|Add the required input to the release-worker.yaml call in .github/workflows/main.yaml:\n\njobs:\n  call-release:\n    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@<tag>\n    with:\n      archive_name_prefix: <your-repo-name>

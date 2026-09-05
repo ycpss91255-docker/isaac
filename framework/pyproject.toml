@@ -73,6 +73,7 @@ exclude_also = [
     # materials is now fully pure (color is a spawn-time cfg param,
     # ADR-0018 decision 7); no Isaac-side appliers to exclude.
     # sensors: Isaac-side dispatchers / builders.
+    "def _ensure_ros2_bridge_enabled\\(",
     "def setup_sensor\\(",
     "def _setup_camera_dispatch\\(",
     "def _setup_lidar\\(",

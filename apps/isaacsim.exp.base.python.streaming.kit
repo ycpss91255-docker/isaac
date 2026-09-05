@@ -1,7 +1,7 @@
 [package]
 description = "Headless Isaac Sim Python (full UI shell) + WebRTC livestream."
 title = "Isaac Sim Python (Streaming)"
-version = "5.1.0"
+version = "6.0.1"
 
 # Browsable in the experience UI alongside isaacsim.exp.base.python and
 # isaacsim.exp.full.streaming.
@@ -21,6 +21,13 @@ keywords = ["experience", "app", "usd", "isaacsim"]
 # them onto base without dragging in the OmniGraph image bundle.
 "omni.kit.livestream.core" = {}
 "omni.kit.livestream.webrtc" = {}
+# 6.0.1: the extension that actually CREATES the stream (isaac#252). On
+# 5.1.0 omni.kit.livestream.webrtc brought the server up by itself, so this
+# was not needed; on 6.0 it does not, and its absence is silent -- the app
+# boots, prints its scene-ready marker, reports healthy, and never binds a
+# port. NVIDIA's own isaacsim.exp.full.streaming.kit depends on it for the
+# same reason.
+"omni.kit.livestream.app" = {}
 
 # === UI shell ============================================================
 # Copied verbatim from isaacsim.exp.full.kit's [dependencies] block,
@@ -155,7 +162,7 @@ keywords = ["experience", "app", "usd", "isaacsim"]
 # Use the same app name as isaacsim.exp.full.streaming.kit so
 # isaacsim.app.setup applies the same default window layout preset.
 name = "Isaac-Sim Streaming"
-version = "5.1.0"
+version = "6.0.1"
 vulkan = true
 enableDeveloperWarnings = false
 # Rate limit + manual mode + fixed timestep — same as full.kit so PhysX
@@ -189,6 +196,18 @@ drawMouse = false
 # extension reads when initializing the streaming server.
 allowResize = true
 outDirectory = "${data}"
+
+
+[settings.exts."omni.kit.livestream.app"]
+# 6.0.1 (isaac#252). omni.kit.livestream.app creates a primary stream at
+# startup ONLY IF streamType is defined -- so this block is what turns
+# streaming on, and its absence is why `:0.0.2` streamed nothing while
+# logging nothing. Ports match NVIDIA's isaacsim.exp.full.streaming.kit;
+# the producer overrides both per run (--port / --media-port).
+primaryStream.streamType = "webrtc"
+primaryStream.signalPort = 49100
+primaryStream.streamPort = 47998
+primaryStream.allowDynamicResize = true
 
 
 [settings.exts."omni.kit.registry.nucleus"]

@@ -33,7 +33,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE_FILE="${REPO_ROOT}/test/pytest-baseline.txt"
-PY_IMAGE="${PY_IMAGE:-python:3.11-slim}"
+PY_IMAGE="${PY_IMAGE:-python:3.12-slim}"
 
 MODE="hosted"
 if [[ "${1:-}" == "--gpu" ]]; then
@@ -107,6 +107,37 @@ if [[ "${MODE}" == "gpu" ]]; then
   # `environment:` for that process tree, and the example runner subprocess
   # inherits it -- so the run is isolated onto a private domain. CI passes
   # a per-run value via GPU_ROS_DOMAIN_ID; default 0 keeps local behavior.
+  #
+  # Isolated compose project (owv#55 second axis; first axis was isaac#239).
+  # This is a foreground run.sh with no --no-rm, so run.sh installs its EXIT
+  # trap _app_cleanup, which runs a PROJECT-WIDE
+  # `COMPOSE_PROFILES='*' compose down --remove-orphans` over the resolved
+  # compose project. base v0.42.0 removed --instance (base#666); the project
+  # is now the single resolved PROJECT_NAME. Left at the DEFAULT project
+  # (${DOCKER_HUB_USER}-${IMAGE_NAME}, e.g. yunchien-isaac) that teardown
+  # would reap a co-hosted manually-run `stream` container living in the same
+  # project on a shared GPU host, on every GPU pytest run. So pin a DISTINCT
+  # PROJECT_NAME in the derived .env.generated (the --env-file the wrappers
+  # pass to compose): run.sh's _load_env reads it and _compute_project_name
+  # keeps it, so _app_cleanup's project-wide `--remove-orphans` still reaps
+  # THIS run's orphans but can never reach the default project. Preferred over
+  # --no-rm, which would skip the EXIT trap entirely and lose that cleanup.
+  # (base#682 made the non-devel CMD a `compose run --rm`, so the test
+  # container is `<project>-test-run-<hash>` -- project-scoped, no name to
+  # handle.) Pin via a surgical sed of the PROJECT_NAME= line (the same
+  # post-apply sed the CI WS_PATH pin uses) rather than `setup.sh apply` with
+  # a .setup.conf.local override -- a second apply here would re-run detection
+  # and clobber the CI WS_PATH pin the prior apply step wrote. Default a
+  # dedicated <derived>-baseline; overridable via BASELINE_PROJECT so CI can
+  # pass a per-run-unique value (e.g. the GitHub run id) for concurrency
+  # isolation.
+  if [[ -f "${REPO_ROOT}/.env.generated" ]]; then
+    _derived_project="$(sed -n 's/^PROJECT_NAME=//p' \
+      "${REPO_ROOT}/.env.generated" | head -1)"
+    baseline_project="${BASELINE_PROJECT:-${_derived_project:-isaac}-baseline}"
+    sed -i "s|^PROJECT_NAME=.*|PROJECT_NAME=${baseline_project}|" \
+      "${REPO_ROOT}/.env.generated"
+  fi
   "${REPO_ROOT}/script/run.sh" -t test -- \
     env PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/tmp/gpu-pycache \
     ROS_DOMAIN_ID="${GPU_ROS_DOMAIN_ID:-0}" \
@@ -242,7 +273,7 @@ RUN_AS="$(id -u):$(id -g)"
 docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
   -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
   set -eu
-  pip install --quiet --user pyyaml pytest pytest-cov
+  pip install --quiet --user pyyaml pytest pytest-cov xacro
   cd framework
   python -m pytest ../test/unit/pytest/ \
     -p no:cacheprovider \
@@ -254,7 +285,7 @@ collected="$(
   docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
     -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
     set -eu
-    pip install --quiet --user pyyaml pytest >/dev/null
+    pip install --quiet --user pyyaml pytest xacro >/dev/null
     python -m pytest test/unit/pytest/ --collect-only -q -p no:cacheprovider \
       2>/dev/null | grep -c "::"
   '

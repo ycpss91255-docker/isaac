@@ -1,5 +1,10 @@
 """Forklift blocky Model A-hybrid driver (standalone-with-livestream).
 
+TEST-ONLY / WIP fixture -- NOT a v1.0.0 reference (ADR-0021). This drives the
+hand-authored standalone-kinematic ``forklift_blocky`` asset, which is not the
+v1.0.0 direction (that is the URDF -> UrdfConverter articulation pipeline,
+L2 / L2.5 / L3). Full migration out to isaac-forklift is tracked by #136 (M3).
+
 Forklift cubes are kinematic rigid bodies — driver writes pose via
 dc.set_kinematic_target each tick (PhysX honors as kinematic update,
 collision still active so forks interact with dynamic pallet).

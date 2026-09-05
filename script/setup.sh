@@ -1,1 +1,1 @@
-../.base/script/docker/wrapper/setup.sh
+../.base/dist/script/docker/wrapper/setup.sh
