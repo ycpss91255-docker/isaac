@@ -1,0 +1,82 @@
+{
+  "issue": "isaac#193",
+  "adr": "ADR-0008 L2 kinematic contract",
+  "isaac_variant": "6.0.1",
+  "steps": 360,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "metric": "max over trajectory of position error ||actual-commanded|| (m) and orientation geodesic error (deg), under active gravity + a resting dynamic pusher (continuous contact)",
+  "expectation_5_1_baseline": "0.0000 m / 0.0 deg per shape -- exact, deterministic, shape-independent (ADR-0008 openbase L2 migration: pose tracking 0.0000 err)",
+  "drive_api": "isaacsim.core.prims.SingleRigidPrim.set_world_pose per tick on a physics:kinematicEnabled body (routes to kinematic target, not setGlobalPose) + World.step",
+  "bodies": [
+    {
+      "name": "leaf",
+      "link_class": "leaf-link (no children)",
+      "kind": "box",
+      "dims": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "max_pos_err_m": 6.101031127699986e-08,
+      "mean_pos_err_m": 2.5253698796906942e-08,
+      "max_ang_err_deg": 4.517745487845101e-06,
+      "pusher_final_z_m": 0.05999990925192833,
+      "pusher_carried_frames": 16,
+      "pusher_carried": false,
+      "zero_error": true
+    },
+    {
+      "name": "internal",
+      "link_class": "internal-link (splits tree)",
+      "kind": "box",
+      "dims": [
+        0.4,
+        0.1,
+        0.1
+      ],
+      "max_pos_err_m": 1.2768942790717532e-07,
+      "mean_pos_err_m": 7.068190075222314e-08,
+      "max_ang_err_deg": 4.517745487845101e-06,
+      "pusher_final_z_m": 0.059999845921993256,
+      "pusher_carried_frames": 18,
+      "pusher_carried": false,
+      "zero_error": true
+    },
+    {
+      "name": "base",
+      "link_class": "base/root-link (whole-robot base)",
+      "kind": "box",
+      "dims": [
+        0.6,
+        0.6,
+        0.2
+      ],
+      "max_pos_err_m": 2.4039417350689225e-07,
+      "mean_pos_err_m": 1.1611005494711301e-07,
+      "max_ang_err_deg": 4.517745487845101e-06,
+      "pusher_final_z_m": 0.06000009551644325,
+      "pusher_carried_frames": 40,
+      "pusher_carried": false,
+      "zero_error": true
+    },
+    {
+      "name": "odd",
+      "link_class": "shape-generality control",
+      "kind": "cylinder",
+      "dims": [
+        0.15,
+        0.3
+      ],
+      "max_pos_err_m": 4.610062464667682e-07,
+      "mean_pos_err_m": 2.1812475932749743e-07,
+      "max_ang_err_deg": 4.517745487845101e-06,
+      "pusher_final_z_m": 0.05999991297721863,
+      "pusher_carried_frames": 25,
+      "pusher_carried": false,
+      "zero_error": true
+    }
+  ],
+  "all_zero_error": true,
+  "error": null
+}

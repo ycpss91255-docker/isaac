@@ -1,0 +1,41 @@
+{
+  "check": "A3 origin + A4 inertia import fidelity",
+  "isaac_variant": "6.0.1",
+  "authored": {
+    "mass": 7.5,
+    "ixx": 0.021,
+    "iyy": 0.034,
+    "izz": 0.047,
+    "collision_origin": [
+      0.3,
+      -0.2,
+      0.15
+    ],
+    "box": [
+      0.2,
+      0.3,
+      0.4
+    ],
+    "joint_z": 0.5
+  },
+  "error": null,
+  "mass_read": 7.5,
+  "diagonal_inertia_read": [
+    0.020999999716877937,
+    0.03400000184774399,
+    0.04699999839067459
+  ],
+  "collider_world_translate_read": [
+    0.3,
+    -0.2,
+    0.65
+  ],
+  "A4_mass_exact": true,
+  "A4_inertia_preserved": true,
+  "A3_origin_preserved": true,
+  "A3_expected_world_translate": [
+    0.3,
+    -0.2,
+    0.65
+  ]
+}

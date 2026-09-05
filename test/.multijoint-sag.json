@@ -1,0 +1,100 @@
+{
+  "isaac_variant": "6.0.1",
+  "experiment": "multi_joint_coupling",
+  "masses_kg": [
+    5.0,
+    5.0,
+    5.0
+  ],
+  "num_joints": 3,
+  "gravity": 9.81,
+  "supported_mass_kg": [
+    15.0,
+    10.0,
+    5.0
+  ],
+  "stiffness": 5000.0,
+  "target_m": 0.0,
+  "step_delta_m": 0.5,
+  "settle_steps": 800,
+  "coupling_steps": 1100,
+  "physics_dt": 0.016666666666666666,
+  "api": {
+    "joint_paths": [
+      "/multi_joint_chain/Physics/joint_0",
+      "/multi_joint_chain/Physics/joint_1",
+      "/multi_joint_chain/Physics/joint_2"
+    ],
+    "root_path": "/multi_joint_chain/Geometry",
+    "articulation_cls": "SingleArticulation",
+    "dof_names": [
+      "joint_0",
+      "joint_1",
+      "joint_2"
+    ],
+    "dof_index": [
+      0,
+      1,
+      2
+    ]
+  },
+  "chain": {
+    "per_joint": [
+      {
+        "joint": "joint_0",
+        "supported_mass_kg": 15.0,
+        "settled_position_m": -0.03033885359764099,
+        "sag_mm": 30.33885359764099,
+        "predicted_mm": 29.43,
+        "drift_mm": 0.0
+      },
+      {
+        "joint": "joint_1",
+        "supported_mass_kg": 10.0,
+        "settled_position_m": -0.02005322277545929,
+        "sag_mm": 20.05322277545929,
+        "predicted_mm": 19.62,
+        "drift_mm": 0.0
+      },
+      {
+        "joint": "joint_2",
+        "supported_mass_kg": 5.0,
+        "settled_position_m": -0.00981642585247755,
+        "sag_mm": 9.81642585247755,
+        "predicted_mm": 9.81,
+        "drift_mm": 0.0
+      }
+    ],
+    "cumulative_tip_error_mm": 60.20850222557783,
+    "sum_of_predicted_mm": 58.86,
+    "accumulation_ratio": 1.0229103334280978
+  },
+  "coupling": {
+    "moved_joint": "joint_0",
+    "moved_from_m": -0.03033885359764099,
+    "moved_target_m": 0.5,
+    "moved_settled_m": 0.46965789794921875,
+    "moved_reached_mm_short": 30.34210205078125,
+    "held_joints": [
+      {
+        "joint": "joint_1",
+        "held_target_m": 0.0,
+        "resting_position_m": -0.02005322277545929,
+        "peak_transient_deviation_mm": 44.995322823524475,
+        "peak_at_step": 3,
+        "residual_deviation_mm": 0.011516734957695007
+      },
+      {
+        "joint": "joint_2",
+        "held_target_m": 0.0,
+        "resting_position_m": -0.00981642585247755,
+        "peak_transient_deviation_mm": 28.934777714312077,
+        "peak_at_step": 3,
+        "residual_deviation_mm": 0.006020069122314453
+      }
+    ],
+    "max_peak_transient_deviation_mm": 44.995322823524475,
+    "max_residual_deviation_mm": 0.011516734957695007
+  },
+  "error": null
+}

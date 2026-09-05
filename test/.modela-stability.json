@@ -201,5 +201,8 @@
   "all_cubes_track_exact": true,
   "all_obstacles_settled": true,
   "stable": true,
-  "error": null
+  "error": null,
+  "mp4": "/home/yunchien/work/doc/viz/modela_forklift.mp4",
+  "mp4_frames": 60,
+  "mp4_nonblack": 60
 }

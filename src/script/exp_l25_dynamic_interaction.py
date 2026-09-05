@@ -71,6 +71,28 @@ ends; A=0.75 m/s^2, so peak per-tick displacement ~0.031 m/tick, inside the L2
       accel plateau, and residual in the settle window), vs the L2 clean-carry
       baseline (#217/#218: clean <=0.05 m/tick carried, launches at 0.2 m/tick).
 
+DELIVERY METRIC + dt CONTROL (added after the 2026-09 physics-validity audit)
+-----------------------------------------------------------------------------
+The delivery metric is the PAYLOAD lag (payload_lag_mm / delivery_ok), NOT the
+carrier tracking error: a stiff drive tracks its OWN target to <0.05 mm while the
+payload can slip hundreds of mm, so citing carrier lag as carry performance is
+misleading. Two fixes:
+  * velocity feed-forward (see _set_drive_target): the drive damping term no
+    longer fights the commanded motion.
+  * the apparent "high stiffness -> payload slips" inversion is NOT a physical
+    property of stiffness -- first principles: a=0.75 m/s^2 needs 0.75 N friction
+    vs the mu*m*g=4.9 N static limit (6.5x margin) => ZERO slip in continuous
+    motion at any k. The slip is a (k*dt) DISCRETIZATION artifact: a stiff drive
+    snaps the per-tick position staircase (peak ~0.031 m/tick at dt=1/60)
+    impulsively whenever dt is not << the drive natural period 2*pi*sqrt(m/k). It
+    COLLAPSES with a finer dt (measured: k=1e5 payload lag 154 mm at dt=1/60 ->
+    19 mm at dt=1/240; k=1e6/1e7 need finer still, their natural periods ~2-6 ms
+    straddle dt=4.2 ms). Reproduce the dt control by re-running with
+    ``--dt 0.004166667 --steps 1200 --warmup 240 --settle 480`` (same profile,
+    4x finer staircase) and comparing payload_lag_mm.
+Conclusion: L2.5 CAN carry a payload; match the physics dt to the drive stiffness
+(dt << 2*pi*sqrt(m/k)), or use moderate k where the standard dt already delivers.
+
 MODE = viz  (RENDER the push so a human WATCHES the back-off)
 ------------------------------------------------------------
 The push modes above run headless (render=False) and only emit numbers. ``viz``
@@ -215,18 +237,36 @@ def _author_l25_actuator(stage, tag, x0, y0, z0, dims, mass, k):
     drive.CreateStiffnessAttr().Set(float(k))
     drive.CreateDampingAttr().Set(float(damping))
     drive.CreateTargetPositionAttr().Set(0.0)
+    drive.CreateTargetVelocityAttr().Set(0.0)  # velocity feed-forward (see below)
     drive.CreateMaxForceAttr().Set(float("inf"))  # never saturates
 
     return anchor_path, slider_path, joint_path, damping
 
 
-def _set_drive_target(stage, joint_path, target_q):
-    """Update the linear drive target position on the prismatic joint."""
+def _set_drive_target(stage, joint_path, target_q, target_v=0.0):
+    """Update the linear drive target position (and velocity feed-forward).
+
+    A position drive force is ``k*(target_pos - pos) + d*(target_vel - vel)``.
+    With ``target_vel = 0`` the damping term ``-d*vel`` fights ALL motion, so at
+    critical damping ``d = 2*sqrt(k*m)`` a moving slider carries a systematic
+    following error ``2*v*sqrt(m/k)`` (confounding the D1 push back-off) and, on a
+    per-tick position staircase, replays each step as a near-impulsive intra-tick
+    acceleration that breaks payload friction (the D2 carry slip artifact).
+    Setting ``target_vel`` to the commanded profile velocity each tick makes the
+    damping term ``d*(target_vel - vel) ~= 0`` during smooth tracking, so the
+    drive follows the trajectory without the spurious velocity-proportional lag.
+    This is the physics-validity fix from the 2026-09 audit; passing target_v=0
+    reproduces the old (confounded) behavior for comparison.
+    """
     from pxr import UsdPhysics
 
     prim = stage.GetPrimAtPath(joint_path)
     drive = UsdPhysics.DriveAPI.Get(prim, "linear")
     drive.GetTargetPositionAttr().Set(float(target_q))
+    tv = drive.GetTargetVelocityAttr()
+    if not tv:
+        tv = drive.CreateTargetVelocityAttr()
+    tv.Set(float(target_v))
 
 
 # ===========================================================================
@@ -293,40 +333,63 @@ def _run_push(args, app):
     cube_half = _PUSH_CUBE_SIZE * 0.5
     contact_margin = 0.02
 
+    # Two lanes per stiffness: a "cube" lane (slider pushes a free cube) and a
+    # NO-CUBE control lane (identical actuator + identical commanded ramp, no
+    # cube). Back-off on the control lane is the pure drive-following lag; the
+    # contact reaction the mover actually feels is (cube back-off - control
+    # back-off). Without this control the ramp-phase following lag masquerades as
+    # contact push-back (the 2026-09 audit confound).
     lanes = []
-    for i, k in enumerate(_STIFFNESS):
-        y0 = i * _LANE_SPACING_Y
-        tag = f"k{int(k):d}"
-        _a, slider_path, joint_path, damping = _author_l25_actuator(
-            stage, tag, _PUSH_PLATE_X0, y0, _PUSH_PLATE_Z,
-            _PUSH_PLATE_DIMS, _SLIDER_MASS, k,
-        )
-        cube_path = f"/World/cube_{tag}"
-        cube = UsdGeom.Cube.Define(stage, cube_path)
-        cube.GetSizeAttr().Set(1.0)
-        cube.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
-            Gf.Vec3d(_PUSH_PLATE_X0 + _PUSH_CUBE_DX, y0, _PUSH_CUBE_Z)
-        )
-        cube.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
-            Gf.Vec3f(_PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE)
-        )
-        cprim = cube.GetPrim()
-        UsdPhysics.RigidBodyAPI.Apply(cprim)
-        UsdPhysics.CollisionAPI.Apply(cprim)
-        UsdPhysics.MassAPI.Apply(cprim).CreateMassAttr(1.0)
-        PhysxSchema.PhysxRigidBodyAPI.Apply(cprim).CreateLinearDampingAttr(0.2)
-        lanes.append({
-            "k": k, "tag": tag, "y0": y0, "x0": _PUSH_PLATE_X0,
-            "slider_path": slider_path, "joint_path": joint_path,
-            "cube_path": cube_path, "damping": damping,
-        })
+    lane_i = 0
+    for k in _STIFFNESS:
+        for has_cube in (True, False):
+            y0 = lane_i * _LANE_SPACING_Y
+            lane_i += 1
+            suffix = "" if has_cube else "_ctl"
+            tag = f"k{int(k):d}{suffix}"
+            _a, slider_path, joint_path, damping = _author_l25_actuator(
+                stage, tag, _PUSH_PLATE_X0, y0, _PUSH_PLATE_Z,
+                _PUSH_PLATE_DIMS, _SLIDER_MASS, k,
+            )
+            cube_path = None
+            if has_cube:
+                cube_path = f"/World/cube_{tag}"
+                cube = UsdGeom.Cube.Define(stage, cube_path)
+                cube.GetSizeAttr().Set(1.0)
+                cube.AddXformOp(UsdGeom.XformOp.TypeTranslate).Set(
+                    Gf.Vec3d(_PUSH_PLATE_X0 + _PUSH_CUBE_DX, y0, _PUSH_CUBE_Z)
+                )
+                cube.AddXformOp(UsdGeom.XformOp.TypeScale).Set(
+                    Gf.Vec3f(_PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE, _PUSH_CUBE_SIZE)
+                )
+                cprim = cube.GetPrim()
+                UsdPhysics.RigidBodyAPI.Apply(cprim)
+                UsdPhysics.CollisionAPI.Apply(cprim)
+                UsdPhysics.MassAPI.Apply(cprim).CreateMassAttr(1.0)
+                PhysxSchema.PhysxRigidBodyAPI.Apply(cprim).CreateLinearDampingAttr(
+                    0.2
+                )
+            lanes.append({
+                "k": k, "tag": tag, "y0": y0, "x0": _PUSH_PLATE_X0,
+                "has_cube": has_cube,
+                "slider_path": slider_path, "joint_path": joint_path,
+                "cube_path": cube_path, "damping": damping,
+            })
 
     world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                   rendering_dt=args.dt)
     world.reset()
 
     slider = {ln["tag"]: SingleRigidPrim(ln["slider_path"]) for ln in lanes}
-    cube = {ln["tag"]: SingleRigidPrim(ln["cube_path"]) for ln in lanes}
+    cube = {
+        ln["tag"]: SingleRigidPrim(ln["cube_path"])
+        for ln in lanes if ln["has_cube"]
+    }
+
+    # Commanded ramp velocity (m/s) during the sweep -> velocity feed-forward.
+    sweep_vel = _PUSH_SWEEP_M / (args.steps * args.dt) if args.steps else 0.0
+    result["feedforward"] = (not args.no_feedforward)
+    result["sweep_velocity_mps"] = sweep_vel
 
     total = args.warmup + args.steps + args.settle
     acc = {ln["tag"]: {
@@ -339,13 +402,18 @@ def _run_push(args, app):
     for step_i in range(total):
         if step_i < args.warmup:
             target_q = 0.0
+            target_v = 0.0
         elif step_i < args.warmup + args.steps:
             phase = (step_i - args.warmup) / float(args.steps)
             target_q = _PUSH_SWEEP_M * phase
+            target_v = sweep_vel
         else:
             target_q = _PUSH_SWEEP_M
+            target_v = 0.0
+        if args.no_feedforward:
+            target_v = 0.0
         for ln in lanes:
-            _set_drive_target(stage, ln["joint_path"], target_q)
+            _set_drive_target(stage, ln["joint_path"], target_q, target_v)
         world.step(render=False)
 
         for ln in lanes:
@@ -357,6 +425,13 @@ def _run_push(args, app):
             commanded_x = ln["x0"] + target_q
             backoff = abs(slider_x - commanded_x)
             a["max_backoff"] = max(a["max_backoff"], backoff)
+
+            if step_i >= args.warmup + args.steps:
+                a["settle_err_sum"] += backoff
+                a["settle_n"] += 1
+
+            if not ln["has_cube"]:
+                continue  # control lane: only the drive-following back-off matters
 
             cpos, _ = cube[tag].get_world_pose()
             cpos = np.asarray(cpos, dtype=float).reshape(-1)
@@ -381,11 +456,14 @@ def _run_push(args, app):
                         a["max_backoff_contact"], backoff
                     )
 
-            if step_i >= args.warmup + args.steps:
-                a["settle_err_sum"] += backoff
-                a["settle_n"] += 1
-
+    # Control-lane (no-cube) following-lag back-off, keyed by k.
+    ctl_backoff_mm = {
+        ln["k"]: acc[ln["tag"]]["max_backoff"] * 1000.0
+        for ln in lanes if not ln["has_cube"]
+    }
     for ln in lanes:
+        if not ln["has_cube"]:
+            continue
         tag = ln["tag"]
         a = acc[tag]
         cpos_final, _ = cube[tag].get_world_pose()
@@ -397,6 +475,11 @@ def _run_push(args, app):
         steady_lag = (
             a["settle_err_sum"] / a["settle_n"] if a["settle_n"] else float("nan")
         )
+        backoff_contact_mm = a["max_backoff_contact"] * 1000.0
+        ctl_mm = ctl_backoff_mm.get(ln["k"], 0.0)
+        # Pure contact reaction = contact back-off minus the drive-following lag
+        # measured on the identical no-cube control lane (clamped at 0).
+        contact_reaction_mm = max(0.0, backoff_contact_mm - ctl_mm)
         result["points"].append({
             "stiffness": ln["k"],
             "damping_critical": ln["damping"],
@@ -406,7 +489,9 @@ def _run_push(args, app):
             "cube_min_z_m": a["cube_min_z"],
             "contact_frames": a["contact_frames"],
             "backoff_overall_mm": a["max_backoff"] * 1000.0,
-            "backoff_contact_mm": a["max_backoff_contact"] * 1000.0,
+            "backoff_contact_mm": backoff_contact_mm,
+            "control_following_lag_mm": ctl_mm,
+            "contact_reaction_mm": contact_reaction_mm,
             "steady_lag_mm": steady_lag * 1000.0,
             "cube_pushed": bool(disp_x > 0.3 and a["cube_max_speed"] > 1e-3),
             "cube_on_ground": bool(
@@ -429,6 +514,20 @@ def _carry_target(t, T, accel):
     x_half = 0.5 * accel * half * half
     td = t - half
     return x_half + v_peak * td - 0.5 * accel * td * td
+
+
+def _carry_velocity(t, T, accel):
+    """Commanded velocity (d/dt of _carry_target) at time t in [0, T].
+
+    Used as the drive velocity feed-forward so the critically-damped drive tracks
+    the constant-accel profile without the velocity-proportional following error
+    that would otherwise inject per-tick impulses and break payload friction.
+    """
+    half = T * 0.5
+    if t <= half:
+        return accel * t
+    td = t - half
+    return accel * half - accel * td
 
 
 def _run_carry(args, app):
@@ -545,6 +644,57 @@ def _run_carry(args, app):
         SingleGeometryPrim(ln["slider_path"]).apply_physics_material(mat)
         SingleGeometryPrim(ln["payload_path"]).apply_physics_material(mat)
 
+    render = bool(args.mp4)
+    annot = None
+    _pk_rgb = {1e4: (0.9, 0.3, 0.2), 1e5: (0.95, 0.6, 0.1),
+               1e6: (0.2, 0.8, 0.3), 1e7: (0.2, 0.5, 0.9)}
+    if render:
+        import carb
+        _s = carb.settings.get_settings()
+        _s.set("/rtx/post/histogram/enabled", False)
+        # Real-time raster-lit mode; the NGX/DLSS denoiser is unavailable in this
+        # headless container, so disable the stochastic effects that otherwise
+        # leave salt-and-pepper noise on flat surfaces (GI / AO / sampled
+        # lighting / reflections). Direct lighting is deterministic-clean.
+        _s.set("/rtx/rendermode", "RaytracedLighting")
+        _s.set("/rtx/indirectDiffuse/enabled", False)
+        _s.set("/rtx/ambientOcclusion/enabled", False)
+        _s.set("/rtx/reflections/enabled", False)
+        _s.set("/rtx/directLighting/sampledLighting/enabled", False)
+        _s.set("/rtx/shadows/enabled", False)
+        # Spatial FXAA instead of temporal AA: no per-frame sub-pixel jitter, so
+        # large flat surfaces (ground / platforms) stop speckling on a static grab.
+        _s.set("/rtx/post/aa/op", 2)
+        _s.set("/rtx/post/dlss/execMode", 0)
+        _s.set("/rtx/pathtracing/spp", 1)
+        # Materials are authored flat/unlit (see below) so lighting is irrelevant;
+        # the two directional lights remain harmless. Emissive flat colour is what
+        # removes the salt-and-pepper (the denoiser-less lighting integral is the
+        # noise source), not the light setup.
+        _fill = UsdLux.DistantLight.Define(stage, "/World/Fill")
+        _fill.CreateIntensityAttr(1500.0)
+        UsdGeom.Xformable(_fill.GetPrim()).AddRotateXYZOp().Set(
+            Gf.Vec3f(-30.0, 40.0, 0.0))
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.62, 0.62, 0.66),
+                             flat=True)
+        # Hide the huge 800x800 physics ground for the render: a plane that big
+        # aliases badly at grazing angles with no denoiser. Nothing rests on it in
+        # carry (platforms float, payload rides the platform), so hiding it just
+        # removes the noisy element -- clean background, colored platforms/payload.
+        UsdGeom.Imageable(
+            stage.GetPrimAtPath("/World/Ground")).MakeInvisible()
+        for ln in lanes:
+            _viz_bind(stage, ln["slider_path"], gray)
+            pm = _viz_material(stage, f"/World/Looks/{ln['tag']}",
+                               _pk_rgb.get(ln["k"], (0.8, 0.8, 0.2)), flat=True)
+            _viz_bind(stage, ln["payload_path"], pm)
+        cam = UsdGeom.Camera.Define(stage, "/World/CarryCam")
+        cam.CreateFocalLengthAttr(18.0)
+        cam.CreateClippingRangeAttr(Gf.Vec2f(0.1, 100000.0))
+        UsdGeom.Xformable(cam.GetPrim()).AddTransformOp().Set(
+            Gf.Matrix4d(*_viz_look_at((-5.5, -5.0, 5.0), (2.3, 6.0, 0.6)))
+        )
+
     world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                   rendering_dt=args.dt)
     world.reset()
@@ -552,7 +702,25 @@ def _run_carry(args, app):
     slider = {ln["tag"]: SingleRigidPrim(ln["slider_path"]) for ln in lanes}
     payload = {ln["tag"]: SingleRigidPrim(ln["payload_path"]) for ln in lanes}
 
+    if render:
+        import omni.replicator.core as rep
+        rp = rep.create.render_product("/World/CarryCam", (args.width, args.height))
+        annot = rep.AnnotatorRegistry.get_annotator("rgb")
+        annot.attach(rp)
+
+    def _grab():
+        for _ in range(16):  # accumulate so the frame converges (no NGX denoiser)
+            world.render()
+        raw = np.asarray(annot.get_data())
+        if raw.size and raw.ndim == 3:
+            px = raw[:, :, :3] if raw.shape[2] == 4 else raw
+            return np.ascontiguousarray(px.astype(np.uint8))
+        return None
+
     total = args.warmup + args.steps + args.settle
+    cap_steps = set(int(round(v)) for v in np.linspace(
+        args.warmup, total - 1, 48)) if render else set()
+    frames, nonblack = [], 0
     # Steady-accel plateau window: middle of the first accel half.
     plateau_lo = args.warmup + int(args.steps * 0.15)
     plateau_hi = args.warmup + int(args.steps * 0.40)
@@ -563,17 +731,23 @@ def _run_carry(args, app):
         "payload_x_base": None, "slider_x_base": None,
     } for ln in lanes}
 
+    result["feedforward"] = (not args.no_feedforward)
     for step_i in range(total):
         if step_i < args.warmup:
             target_q = 0.0
+            target_v = 0.0
         elif step_i < args.warmup + args.steps:
             t = (step_i - args.warmup) * args.dt
             target_q = _carry_target(t, T_move, _CARRY_ACCEL)
+            target_v = _carry_velocity(t, T_move, _CARRY_ACCEL)
         else:
             target_q = total_travel
+            target_v = 0.0
+        if args.no_feedforward:
+            target_v = 0.0
         for ln in lanes:
-            _set_drive_target(stage, ln["joint_path"], target_q)
-        world.step(render=False)
+            _set_drive_target(stage, ln["joint_path"], target_q, target_v)
+        world.step(render=render)
 
         for ln in lanes:
             tag = ln["tag"]
@@ -598,6 +772,25 @@ def _run_carry(args, app):
                 a["settle_sum"] += err
                 a["settle_n"] += 1
 
+        if render and step_i in cap_steps:
+            lines = ["L2.5 carry: payload lag vs stiffness (delivery metric)"]
+            for ln in lanes:
+                a = acc[ln["tag"]]
+                sx = float(np.asarray(
+                    slider[ln["tag"]].get_world_pose()[0]).reshape(-1)[0])
+                px = float(np.asarray(
+                    payload[ln["tag"]].get_world_pose()[0]).reshape(-1)[0])
+                bs = a["slider_x_base"] or 0.0
+                bp = a["payload_x_base"] or 0.0
+                lag_mm = ((sx - bs) - (px - bp)) * 1000.0
+                lines.append(f"k={ln['k']:.0e}  payload_lag={lag_mm:7.1f} mm")
+            rgb = _grab()
+            if rgb is not None and float(rgb.mean()) > 1.0:
+                nonblack += 1
+            if rgb is None:
+                rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+            frames.append(np.asarray(_viz_overlay(rgb, lines)))
+
     for ln in lanes:
         tag = ln["tag"]
         a = acc[tag]
@@ -617,19 +810,47 @@ def _run_carry(args, app):
         settle_err = (
             a["settle_sum"] / a["settle_n"] if a["settle_n"] else float("nan")
         )
+        payload_lag_m = carrier_travel - payload_travel
+        # DELIVERY metric is the PAYLOAD lag (how far short the cargo lands), NOT
+        # the carrier tracking error. The audit showed a stiff drive can track its
+        # own target to <0.05 mm (carrier) while the payload slips hundreds of mm;
+        # reporting only the carrier lag hides the delivery failure. Both are kept,
+        # but delivery_ok is judged on the payload.
         result["points"].append({
             "stiffness": ln["k"],
             "damping_critical": ln["damping"],
             "carrier_travel_x_m": carrier_travel,
             "payload_travel_x_m": payload_travel,
-            "payload_lag_m": carrier_travel - payload_travel,
+            "payload_lag_m": payload_lag_m,
+            "payload_lag_mm": payload_lag_m * 1000.0,
             "payload_z_final_m": payload_z,
             "payload_rel_x_m": rel_x,
             "payload_rode": bool(payload_z > _CARRY_CARRIED_Z),
+            "delivery_ok": bool(
+                payload_z > _CARRY_CARRIED_Z and abs(payload_lag_m) < 0.01
+            ),
             "carrier_track_err_max_mm": a["max_err"] * 1000.0,
             "carrier_track_err_plateau_mm": plateau_err * 1000.0,
             "carrier_track_err_settle_mm": settle_err * 1000.0,
         })
+    result["delivery_metric_note"] = (
+        "delivery_ok / payload_lag_mm are the CARGO-delivery metrics; "
+        "carrier_track_err_* describe only the actuator tracking its own target "
+        "and can be tiny while the payload lags -- do not cite carrier lag as "
+        "carry performance."
+    )
+    if render and frames:
+        import imageio.v2 as imageio
+        Path(args.mp4).parent.mkdir(parents=True, exist_ok=True)
+        imageio.mimwrite(args.mp4, frames, fps=15, codec="libx264", quality=8)
+        result["mp4"] = args.mp4
+        result["mp4_frames"] = len(frames)
+        result["mp4_nonblack"] = nonblack
+    if annot is not None:
+        try:
+            annot.detach()
+        except Exception:  # noqa: BLE001
+            pass
     return result
 
 
@@ -670,20 +891,22 @@ def _viz_look_at(eye, target, up=(0.0, 0.0, 1.0)):
     ]
 
 
-def _viz_material(stage, path, rgb, emissive=None, rough=0.6):
-    """UsdPreviewSurface material; optional emissiveColor for the marker glow."""
+def _viz_material(stage, path, rgb, emissive=None, rough=0.6, flat=False):
+    """UsdPreviewSurface material. ``flat`` = unlit (diffuse 0 + emissive rgb):
+    the surface emits its own colour, bypassing the per-pixel denoiser-less
+    lighting integral -> deterministic clean flat colour (no salt-and-pepper)."""
     from pxr import Gf, Sdf, UsdShade
 
     m = UsdShade.Material.Define(stage, path)
     s = UsdShade.Shader.Define(stage, path + "/Shader")
     s.CreateIdAttr("UsdPreviewSurface")
-    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    diffuse = (0.0, 0.0, 0.0) if flat else rgb
+    s.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*diffuse))
     s.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(rough)
     s.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
-    if emissive is not None:
-        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(
-            Gf.Vec3f(*emissive)
-        )
+    em = rgb if flat else emissive
+    if em is not None:
+        s.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*em))
     m.CreateSurfaceOutput().ConnectToSource(s.ConnectableAPI(), "surface")
     return m
 
@@ -793,8 +1016,19 @@ def _run_viz(args, app):
         "error": None,
     }
 
-    # RTX auto-exposure off (histogram) -- mirror #209 so brightness is stable.
-    carb.settings.get_settings().set("/rtx/post/histogram/enabled", False)
+    # Clean-frame recipe (no NGX denoiser in headless): real-time raster, all
+    # stochastic effects off, spatial FXAA. Flat/unlit materials (below) are what
+    # actually removes the noise; these just help.
+    _vs = carb.settings.get_settings()
+    for _vk, _vv in (("/rtx/post/histogram/enabled", False),
+                     ("/rtx/rendermode", "RaytracedLighting"),
+                     ("/rtx/indirectDiffuse/enabled", False),
+                     ("/rtx/ambientOcclusion/enabled", False),
+                     ("/rtx/reflections/enabled", False),
+                     ("/rtx/directLighting/sampledLighting/enabled", False),
+                     ("/rtx/shadows/enabled", False),
+                     ("/rtx/post/aa/op", 2)):
+        _vs.set(_vk, _vv)
 
     for k in stiffnesses:
         tag = f"k{_viz_klabel(k)}"
@@ -816,13 +1050,14 @@ def _run_viz(args, app):
             Gf.Vec3f(-40.0, 20.0, 0.0)
         )
 
-        gray = _viz_material(stage, "/World/Looks/Gray", (0.50, 0.50, 0.52))
-        blue = _viz_material(stage, "/World/Looks/Blue", (0.10, 0.35, 0.85))
-        orange = _viz_material(stage, "/World/Looks/Orange", (0.95, 0.45, 0.10))
-        green = _viz_material(
-            stage, "/World/Looks/MarkerGreen", (0.10, 1.0, 0.10),
-            emissive=(0.10, 1.0, 0.10),
-        )
+        gray = _viz_material(stage, "/World/Looks/Gray", (0.55, 0.55, 0.60),
+                             flat=True)
+        blue = _viz_material(stage, "/World/Looks/Blue", (0.10, 0.35, 0.85),
+                             flat=True)
+        orange = _viz_material(stage, "/World/Looks/Orange", (0.95, 0.45, 0.10),
+                               flat=True)
+        green = _viz_material(stage, "/World/Looks/MarkerGreen", (0.10, 1.0, 0.10),
+                              flat=True)
 
         ground = UsdGeom.Cube.Define(stage, "/World/Ground")
         ground.GetSizeAttr().Set(1.0)
@@ -833,6 +1068,9 @@ def _run_viz(args, app):
             Gf.Vec3f(400.0, 400.0, 1.0)
         )
         UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+        # Hide the huge ground for the render (grazing-angle aliasing, no denoiser);
+        # collision stays, only the visual is hidden.
+        UsdGeom.Imageable(ground.GetPrim()).MakeInvisible()
         _viz_bind(stage, "/World/Ground", gray)
 
         _a, slider_path, joint_path, _damp = _author_l25_actuator(
@@ -972,17 +1210,16 @@ def _run_viz(args, app):
                     "nonblack": bool(mean_px > 1.0),
                 })
 
-        gif_name = f"push_{tag}.gif"
-        gif_path = str(Path(viz_dir) / gif_name)
+        mp4_name = f"push_{tag}.mp4"
+        mp4_path = str(Path(viz_dir) / mp4_name)
         if pil_frames:
-            pil_frames[0].save(
-                gif_path, save_all=True, append_images=pil_frames[1:],
-                duration=_VIZ_GIF_MS, loop=0, optimize=False,
-            )
+            import imageio.v2 as imageio
+            imageio.mimwrite(mp4_path, [np.asarray(im) for im in pil_frames],
+                             fps=1000.0 / _VIZ_GIF_MS, codec="libx264", quality=8)
         nonblack_n = sum(1 for f in frames_meta if f["nonblack"])
         result["per_k"][tag] = {
             "stiffness": k,
-            "gif": gif_path,
+            "mp4": mp4_path,
             "png_dir": viz_dir,
             "png_pattern": f"push_{tag}_NNN.png",
             "n_frames": len(frames_meta),
@@ -1054,6 +1291,14 @@ def _parse_args():
     p.add_argument("--settle", type=int, default=120,
                    help="Settle steps (drive holds at end target).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="carry mode: RTX-render the run with a per-frame payload-"
+                        "lag HUD and encode an MP4 to this path (mounted).")
+    p.add_argument("--no-feedforward", action="store_true",
+                   help="Disable drive velocity feed-forward (reproduces the old "
+                        "confounded behavior: target_vel=0 so the damping term "
+                        "fights motion -> following lag + payload-friction "
+                        "impulses). Default: feed-forward ON.")
     return p.parse_args()
 
 

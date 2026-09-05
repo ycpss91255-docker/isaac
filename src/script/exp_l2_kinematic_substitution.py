@@ -251,12 +251,37 @@ def run(args):
 
         specs = _build_scene(stage, x_spacing=3.0)
 
+        render = bool(args.mp4)
+        cap = None
+        if render:
+            import viz_render as vr
+            from pxr import UsdGeom as _UG
+            vr.apply_clean_render_settings()
+            vr.add_fill_lights(stage)
+            _UG.Imageable(stage.GetPrimAtPath("/World/Ground")).MakeInvisible()
+            _bcol = {"leaf": (0.2, 0.5, 0.9), "internal": (0.2, 0.8, 0.3),
+                     "base": (0.95, 0.5, 0.1), "odd": (0.7, 0.4, 0.9)}
+            for s in specs:
+                vr.bind(stage, s["body_path"], vr.material(
+                    stage, f"/World/Looks/b_{s['name']}",
+                    _bcol.get(s["name"], (0.8, 0.8, 0.2))))
+                vr.bind(stage, s["pusher_path"], vr.material(
+                    stage, f"/World/Looks/p_{s['name']}", (0.75, 0.75, 0.78)))
+            vr.make_camera(stage, "/World/VizCam", (4.5, -13.0, 5.0),
+                           (4.5, 0.0, 1.0))
+
         world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                       rendering_dt=args.dt)
         world.reset()
 
         kin = {s["name"]: SingleRigidPrim(s["body_path"]) for s in specs}
         push = {s["name"]: SingleRigidPrim(s["pusher_path"]) for s in specs}
+        if render:
+            import viz_render as vr
+            cap = vr.Capturer(world, "/World/VizCam", args.width, args.height)
+        cap_steps = set(int(round(v)) for v in np.linspace(
+            0, args.steps - 1, 48)) if render else set()
+        frames, nonblack = [], 0
         result["drive_api"] = (
             "isaacsim.core.prims.SingleRigidPrim.set_world_pose per tick on a "
             "physics:kinematicEnabled body (routes to kinematic target, not "
@@ -288,7 +313,7 @@ def run(args):
                     np.asarray(pos, dtype=float),
                     np.asarray(quat, dtype=float),
                 )
-            world.step(render=False)
+            world.step(render=render)
             # Read back actuals and accumulate error.
             for s in specs:
                 nm = s["name"]
@@ -312,6 +337,30 @@ def run(args):
                     a["max_pos_err_contact_m"] = max(
                         a["max_pos_err_contact_m"], pos_err
                     )
+
+            if render and step_i in cap_steps:
+                import viz_render as vr
+                gmax = max(a["max_pos_err_m"] for a in acc.values())
+                lines = [
+                    "L2 per-link kinematic substitution (SE(3) trajectory)",
+                    "4 shapes driven along the same path; pushers ride on top",
+                    "max pos err = %.1e m  (float32 floor -> exact)" % gmax,
+                    "t = %5.2f s" % (step_i * args.dt),
+                ]
+                rgb = cap.grab()
+                if rgb is not None and float(rgb.mean()) > 1.0:
+                    nonblack += 1
+                if rgb is None:
+                    rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+                frames.append(vr.overlay(rgb, lines))
+
+        if render and frames:
+            import viz_render as vr
+            vr.encode_mp4(args.mp4, frames, fps=15)
+            cap.detach()
+            result["mp4"] = args.mp4
+            result["mp4_frames"] = len(frames)
+            result["mp4_nonblack"] = nonblack
 
         all_flags = []
         for s in specs:
@@ -358,6 +407,11 @@ def _parse_args():
     p.add_argument("--out", required=True, help="JSON results path (mounted).")
     p.add_argument("--steps", type=int, default=360, help="Trajectory steps.")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="If set, RTX-render the trajectory with a data HUD and "
+                        "encode an MP4 to this path (mounted).")
+    p.add_argument("--width", type=int, default=960, help="mp4 render width.")
+    p.add_argument("--height", type=int, default=540, help="mp4 render height.")
     return p.parse_args()
 
 

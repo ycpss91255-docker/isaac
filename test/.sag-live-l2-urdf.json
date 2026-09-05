@@ -1,0 +1,58 @@
+{
+  "experiment": "sag-livestream",
+  "isaac_variant": "6.0.1",
+  "launcher": "isaaclab.app.AppLauncher",
+  "livestream": 2,
+  "scene": "urdf",
+  "mass_kg": 10.0,
+  "stiffness": 100000.0,
+  "target_m": 0.3,
+  "settle_steps": 400,
+  "render": true,
+  "signal_port": null,
+  "stream_port": null,
+  "launch_ok": true,
+  "scene_ok": true,
+  "stepped": true,
+  "droop_mm": 0.7911503314971813,
+  "predicted_mm": 0.9810000000000001,
+  "error": null,
+  "livestream_exts_enabled": [
+    "omni.kit.livestream.app-10.1.1",
+    "omni.kit.livestream.core-10.2.1",
+    "omni.kit.livestream.webrtc-10.3.2"
+  ],
+  "urdf_convert_survived": true,
+  "converted_usd": "/tmp/sag_live_prismatic_lift.usd",
+  "joint_path": "/prismatic_lift/Physics/lift_joint",
+  "root_path": "/prismatic_lift/Geometry",
+  "stored_stiffness": 100000.0,
+  "stored_target": 0.30000001192092896,
+  "damping_critical": 2000.0,
+  "art_pattern": "/prismatic_lift/Geometry",
+  "dof_names": [
+    "lift_joint"
+  ],
+  "settled_position_m": 0.2992088496685028,
+  "drift_mm": 0.0,
+  "signal_port_listening": true,
+  "http_ports_8000_8100_open": [
+    8011
+  ],
+  "signal_ports_49100_49120_open": [
+    49100
+  ],
+  "frame_capture": {
+    "attempted": true,
+    "captured": true,
+    "detail": null,
+    "shape": [
+      256,
+      256,
+      4
+    ],
+    "max_pixel": 168.0,
+    "mean_pixel": 0.302276611328125,
+    "nonblack": true
+  }
+}

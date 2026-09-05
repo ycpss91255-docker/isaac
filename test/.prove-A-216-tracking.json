@@ -1,0 +1,133 @@
+{
+  "issue": "isaac#180",
+  "isaac_variant": "6.0.1",
+  "joint_type": "revolute",
+  "axis": "+Z (vertical, gravity-parallel -> zero axis torque, isolated)",
+  "axis_inertia_izz": 0.1,
+  "physics_dt": 0.016666666666666666,
+  "step_rad": 0.5,
+  "amp_rad": 0.5,
+  "freq_hz": 0.5,
+  "note_5_1_baseline": "none: #180 (transient tracking, no load) is a fresh metric; ADR-0021 EXP-184 only records L2.5 droop-under-load, a different quantity handled by exp_l25_sag_sweep.py",
+  "stiffness_sweep": [
+    {
+      "stiffness_stored": 500.0,
+      "damping_stored": 14.142135620117188,
+      "damping_critical_target": 14.142135623730951,
+      "dof_index": 0,
+      "step_phase": {
+        "step_rad": 0.5,
+        "settled_rad": 0.499999463558197,
+        "steady_state_error_rad": 5.364418029785156e-07,
+        "steady_state_error_mrad": 0.0005364418029785156,
+        "residual_drift_mrad": 0.0,
+        "overshoot_rad": -5.364418029785156e-07,
+        "overshoot_frac": -1.0728836059570312e-06,
+        "settle_step": 6,
+        "has_nan": false
+      },
+      "sine_phase": {
+        "amp_rad": 0.5,
+        "freq_hz": 0.5,
+        "sine_steps": 240,
+        "max_tracking_error_rad": 0.03283587973980549,
+        "max_tracking_error_mrad": 32.83587973980549,
+        "rms_tracking_error_rad": 0.022925045319440354,
+        "rms_tracking_error_mrad": 22.925045319440354,
+        "amplitude_ratio": 0.9960535168647766,
+        "phase_lag_rad": 0.05235987755982988,
+        "phase_lag_deg": 3.0,
+        "has_nan": false
+      }
+    },
+    {
+      "stiffness_stored": 5000.0,
+      "damping_stored": 44.72135925292969,
+      "damping_critical_target": 44.721359549995796,
+      "dof_index": 0,
+      "step_phase": {
+        "step_rad": 0.5,
+        "settled_rad": 0.4999998211860657,
+        "steady_state_error_rad": 1.7881393432617188e-07,
+        "steady_state_error_mrad": 0.00017881393432617188,
+        "residual_drift_mrad": 0.0,
+        "overshoot_rad": -1.7881393432617188e-07,
+        "overshoot_frac": -3.5762786865234375e-07,
+        "settle_step": 2,
+        "has_nan": false
+      },
+      "sine_phase": {
+        "amp_rad": 0.5,
+        "freq_hz": 0.5,
+        "sine_steps": 240,
+        "max_tracking_error_rad": 0.005088180823755738,
+        "max_tracking_error_mrad": 5.088180823755739,
+        "rms_tracking_error_rad": 0.003577930415815947,
+        "rms_tracking_error_mrad": 3.5779304158159473,
+        "amplitude_ratio": 0.9996304512023926,
+        "phase_lag_rad": 0.0,
+        "phase_lag_deg": 0.0,
+        "has_nan": false
+      }
+    },
+    {
+      "stiffness_stored": 50000.0,
+      "damping_stored": 141.42135620117188,
+      "damping_critical_target": 141.4213562373095,
+      "dof_index": 0,
+      "step_phase": {
+        "step_rad": 0.5,
+        "settled_rad": 0.4999999403953552,
+        "steady_state_error_rad": 5.960464477539063e-08,
+        "steady_state_error_mrad": 5.9604644775390625e-05,
+        "residual_drift_mrad": 0.0,
+        "overshoot_rad": -5.960464477539063e-08,
+        "overshoot_frac": -1.1920928955078125e-07,
+        "settle_step": 0,
+        "has_nan": false
+      },
+      "sine_phase": {
+        "amp_rad": 0.5,
+        "freq_hz": 0.5,
+        "sine_steps": 240,
+        "max_tracking_error_rad": 0.00011567649926285656,
+        "max_tracking_error_mrad": 0.11567649926285656,
+        "rms_tracking_error_rad": 8.146447097126437e-05,
+        "rms_tracking_error_mrad": 0.08146447097126437,
+        "amplitude_ratio": 0.9999939203262329,
+        "phase_lag_rad": 0.0,
+        "phase_lag_deg": 0.0,
+        "has_nan": false
+      }
+    }
+  ],
+  "repeatability": {
+    "ref_stiffness": 5000.0,
+    "runs": 3,
+    "rms_tracking_error_rad_per_run": [
+      0.003577930415815947,
+      0.003577930415815947,
+      0.003577930415815947
+    ],
+    "rms_spread_mrad": 0.0,
+    "rms_std_mrad": 0.0,
+    "steady_state_error_rad_per_run": [
+      1.7881393432617188e-07,
+      1.7881393432617188e-07,
+      1.7881393432617188e-07
+    ],
+    "ss_spread_mrad": 0.0,
+    "ss_std_mrad": 0.0,
+    "deterministic": true
+  },
+  "api": {
+    "joint_path": "/revolute_tracker/Physics/arm_joint",
+    "root_path": "/revolute_tracker/Geometry",
+    "articulation_cls": "SingleArticulation",
+    "target_setter": "apply_action(ArticulationAction)",
+    "dof_names": [
+      "arm_joint"
+    ]
+  },
+  "error": null
+}

@@ -1,0 +1,168 @@
+{
+  "issue": "isaac#188",
+  "isaac_variant": "6.0.1",
+  "mass_kg": 10.0,
+  "gravity": 9.81,
+  "load_force_N": 98.10000000000001,
+  "stiffness_ref": 100000.0,
+  "physics_dt": 0.016666666666666666,
+  "settle_steps": 600,
+  "note_5_1_baseline": "no numeric 5.1 baseline for #188 in the repo; the constraints are doc-confirmed (PhysX 5.4 Articulations + Isaac Sim joint-tuning) and the *pi/180 scaling is the #168 finding first hit on 5.1 / Isaac Lab 2.3. This run re-confirms them empirically on 6.0.1 / Isaac Lab 3.0",
+  "error": null,
+  "api": {
+    "joint_path": "/prismatic_limits/Physics/lift_joint",
+    "root_path": "/prismatic_limits/Geometry",
+    "articulation_cls": "SingleArticulation"
+  },
+  "effort_clamp": {
+    "issue": 190,
+    "predicted_droop_when_held_mm": 0.9810000000000001,
+    "expectation": "maxForce >= m*g holds (droop=m*g/k); maxForce < m*g cannot support the weight -> stalls at the lower joint limit; measured effort saturates at maxForce",
+    "points": [
+      {
+        "max_force_N": 1000000.0,
+        "max_force_vs_load": 10193.67991845056,
+        "stored_max_force": 1000000.0,
+        "load_force_N": 98.10000000000001,
+        "target_m": 0.5,
+        "settled_position_m": 0.49920886754989624,
+        "droop_mm": 0.7911324501037598,
+        "measured_effort_N": 98.10002136230469,
+        "held_target": true,
+        "stalled_at_lower_limit": false,
+        "dof_names": [
+          "lift_joint"
+        ]
+      },
+      {
+        "max_force_N": 117.72,
+        "max_force_vs_load": 1.2,
+        "stored_max_force": 117.72000122070312,
+        "load_force_N": 98.10000000000001,
+        "target_m": 0.5,
+        "settled_position_m": 0.49920886754989624,
+        "droop_mm": 0.7911324501037598,
+        "measured_effort_N": 98.10002136230469,
+        "held_target": true,
+        "stalled_at_lower_limit": false,
+        "dof_names": [
+          "lift_joint"
+        ]
+      },
+      {
+        "max_force_N": 49.050000000000004,
+        "max_force_vs_load": 0.5,
+        "stored_max_force": 49.04999923706055,
+        "load_force_N": 98.10000000000001,
+        "target_m": 0.5,
+        "settled_position_m": -2.000000238418579,
+        "droop_mm": 2500.000238418579,
+        "measured_effort_N": 98.10002136230469,
+        "held_target": false,
+        "stalled_at_lower_limit": true,
+        "dof_names": [
+          "lift_joint"
+        ]
+      }
+    ]
+  },
+  "velocity_clamp": {
+    "issue": 190,
+    "expectation": "the low maxJointVelocity clamps the transient peak velocity well below the unclamped (high-limit) peak",
+    "high_limit_peak_velocity": 70.33192443847656,
+    "low_limit_peak_velocity": 0.3030777871608734,
+    "low_limit_setting": 0.3,
+    "clamp_confirmed": true,
+    "points": [
+      {
+        "label": "high_limit",
+        "max_joint_velocity_limit": 1000.0,
+        "stored_max_joint_velocity": 1000.0,
+        "peak_measured_velocity": 70.33192443847656,
+        "clamped_near_limit": false
+      },
+      {
+        "label": "low_limit",
+        "max_joint_velocity_limit": 0.3,
+        "stored_max_joint_velocity": 0.30000001192092896,
+        "peak_measured_velocity": 0.3030777871608734,
+        "clamped_near_limit": true
+      }
+    ]
+  },
+  "position_limit": {
+    "issue": 191,
+    "upper_limit_m": 0.5,
+    "stored_limits": {
+      "lower": -2.0,
+      "upper": 0.5
+    },
+    "commanded_target_m": 2.0,
+    "settled_position_m": 0.5002598166465759,
+    "peak_position_m": 0.5002598762512207,
+    "overshoot_past_limit_mm": 0.2598762512207031,
+    "settled_error_from_limit_mm": 0.25981664657592773,
+    "clamped_at_limit": true,
+    "dof_names": [
+      "lift_joint"
+    ],
+    "expectation": "the joint stops AT the upper limit despite a target well beyond it; settled ~= upper_limit, bounded transient overshoot"
+  },
+  "solver_iterations": {
+    "issue": 192,
+    "stiffness": 5000.0,
+    "load_force_N": 98.10000000000001,
+    "predicted_droop_mm": 19.62,
+    "droop_spread_mm": 0.2378225326538086,
+    "sensitive_to_iterations": false,
+    "expectation": "the implicit articulation drive is a PD position controller; its steady-state droop is m*g/k, largely independent of position-solver iterations (those resolve contacts/constraints, not the drive PD). Expect near-flat droop across iteration counts",
+    "points": [
+      {
+        "solver_position_iterations": 1,
+        "stored_iterations": 1,
+        "settled_position_m": 0.48036208748817444,
+        "droop_mm": 19.63791251182556,
+        "drift_mm": 0.0
+      },
+      {
+        "solver_position_iterations": 4,
+        "stored_iterations": 4,
+        "settled_position_m": 0.48059991002082825,
+        "droop_mm": 19.400089979171753,
+        "drift_mm": 0.0
+      },
+      {
+        "solver_position_iterations": 32,
+        "stored_iterations": 32,
+        "settled_position_m": 0.48059991002082825,
+        "droop_mm": 19.400089979171753,
+        "drift_mm": 0.0
+      }
+    ]
+  },
+  "gain_scaling_pi_over_180": {
+    "applied_stiffness_config_Kp": 800.0,
+    "cases": [
+      {
+        "joint_kind": "revolute",
+        "drive_axis": "angular",
+        "apply_returned": true,
+        "stored_stiffness_usd": 13.962634086608887,
+        "expected_stored": 13.962634015954636,
+        "ratio_stored_over_Kp": 0.017453292608261107,
+        "matches_expected": true,
+        "note": "USD angular DriveAPI stores per-DEGREE; Kp per-RADIAN -> *pi/180"
+      },
+      {
+        "joint_kind": "prismatic",
+        "drive_axis": "linear",
+        "apply_returned": true,
+        "stored_stiffness_usd": 800.0,
+        "expected_stored": 800.0,
+        "ratio_stored_over_Kp": 1.0,
+        "matches_expected": true,
+        "note": "linear drive: no angular conversion (per-meter == per-meter)"
+      }
+    ]
+  }
+}

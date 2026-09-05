@@ -528,6 +528,28 @@ def _run_usd_child(args, result):
     _build_ground_and_light(stage)
     specs = _build_usd_child(stage)
 
+    # NOTE: --mp4 here is MISLEADING and kept only for completeness. The arm_root
+    # is a USD child of the base, so the render composes its pose as base x local
+    # -> the arm VISUALLY drags along with the base even though the PHYSICS (the
+    # data: follow_ratio ~ 0) shows it does not follow. The negative result is a
+    # data finding (the table), not a watchable one -- do not ship this video.
+    render = bool(getattr(args, "mp4", None))
+    cap = None
+    if render:
+        import viz_render as vr
+        from pxr import UsdGeom as _UG
+        s0 = specs[0]
+        vr.apply_clean_render_settings()
+        vr.add_fill_lights(stage)
+        _UG.Imageable(stage.GetPrimAtPath("/World/Ground")).MakeInvisible()
+        vr.bind(stage, s0["base_path"],
+                vr.material(stage, "/World/Looks/Base", (0.2, 0.5, 0.9)))
+        vr.bind(stage, s0["root_path"],
+                vr.material(stage, "/World/Looks/Root", (0.95, 0.5, 0.1)))
+        vr.bind(stage, s0["base_path"] + "/arm_link",
+                vr.material(stage, "/World/Looks/Arm", (0.2, 0.8, 0.3)))
+        vr.make_camera(stage, "/World/VizCam", (1.2, -7.0, 4.0), (1.2, 0.0, 0.6))
+
     world = World(stage_units_in_meters=1.0, physics_dt=args.dt,
                   rendering_dt=args.dt)
     world.reset()
@@ -538,6 +560,10 @@ def _run_usd_child(args, result):
     s = specs[0]
     base_view = sim_view.create_rigid_body_view(s["base_path"])
     root = SingleRigidPrim(s["root_path"])
+    if render:
+        import viz_render as vr
+        cap = vr.Capturer(world, "/World/VizCam", args.width, args.height)
+    frames, nonblack = [], 0
     result["drive_api"] = (
         "kinematic base driven by RigidBodyView.set_kinematic_targets (+X profile); "
         "arm is a FLOATING articulation parented UNDER the base prim in USD (no "
@@ -555,12 +581,41 @@ def _run_usd_child(args, result):
     base_x0 = float(np.asarray(base_view.get_transforms()).reshape(-1)[0])
 
     positions, phases = _base_profile(args.dt, _ACCELS[-1])
+    cap_steps = set(int(round(v)) for v in np.linspace(
+        0, len(positions) - 1, 48)) if render else set()
     nan_seen = False
     for t in range(len(positions)):
         target = wp.array([[positions[t], s["y0"], _BASE_CZ, 0.0, 0.0, 0.0, 1.0]],
                           dtype=wp.float32, device=wp_device)
         base_view.set_kinematic_targets(target, wp_idx)
-        world.step(render=False)
+        world.step(render=render)
+        if render and t in cap_steps:
+            import viz_render as vr
+            bx = float(np.asarray(base_view.get_transforms()).reshape(-1)[0])
+            rx = float(np.asarray(root.get_world_pose()[0]).reshape(-1)[0])
+            bt, rt = bx - base_x0, rx - root_x0
+            fr = (rt / bt) if abs(bt) > 1e-9 else 0.0
+            lines = [
+                "L2 kinematic base carries a floating articulation? (negative)",
+                "blue base slides +X; orange/green arm is parented under it in USD",
+                "base travel  = %6.3f m" % bt,
+                "arm  travel  = %6.3f m" % rt,
+                "follow ratio = %6.3f   (0 = arm left behind -> joint needed)" % fr,
+            ]
+            rgb = cap.grab()
+            if rgb is not None and float(rgb.mean()) > 1.0:
+                nonblack += 1
+            if rgb is None:
+                rgb = np.zeros((args.height, args.width, 3), dtype=np.uint8)
+            frames.append(vr.overlay(rgb, lines))
+
+    if render and frames:
+        import viz_render as vr
+        vr.encode_mp4(args.mp4, frames, fps=15)
+        cap.detach()
+        result["mp4"] = args.mp4
+        result["mp4_frames"] = len(frames)
+        result["mp4_nonblack"] = nonblack
 
     bpos = np.asarray(base_view.get_transforms()).reshape(-1)[:3].astype(float)
     rpos, _ = root.get_world_pose()
@@ -657,6 +712,11 @@ def _parse_args():
     p.add_argument("--warmup", type=int, default=60,
                    help="Warm-up steps (base held; arm settles at equilibrium).")
     p.add_argument("--dt", type=float, default=1.0 / 60.0, help="Physics dt.")
+    p.add_argument("--mp4", default=None,
+                   help="usd_child topology: RTX-render the base-carry with a data "
+                        "HUD and encode an MP4 to this path (mounted).")
+    p.add_argument("--width", type=int, default=960, help="mp4 render width.")
+    p.add_argument("--height", type=int, default=540, help="mp4 render height.")
     return p.parse_args()
 
 

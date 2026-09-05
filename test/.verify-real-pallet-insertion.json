@@ -1,0 +1,140 @@
+{
+  "check": "real pallet fork-insertion: boundingCube vs convexHull vs convexDecomposition",
+  "isaac_variant": "6.0.1",
+  "pallet_url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd",
+  "front_face_x": -0.605,
+  "pallet_depth_x": 1.21,
+  "fork_z": 0.05,
+  "fork_lateral_offsets": [
+    -0.15,
+    0.0,
+    0.15
+  ],
+  "coast_v": 0.5,
+  "enter_threshold_m": 0.3,
+  "decomposition_max_hulls": 64,
+  "lanes": [
+    {
+      "lane": "free_control",
+      "approximation": "None",
+      "mesh_overrides": 0,
+      "forks": [
+        {
+          "lateral_y": -0.15,
+          "max_center_x": 1.3234,
+          "penetration_depth_m": 2.6284,
+          "entered": true
+        },
+        {
+          "lateral_y": 0.0,
+          "max_center_x": 1.3234,
+          "penetration_depth_m": 2.6284,
+          "entered": true
+        },
+        {
+          "lateral_y": 0.15,
+          "max_center_x": 1.3234,
+          "penetration_depth_m": 2.6284,
+          "entered": true
+        }
+      ],
+      "approximation_readback": [],
+      "best_penetration_m": 2.6284,
+      "any_entered": true
+    },
+    {
+      "lane": "boundingCube",
+      "approximation": "boundingCube",
+      "mesh_overrides": 1,
+      "forks": [
+        {
+          "lateral_y": -0.15,
+          "max_center_x": -1.3051,
+          "penetration_depth_m": -0.0001,
+          "entered": false
+        },
+        {
+          "lateral_y": 0.0,
+          "max_center_x": -1.3051,
+          "penetration_depth_m": -0.0001,
+          "entered": false
+        },
+        {
+          "lateral_y": 0.15,
+          "max_center_x": -1.3051,
+          "penetration_depth_m": -0.0001,
+          "entered": false
+        }
+      ],
+      "approximation_readback": [
+        "boundingCube"
+      ],
+      "best_penetration_m": -0.0001,
+      "any_entered": false
+    },
+    {
+      "lane": "convexHull",
+      "approximation": "convexHull",
+      "mesh_overrides": 1,
+      "forks": [
+        {
+          "lateral_y": -0.15,
+          "max_center_x": -1.3035,
+          "penetration_depth_m": 0.0015,
+          "entered": false
+        },
+        {
+          "lateral_y": 0.0,
+          "max_center_x": -1.3035,
+          "penetration_depth_m": 0.0015,
+          "entered": false
+        },
+        {
+          "lateral_y": 0.15,
+          "max_center_x": -1.3035,
+          "penetration_depth_m": 0.0015,
+          "entered": false
+        }
+      ],
+      "approximation_readback": [
+        "convexHull"
+      ],
+      "best_penetration_m": 0.0015,
+      "any_entered": false
+    },
+    {
+      "lane": "convexDecomposition",
+      "approximation": "convexDecomposition",
+      "mesh_overrides": 1,
+      "forks": [
+        {
+          "lateral_y": -0.15,
+          "max_center_x": 1.3234,
+          "penetration_depth_m": 2.6284,
+          "entered": true
+        },
+        {
+          "lateral_y": 0.0,
+          "max_center_x": -1.3,
+          "penetration_depth_m": 0.005,
+          "entered": false
+        },
+        {
+          "lateral_y": 0.15,
+          "max_center_x": 1.3234,
+          "penetration_depth_m": 2.6284,
+          "entered": true
+        }
+      ],
+      "approximation_readback": [
+        "convexDecomposition"
+      ],
+      "best_penetration_m": 2.6284,
+      "any_entered": true
+    }
+  ],
+  "error": null,
+  "mp4": "/home/yunchien/work/worktree/isaac-revalidate-6.0.1/doc/viz/pallet_insertion.mp4",
+  "mp4_frames": 48,
+  "mp4_nonblack": 48
+}

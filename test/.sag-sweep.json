@@ -1,0 +1,87 @@
+{
+  "isaac_variant": "6.0.1",
+  "mass_kg": 10.0,
+  "gravity": 9.81,
+  "load_force_N": 98.10000000000001,
+  "target_m": 0.3,
+  "settle_steps": 600,
+  "physics_dt": 0.016666666666666666,
+  "points": [
+    {
+      "stiffness": 5000.0,
+      "damping_critical": 447.21359549995793,
+      "stored_stiffness": 5000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2805993854999542,
+      "droop_mm": 19.400614500045766,
+      "predicted_mm": 19.62,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 10000.0,
+      "damping_critical": 632.4555320336759,
+      "stored_stiffness": 10000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2904103994369507,
+      "droop_mm": 9.589600563049306,
+      "predicted_mm": 9.81,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 100000.0,
+      "damping_critical": 2000.0,
+      "stored_stiffness": 100000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.2992088794708252,
+      "droop_mm": 0.7911205291747936,
+      "predicted_mm": 0.9810000000000001,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 500000.0,
+      "damping_critical": 4472.13595499958,
+      "stored_stiffness": 500000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.29992368817329407,
+      "droop_mm": 0.07631182670592151,
+      "predicted_mm": 0.1962,
+      "drift_mm": 0.0
+    },
+    {
+      "stiffness": 1000000.0,
+      "damping_critical": 6324.555320336759,
+      "stored_stiffness": 1000000.0,
+      "stored_target": 0.30000001192092896,
+      "dof_names": [
+        "lift_joint"
+      ],
+      "dof_index": 0,
+      "settled_position_m": 0.299981951713562,
+      "droop_mm": 0.01804828643797718,
+      "predicted_mm": 0.0981,
+      "drift_mm": 0.0
+    }
+  ],
+  "api": {
+    "joint_path": "/prismatic_lift/Physics/lift_joint",
+    "root_path": "/prismatic_lift/Geometry",
+    "articulation_cls": "SingleArticulation"
+  },
+  "error": null
+}

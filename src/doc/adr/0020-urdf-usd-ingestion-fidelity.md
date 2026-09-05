@@ -170,3 +170,84 @@ how the converter realizes them moved:
 
 See ADR-0018's 2026-08-28 update (spawn `use_stage`), ADR-0017's 2026-08-28 update (image /
 driver), and the CHANGELOG `[Unreleased]` migration entry for the full delta.
+
+## Update (2026-09-05) -- collision authoring policy for concave dynamic parts
+
+Empirically settled how to author collision geometry for the forklift articulation (mast, fork
+carriage, tines) so a fork tine can enter a pallet pocket. Decision 2 (convex hull is wrong for
+concave parts; opt into something else) stands; this pins WHICH route and WHY.
+
+PhysX 5.4 forbids triangle-mesh colliders on non-kinematic bodies, and articulation links are
+dynamic, so a raw mesh collider is out. Three legal routes for a concave collider remain:
+
+1. **box / primitive union** -- hand-authored analytic boxes (the concave gap is just the empty
+   space between boxes -- free).
+2. **convex_decomposition** -- an algorithm chops the mesh into several convex pieces.
+3. **SDF mesh** -- a signed-distance-field grid; GPU collision pipeline only.
+
+**Decision: box-union for the rectilinear parts.** NOT because decomposition "cannot" do it (it
+can -- verified: a U-channel pocket stays open at `maxHulls` 8 and 64, `test/verify_decomp_pocket.py`),
+but on cost / robustness:
+
+- box-union is **exact** for rectangular stock (not an approximation), **deterministic**
+  (byte-stable across Isaac upgrades), and the decision **lives in the URDF** (single source of
+  truth).
+- convex_decomposition is approximate (hulls bulge slightly and can eat a functional gap) and its
+  output **changes across importer / algorithm versions** -- a silent physics change (cf. the
+  #247 importer churn). The decision lives in importer flags, not the URDF.
+- SDF is marginal at our scale (`sdfResolution` = cells along the longest AABB axis; a 2 m tine at
+  256 gives ~8 mm cells, ~3 across a 2.5 cm clearance -> needs 512, ~8x memory), GPU-only, and
+  lives in the USD not the URDF. Reserve it for genuinely arbitrary concavity with no dimensional
+  source (scanned cargo, damaged pallets).
+
+Per-part classification (premise: rectilinear parts with known CAD dimensions; if that fails --
+scanned / damaged / no drawings -- switch those parts to SDF; the table is the durable decision,
+not the technique):
+
+| Part | Collider |
+|---|---|
+| fork tines, mast, fork carriage, chassis | box-union |
+| standard pallet | box-union |
+| wheels | cylinder primitive |
+| non-functional concavity (bracket cutouts, housings) | convexHull (filling the void is harmless) |
+
+Add a separate smaller box for the tapered tine tip (insertion begins there; one box
+over-approximates the taper and its corner can catch the pocket lip).
+
+**Converter scope (verified).** `UrdfConverterCfg.collision_type` is a single GLOBAL scalar and is
+IGNORED for explicit `<collision>` mesh geometry (the importer hard-codes `convexHull` there;
+`collision_type` is honored only on the `collision_from_visuals` path). So `convex_decomposition`
+is not a per-part option through the converter cfg -- only per-prim via a post-import USD edit.
+Another reason box-union (authored in the URDF) is the clean path.
+
+**Import fidelity (verified empirically on 6.0.1; keep as CI regression guards).**
+
+- Multiple `<box>` `<collision>` per link are all preserved as analytic `UsdGeom.Cube` + plain
+  `UsdPhysics.CollisionAPI` (`PxBoxGeometry`) -- no `MeshCollisionAPI` / `approximation` -- placed
+  directly under the link (there is **no `colliders` Scope** in 6.0.1), no ghost/duplicate
+  colliders. (`test/verify_collision_import.py`)
+- Link origin and CAD mass/inertia survive conversion unchanged: mass exact, `diagonalInertia`
+  equals the URDF tensor (not recomputed), collider world origin equals the authored origin.
+  (`test/verify_import_fidelity.py`)
+
+**Contact offset.** "The tine won't enter" has two independent causes with identical symptoms:
+(a) wrong geometry (pocket filled -- visible in the collision view) and (b) contact offset too
+large (view looks correct, tine still blocked; default `contactOffset` 0.02 m -> ~4 cm combined
+against a ~2.5 cm clearance). Fix (b) with a reduced per-shape `contactOffset` + small negative
+`restOffset`, **scoped to fork/pallet colliders only** (a global reduction costs tunnelling
+resistance and solver stability at chassis speed). Exact values pending the offset sweep (B2) and
+the global-stability check (B3).
+
+**Mesh-in-collision guard.** The importer silently convex-hulls any mesh left in a `<collision>`,
+so it becomes a filled hull with no warning (on CAD re-export / new links). The collision-authoring
+tool must hard-error on any mesh `<collision>` in the generated URDF -- turn the silent failure
+loud.
+
+**Tooling location.** The fine-model-simplification work (auto-OBB box fitting, coverage/bloat
+metrics, drift + rename detection, fail-loud checks) lives in a DEDICATED repo, not here. This ADR
+records only the policy (which route, why); that repo implements it.
+
+**vs NVIDIA's forklift_b recommendation.** NVIDIA's forums recommend SDF for that sample's forks
+because it is an ART ASSET with no dimensional drawings. We have CAD dimensions, so hand-authored
+boxes are reading numbers off a drawing, not measuring a mesh -- a different premise, a different
+optimum.

@@ -1,0 +1,40 @@
+{
+  "check": "URDF <collision><mesh> import path vs real concave pallet",
+  "isaac_variant": "6.0.1",
+  "source_mesh": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd",
+  "error": null,
+  "exported_obj": {
+    "path": "/tmp/pallet_export.obj",
+    "verts": 192,
+    "faces": 164
+  },
+  "produced_usd": "/tmp/pallet_mesh.usd",
+  "importer_authored_colliders": [
+    {
+      "path": "/pallet_mesh/Geometry/base_link/pallet_export_1",
+      "type": "Mesh",
+      "approximation": "convexHull"
+    }
+  ],
+  "importer_approximations": [
+    "convexHull"
+  ],
+  "importer_forced_convex_hull": true,
+  "entry_map_ascii": [
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################"
+  ],
+  "entry_open_cells": 0,
+  "tunnels_survived_import": false
+}

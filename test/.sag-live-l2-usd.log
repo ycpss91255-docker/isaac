@@ -1,0 +1,93 @@
+[sag-live] AppLauncher args: {'headless': True, 'livestream': 2, 'enable_cameras': True}
+[sag-live] boot extensions: ['isaacsim.core.nodes']
+[sag-live] extra kit args: []
+Loading user config located at: '/isaac-sim/kit/data/Kit/IsaacLab/3.0/user.config.json'
+2026-09-03T12:21:10Z [Info] [carb] Logging to file: /isaac-sim/kit/logs/Kit/IsaacLab/3.0/kit_20260903_202110.log
+2026-09-03T12:21:10Z [3ms] [Warning] [omni.ext.plugin] [ext: .git] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/.git' or '/home/yunchien/work/.git/config'
+2026-09-03T12:21:10Z [3ms] [Warning] [omni.ext.plugin] [ext: isaac-sim-demo] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/isaac-sim-demo' or '/home/yunchien/work/isaac-sim-demo/config'
+2026-09-03T12:21:10Z [3ms] [Warning] [omni.ext.plugin] [ext: isaac-sim] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/isaac-sim' or '/home/yunchien/work/isaac-sim/config'
+2026-09-03T12:21:10Z [3ms] [Warning] [omni.ext.plugin] [ext: worktree] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/worktree' or '/home/yunchien/work/worktree/config'
+2026-09-03T12:21:10Z [4ms] [Warning] [omni.ext.plugin] [ext: test] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/test' or '/home/yunchien/work/test/config'
+2026-09-03T12:21:10Z [7ms] [Warning] [omni.ext.plugin] [ext: .claude] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/.claude' or '/home/yunchien/work/.claude/config'
+2026-09-03T12:21:10Z [9ms] [Warning] [omni.ext.plugin] [ext: .agents] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/.agents' or '/home/yunchien/work/.agents/config'
+2026-09-03T12:21:10Z [49ms] [Warning] [omni.ext.plugin] [ext: .pytest_cache] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/.pytest_cache' or '/home/yunchien/work/.pytest_cache/config'
+2026-09-03T12:21:10Z [49ms] [Warning] [omni.ext.plugin] [ext: coreSAM] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/coreSAM' or '/home/yunchien/work/coreSAM/config'
+2026-09-03T12:21:10Z [49ms] [Warning] [omni.ext.plugin] [ext: doc] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/doc' or '/home/yunchien/work/doc/config'
+2026-09-03T12:21:10Z [49ms] [Warning] [omni.ext.plugin] [ext: docker] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/docker' or '/home/yunchien/work/docker/config'
+2026-09-03T12:21:10Z [56ms] [Warning] [omni.ext.plugin] [ext: coresam_ws] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/coresam_ws' or '/home/yunchien/work/coresam_ws/config'
+2026-09-03T12:21:10Z [56ms] [Warning] [omni.ext.plugin] [ext: isaac-sim.root-bak] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/isaac-sim.root-bak' or '/home/yunchien/work/isaac-sim.root-bak/config'
+2026-09-03T12:21:10Z [56ms] [Warning] [omni.ext.plugin] [ext: isaac_ws] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/isaac_ws' or '/home/yunchien/work/isaac_ws/config'
+2026-09-03T12:21:10Z [62ms] [Warning] [omni.ext.plugin] [ext: isaaclab_visualizers] Extensions config 'extension.toml' doesn't exist '/opt/IsaacLab/source/isaaclab_visualizers' or '/opt/IsaacLab/source/isaaclab_visualizers/config'
+2026-09-03T12:21:10Z [62ms] [Warning] [omni.ext.plugin] [ext: scratch] Extensions config 'extension.toml' doesn't exist '/home/yunchien/work/scratch' or '/home/yunchien/work/scratch/config'
+2026-09-03T12:21:11Z [613ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [685ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [767ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [858ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [959ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [1,071ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:11Z [1,193ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [1,322ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [1,464ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [1,616ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [1,782ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [1,955ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:12Z [2,139ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:13Z [2,333ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:13Z [2,535ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:13Z [2,747ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:13Z [2,970ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:13Z [3,205ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:14Z [3,446ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:14Z [3,699ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:14Z [3,962ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:14Z [4,233ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:15Z [4,515ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:15Z [4,807ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:15Z [5,109ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:16Z [5,422ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:16Z [5,744ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:16Z [6,075ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:17Z [6,418ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:17Z [6,769ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:17Z [7,131ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1788438081.528920 3337424 descriptor_database.cc:633] File already exists in database: grpc/health/v1/health.proto
+W0000 00:00:1788438081.529013 3337424 message.cc:301] Protobuf GeneratedMessageFactory: File is already registered: grpc/health/v1/health.proto
+2026-09-03T12:21:18Z [7,503ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:18Z [7,884ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:18Z [8,276ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:19Z [8,681ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:19Z [9,089ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:20Z [9,515ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:20Z [9,945ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:21Z [10,386ms] [Warning] [carb.omniclient.plugin]  3343853: OmniHub: ThreadId(02) Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: Io(\"child exited with exit status: 1 without writing file \\\"/tmp/hub-yunchien-9930230A.config.json\\\"\")"
+2026-09-03T12:21:21Z [11,208ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 610.43.02     | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 5090          | Yes: 0 |     | 32607   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2b85      | 476c2ca3.. |
+|     |                                  |        |     |            | 1         |            |
+|=============================================================================================|
+| OS: 24.04.3 LTS (Noble Numbat) ubuntu, Version: 24.04.3, Kernel: 6.8.0-138-generic
+| Processor: Intel(R) Core(TM) i9-14900K
+| Bare Metal Cores: 24 | Bare Metal Logical Cores: 48
+| Available Cores:  32 
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 128527 | Free Memory: 81775
+| Total Page/Swap (MB): 2047 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-09-03T12:21:22Z [11,905ms] [Warning] [omni.rtx] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+Warning: Possible version incompatibility. Attempting to load omni::fabric::IStageReaderWriter with version v0.16 against v0.14.
+[ISAACLAB] AppLauncher initialization complete
+[sag-live] launched. livestream exts: ['omni.kit.livestream.app-10.1.1', 'omni.kit.livestream.core-10.2.1', 'omni.kit.livestream.webrtc-10.3.2']
+[sag-live] authored prismatic-lift scene directly in USD (no importer)
+[sag-live] droop_mm=0.7912 (pred 0.9810)
+[sag-live] signal port listening=True http=[8011] signal=[49100]
+[sag-live] frame_capture: {'attempted': True, 'captured': False, 'detail': 'annotator returned empty array'}
+[sag-live] holding live view (watch_seconds=120.0); connect a browser to :5173

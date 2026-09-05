@@ -1,0 +1,40 @@
+{
+  "check": "real-asset collision probe (Hub-bypass via direct HTTPS)",
+  "isaac_variant": "6.0.1",
+  "url": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd",
+  "opened_over_https": true,
+  "error": null,
+  "root_layer_identifier": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd",
+  "mesh_count": 1,
+  "total_triangles": 304,
+  "collider_count": 1,
+  "colliders": [
+    {
+      "path": "/Root/Xform/Mesh_015",
+      "type": "Mesh",
+      "approximation": "boundingCube"
+    }
+  ],
+  "meshes": [
+    {
+      "path": "/Root/Xform/Mesh_015",
+      "tris": 304,
+      "has_collision_api": true
+    }
+  ],
+  "world_bbox_min": [
+    -0.6051,
+    -0.4,
+    0.0
+  ],
+  "world_bbox_max": [
+    0.6082,
+    0.4023,
+    0.1425
+  ],
+  "world_size": [
+    1.2132,
+    0.8023,
+    0.1425
+  ]
+}
