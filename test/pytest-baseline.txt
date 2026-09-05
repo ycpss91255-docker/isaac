@@ -149,8 +149,12 @@
 #   than as if the image had said it, splice() is idempotent, and both
 #   --check and --write exist (--check is the CI gate). Pure -- file reads and
 #   a --help subprocess, no registry call in the tests. Live count is now
-#   326 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 326
+#   326 -- the enforced floor. The spawner orientation-convention fix adds 4
+#   (`test_scene_builder.py` 39 -> 43, `TestOrientationXyzw`): the pure
+#   (w,x,y,z) -> (x,y,z,w) reorder `build_scene` must apply before handing an
+#   orientation to the `sim_utils` spawners, identity case included -- that is
+#   the case the bug hid in. Live count is now 330 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 330
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -274,7 +278,12 @@ HOSTED_UNIT_BASELINE = 326
 #   In-container GPU suite collects 29; aggregate GPU-integration = 29
 #   in-container + 2 host xc = 31. The enforced GPU baseline ratchets
 #   27 -> 31 (a ratchet UP -- new GPU coverage added, none removed).
-GPU_INTEGRATION_BASELINE = 31
+#   The spawner orientation-convention fix adds 1 in-container
+#   (`test_build_scene_adapter.py` 3 -> 4): the adapter must reach the stage
+#   with an IDENTITY orient for a scene whose YAML says rpy [0,0,0]. The
+#   existing adapter tests assert prim STRUCTURE and cannot see a rotation.
+#   In-container 30; aggregate ratchets 31 -> 32 (a ratchet UP).
+GPU_INTEGRATION_BASELINE = 32
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55
