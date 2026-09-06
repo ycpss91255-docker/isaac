@@ -379,9 +379,13 @@ def _try_capture_frame(app, timeout_s=45):
     try:
         import numpy as np
         import omni.replicator.core as rep
+        import viz_render as vr
 
         cam = rep.create.camera(position=(3.0, 3.0, 2.0), look_at=(0.0, 0.0, 0.3))
-        rp = rep.create.render_product(cam, (256, 256))
+        # Converged still (isaac#266): the offscreen product needs its own
+        # PathTracing settings; the livestream viewport is a separate product
+        # and is not affected.
+        rp = vr.create_converged_render_product(cam, 256, 256)
         annot = rep.AnnotatorRegistry.get_annotator("rgb")
         annot.attach(rp)
         # The offscreen render product can take several frames to populate,

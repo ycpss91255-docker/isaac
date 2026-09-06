@@ -66,6 +66,15 @@ import sys
 import traceback
 from pathlib import Path
 
+# Shared render helpers live next to this driver; make them importable however
+# the driver is invoked (as a script, or imported by another driver on a
+# PYTHONPATH that does not include src/script).
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+import viz_render  # noqa: E402  (needs the sys.path prologue above)
+
 # ── Authored scene contract (single source of truth for the metric checks) ──
 N_TILES = 12
 TILE_M = 1.0
@@ -307,13 +316,20 @@ def _capture_rgb(app, cam_path, width, height, warmup):
 
     Canonical headless offline-render path: replicator drives its own RTX render
     product, so a bare ``SimulationApp({'headless': True})`` renders real frames.
+    The product is configured for a CONVERGED still (isaac#266) -- without that
+    it renders in the 6.0 default one-sample-per-pixel mode whose denoiser the
+    headless container cannot create, and every frame comes back speckled.
     """
     import numpy as np
     import omni.replicator.core as rep
 
-    rp = rep.create.render_product(cam_path, (width, height))
+    rp = viz_render.create_converged_render_product(cam_path, width, height)
     annot = rep.AnnotatorRegistry.get_annotator("rgb")
     annot.attach(rp)
+
+    # A converged read needs the accumulation renders regardless of what the
+    # caller asked for as warmup.
+    warmup = max(warmup, viz_render.CONVERGE_RENDER_TICKS)
 
     data = None
     # Give RTX time to load materials + converge, then read; retry if empty.

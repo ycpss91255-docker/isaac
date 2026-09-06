@@ -159,8 +159,22 @@
 #   location, sibling package, package.xml required, actionable error) and one
 #   expansion test proving `$(find <own package>)` is substituted. Pure --
 #   filesystem existence checks only, no Isaac import. Live count is now 336 --
-#   the enforced floor.
-HOSTED_UNIT_BASELINE = 336
+#   the enforced floor. The capture-speckle fix (isaac#266) adds 13
+#   (`test/unit/pytest/test_render_settings.py`, new): RTX settings are per
+#   render product -- `omni:rtx:*` attributes on the RenderProduct prim -- so
+#   the `/rtx/*` carb writes the capture drivers used never reached a live
+#   product, and the default `RealTimePathTracing` mode is one path-traced
+#   sample per pixel with an NGX denoiser the headless container cannot create.
+#   The tests pin the pure recipe (the accumulating `PathTracing` mode, the
+#   sample budget and its `clampSpp` ceiling, per-key Sdf types, the applier's
+#   authored output and its missing-prim raise) plus the root cause restated as
+#   an assertion -- every key must be an `omni:rtx:*` prim attribute, never a
+#   `/rtx/*` carb path. Two are structural scans over `src/script/` and
+#   `test/`: no render product may be created without the recipe (a second
+#   capture path would silently reintroduce the defect), and the rejected carb
+#   render-mode write may not come back. Pure -- file reads and a fake
+#   stage/prim, no Isaac import. Live count is now 349 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 349
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -289,7 +303,21 @@ HOSTED_UNIT_BASELINE = 336
 #   with an IDENTITY orient for a scene whose YAML says rpy [0,0,0]. The
 #   existing adapter tests assert prim STRUCTURE and cannot see a rotation.
 #   In-container 30; aggregate ratchets 31 -> 32 (a ratchet UP).
-GPU_INTEGRATION_BASELINE = 32
+#   The capture-speckle fix (isaac#266) adds 3 in-container
+#   (`test_capture_noise.py` + `_capture_noise_runner.py`): one Kit boot builds
+#   a lit room and captures it TWICE through the SAME render product -- once as
+#   replicator creates it, once after the converged-still recipe is authored on
+#   the RenderProduct prim -- and the tests assert the default leg is still
+#   noisy (guarding the guard: if a driver update ever brings NGX up headless
+#   the comparison stops proving anything), that the mode reads back as
+#   `PathTracing` off the live prim (a carb write reads back unchanged, so this
+#   is what separates "applied" from "attempted"), and that the converged frame
+#   is measurably clean. The metric is neighbouring-pixel mean absolute
+#   difference, NOT frame `std`: `std` is dominated by scene contrast, which is
+#   why every failed hypothesis in the issue "left std unchanged". Reference on
+#   the RTX 5090: 53.0 -> 2.1 with no black pixels left. In-container 33;
+#   aggregate ratchets 32 -> 35 (a ratchet UP).
+GPU_INTEGRATION_BASELINE = 35
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55

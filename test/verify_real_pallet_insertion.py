@@ -34,6 +34,12 @@ import sys
 import traceback
 from pathlib import Path
 
+# Shared render helpers live in src/script/ (isaac#266: a render product must
+# be configured for a converged still or every captured frame is speckled).
+_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "src" / "script"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
 _PALLET_URL = (
     "https://omniverse-content-production.s3-us-west-2.amazonaws.com"
     "/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd"
@@ -252,7 +258,8 @@ def run(args):
             import omni.replicator.core as rep
             _s = carb.settings.get_settings()
             _s.set("/rtx/post/histogram/enabled", False)
-            _s.set("/rtx/rendermode", "RaytracedLighting")
+            # The render MODE is per render product, not a carb key: see
+            # viz_render.apply_converged_render_settings (isaac#266).
             for _k in ("/rtx/indirectDiffuse/enabled",
                        "/rtx/ambientOcclusion/enabled", "/rtx/reflections/enabled",
                        "/rtx/directLighting/sampledLighting/enabled",
@@ -306,13 +313,16 @@ def run(args):
             v.set_linear_velocity(np.array([_COAST_V, 0.0, 0.0]))
         max_x = {k: fork_index[k][1] for k in fork_index}
 
+        import viz_render as vr
+
         if render:
-            rp = rep.create.render_product("/World/Cam", (960, 540))
+            rp = vr.create_converged_render_product("/World/Cam", 960, 540)
             annot = rep.AnnotatorRegistry.get_annotator("rgb")
             annot.attach(rp)
 
         def _grab():
-            for _ in range(4):
+            # Path-traced accumulation restarts on every scene change (#266).
+            for _ in range(vr.CONVERGE_RENDER_TICKS):
                 world.render()
             raw = np.asarray(annot.get_data())
             if raw.size and raw.ndim == 3:

@@ -35,6 +35,12 @@ import sys
 import traceback
 from pathlib import Path
 
+# Shared render helpers live in src/script/ (isaac#266: a render product must
+# be configured for a converged still or every captured frame is speckled).
+_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "src" / "script"
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
 GRAVITY = 9.81
 # U-channel = 3 boxes: base + left wall + right wall. Slot is the gap between
 # walls above the base: X in [-0.2, 0.2] (width 0.40), Z in [0.30, 0.60].
@@ -242,7 +248,8 @@ def run(args):
             from pxr import Gf, UsdGeom, UsdLux
             _s = carb.settings.get_settings()
             _s.set("/rtx/post/histogram/enabled", False)
-            _s.set("/rtx/rendermode", "RaytracedLighting")
+            # The render MODE is per render product, not a carb key: see
+            # viz_render.apply_converged_render_settings (isaac#266).
             for _k in ("/rtx/indirectDiffuse/enabled",
                        "/rtx/ambientOcclusion/enabled", "/rtx/reflections/enabled",
                        "/rtx/directLighting/sampledLighting/enabled",
@@ -274,13 +281,16 @@ def run(args):
         world.reset()
         views = {tag: SingleRigidPrim(p) for tag, (p, _y) in probes.items()}
 
+        import viz_render as vr
+
         if render:
-            rp = rep.create.render_product("/World/Cam", (960, 540))
+            rp = vr.create_converged_render_product("/World/Cam", 960, 540)
             annot = rep.AnnotatorRegistry.get_annotator("rgb")
             annot.attach(rp)
 
         def _grab():
-            for _ in range(3):
+            # Path-traced accumulation restarts on every scene change (#266).
+            for _ in range(vr.CONVERGE_RENDER_TICKS):
                 world.render()
             raw = np.asarray(annot.get_data())
             if raw.size and raw.ndim == 3:

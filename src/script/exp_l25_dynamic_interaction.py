@@ -652,11 +652,11 @@ def _run_carry(args, app):
         import carb
         _s = carb.settings.get_settings()
         _s.set("/rtx/post/histogram/enabled", False)
-        # Real-time raster-lit mode; the NGX/DLSS denoiser is unavailable in this
-        # headless container, so disable the stochastic effects that otherwise
-        # leave salt-and-pepper noise on flat surfaces (GI / AO / sampled
-        # lighting / reflections). Direct lighting is deterministic-clean.
-        _s.set("/rtx/rendermode", "RaytracedLighting")
+        # The NGX/DLSS denoiser is unavailable in this headless container, so
+        # disable the stochastic effects that otherwise leave salt-and-pepper
+        # noise on flat surfaces (GI / AO / sampled lighting / reflections).
+        # The render MODE is per render product, not a carb key: see
+        # viz_render.apply_converged_render_settings (isaac#266).
         _s.set("/rtx/indirectDiffuse/enabled", False)
         _s.set("/rtx/ambientOcclusion/enabled", False)
         _s.set("/rtx/reflections/enabled", False)
@@ -704,12 +704,17 @@ def _run_carry(args, app):
 
     if render:
         import omni.replicator.core as rep
-        rp = rep.create.render_product("/World/CarryCam", (args.width, args.height))
+        import viz_render as vr
+
+        rp = vr.create_converged_render_product(
+            "/World/CarryCam", args.width, args.height)
         annot = rep.AnnotatorRegistry.get_annotator("rgb")
         annot.attach(rp)
 
     def _grab():
-        for _ in range(16):  # accumulate so the frame converges (no NGX denoiser)
+        # Accumulate so the frame converges (no NGX denoiser headless, #266).
+        import viz_render as vr
+        for _ in range(vr.CONVERGE_RENDER_TICKS):
             world.render()
         raw = np.asarray(annot.get_data())
         if raw.size and raw.ndim == 3:
@@ -1021,7 +1026,6 @@ def _run_viz(args, app):
     # actually removes the noise; these just help.
     _vs = carb.settings.get_settings()
     for _vk, _vv in (("/rtx/post/histogram/enabled", False),
-                     ("/rtx/rendermode", "RaytracedLighting"),
                      ("/rtx/indirectDiffuse/enabled", False),
                      ("/rtx/ambientOcclusion/enabled", False),
                      ("/rtx/reflections/enabled", False),
@@ -1124,17 +1128,20 @@ def _run_viz(args, app):
         slider = SingleRigidPrim(slider_path)
         cube_prim = SingleRigidPrim(cube_path)
 
-        rp = rep.create.render_product("/World/VizCam", (args.width, args.height))
+        import viz_render as vr
+        rp = vr.create_converged_render_product(
+            "/World/VizCam", args.width, args.height)
         annot = rep.AnnotatorRegistry.get_annotator("rgb")
         annot.attach(rp)
 
         # Let RTX load materials + converge before the first capture (render only,
         # no physics -- world.render() does not advance the sim).
-        for _ in range(args.warmup):
+        for _ in range(max(args.warmup, vr.CONVERGE_RENDER_TICKS)):
             world.render()
 
         def _grab():
-            for _ in range(3):
+            # Path-traced accumulation restarts on every scene change (#266).
+            for _ in range(vr.CONVERGE_RENDER_TICKS):
                 world.render()
             raw = np.asarray(annot.get_data())
             if raw.size and raw.ndim >= 2 and raw.shape[0] == args.height:
