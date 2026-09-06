@@ -107,7 +107,6 @@ def main():
         import omni.replicator.core as rep
         import omni.timeline
         import omni.usd
-
         import viz_render as vr
 
         ctx = omni.usd.get_context()
