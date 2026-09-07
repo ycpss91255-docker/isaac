@@ -15,13 +15,13 @@
 
 ```bash
 cd isaac_ws/src/docker
-./build.sh                # 第一次或改 Dockerfile 後
+just docker build                # 第一次或改 Dockerfile 後
 ```
 
 ### 2. 把 `headless` container 起來(porting:host 8011 → container WebRTC)
 
 ```bash
-./run.sh -t standalone -d
+just docker run -t stream -d
 docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}'
 ```
 
@@ -30,7 +30,7 @@ docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}
 ### 3.(可選)用 smoke driver 驗 livestream 通了
 
 ```bash
-./exec.sh -t standalone /isaac-sim/python.sh \
+just docker exec -t stream /isaac-sim/python.sh \
     /home/yunchien/work/src/script/standalone_livestream_smoke.py
 ```
 
@@ -45,7 +45,7 @@ docker ps --filter name=yunchien-isaac-headless --format '{{.Names}} {{.Status}}
 
 ```bash
 cd isaac_ws/src/docker
-./exec.sh -t standalone /isaac-sim/python.sh \
+just docker exec -t stream /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 ```
 
@@ -57,7 +57,7 @@ cd isaac_ws/src/docker
 ### 背景跑(放著掛機看 demo cycle)
 
 ```bash
-nohup ./exec.sh -t standalone /isaac-sim/python.sh \
+nohup just docker exec -t stream /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
     > /tmp/forklift.out 2>&1 &
 echo $! > /tmp/forklift.pid
@@ -68,7 +68,7 @@ echo $! > /tmp/forklift.pid
 ### 限時跑(自動驗證 / CI 用)
 
 ```bash
-timeout 75 ./exec.sh -t standalone /isaac-sim/python.sh \
+timeout 75 just docker exec -t stream /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
 ```
 
@@ -173,7 +173,7 @@ sys.exit(exit_code)
 
 ### 瀏覽器看到一片黑
 
-通常是 livestream 連上去太早,Kit 還在初始化。等 10 秒重新整理一下。或先 `./exec.sh ... smoke.py` 跑 smoke 確認 livestream 真的開了。
+通常是 livestream 連上去太早,Kit 還在初始化。等 10 秒重新整理一下。或先 `just docker exec ... smoke.py` 跑 smoke 確認 livestream 真的開了。
 
 ### `set_kinematic_target` AttributeError
 
@@ -198,12 +198,12 @@ else:
 
 | 步驟 | 舊 in-kit | 新 standalone-livestream |
 |---|---|---|
-| 起 Kit | `./run.sh -t standalone -d`(舊 SOP 寫 headless,實測會撞 runheadless.sh 兩 Kit port 衝突,改 standalone)| `./run.sh -t standalone -d` |
-| 載 driver | 瀏覽器 GUI 開 Script Editor 拖 `.py` 進去 | `./exec.sh -t standalone /isaac-sim/python.sh <script>` |
+| 起 Kit | `just docker run -t stream -d`(舊 SOP 寫 headless,實測會撞 runheadless.sh 兩 Kit port 衝突,改 standalone)| `just docker run -t stream -d` |
+| 載 driver | 瀏覽器 GUI 開 Script Editor 拖 `.py` 進去 | `just docker exec -t stream /isaac-sim/python.sh <script>` |
 | 跑 | Ctrl+Enter on Script Editor | enter 在 terminal |
 | 看畫面 | 同一個 Kit GUI 瀏覽器 tab | Isaac Sim WebRTC Streaming Client(桌面 app)連 `127.0.0.1`(可關可開) |
 | 改完重跑 | 編輯 → Script Editor 重 Ctrl+Enter | 編輯 → terminal 重跑 command |
-| LLM agent 可驅動 | 否(要人手點 Ctrl+Enter) | 是(`./exec.sh` 是 docker exec,LLM 可呼叫) |
+| LLM agent 可驅動 | 否(要人手點 Ctrl+Enter) | 是(`just docker exec` 是 docker exec,LLM 可呼叫) |
 
 舊流程沒被移除 — `cmd_vel_inkit_teleop.md` 保留當歷史參考。但**新 driver 不要再走舊路**,除非有非寫不可的理由(例如:driver 要在 stage 已開的 GUI session 裡做互動式偵錯)。
 

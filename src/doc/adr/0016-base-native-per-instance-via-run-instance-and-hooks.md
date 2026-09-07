@@ -1,5 +1,10 @@
 # Base-Native Per-Instance Bring-up via `run.sh --instance` + Wrapper Hooks
 
+> **Superseded by [ADR-0019](./0019-remove-same-repo-multi-instance.md) (2026-09-07).**
+> The multi-instance bring-up mechanism described here has been removed.
+> The single-sim stream flow (`just docker run -t stream -d`) is now the only
+> supported flow. See ADR-0019 for rationale.
+
 Multi-instance Isaac Sim bring-up moves from three hand-rolled scripts
 (`init_instance.sh` / `run_instance.sh` / `stop_instance.sh`) plus the
 `Makefile.local` `run-stream` / `stop-stream` targets onto the base-native
@@ -47,7 +52,7 @@ base shipped, and CLOSED, the mechanisms for exactly this:
 Adopt the base-native model. The streaming bring-up becomes:
 
 ```
-./run.sh -t stream -d --instance <name>
+just docker run -t stream -d --instance <name>
   -> pre/run.sh   : create the instance's cache dir tree (salvaged from init_instance.sh)
   -> (compose up)  : config/instances/<name>.{yaml,env} deep-merged (ports + cache + env)
   -> post/run.sh  : validate + copy host.yaml into the Isaac container; start the web-viewer

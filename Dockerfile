@@ -28,7 +28,7 @@
 # not collide with `latest` / `v[0-9]*` (reserved release tag
 # namespace). `headless` / `stream` below are the two repo-side entrypoint
 # variants emitted via this mechanism. No setup.conf change needed; run
-# any wrapper to regenerate compose.yaml, then `./run.sh -t <stage>`.
+# any wrapper to regenerate compose.yaml, then `just docker run -t <stage>`.
 #
 # Backward-compat: the legacy stage names `base` and `test` are still
 # accepted by the blocklist during the v0.21.x transition (renamed to
@@ -286,7 +286,7 @@ COPY --chmod=0644 apps/*.kit /isaac-sim/apps/
 # setup.conf [build] arg_N=ROS_DISTRO=<value> (default humble). Bake
 # the value into a const file consumed by the headless / stream ENTRYPOINT
 # shim, so runtime `-e ROS_DISTRO=...` flags are ignored. Rebuild
-# (./build.sh) to switch distros.
+# (just docker build) to switch distros.
 ARG ROS_DISTRO=humble
 RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
 
@@ -305,12 +305,13 @@ COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-w
 
 # [isaac] runheadless wrapper that reads per-host config from
 # /etc/host.yaml (mounted from <repo>/config/host.yaml by caller).
-# Used by Makefile.local run-stream + run_instance.sh to inject
+# Used by script/hooks/post/run.sh and script/ci/stream_smoke.sh to inject
 # --/app/livestream/publicEndpointAddress without host-side YAML
 # parsing. See doc/ for the host.yaml schema.
 COPY --chmod=0755 script/runheadless-host-config.sh /usr/local/bin/runheadless-host-config.sh
 # Shared host.yaml parser sourced by the wrapper above (and by host-side
-# run_instance.sh from the repo tree) -- single source of truth (#104).
+# script/hooks/post/run.sh + script/ci/stream_smoke.sh) -- single source of
+# truth (#104).
 COPY --chmod=0755 script/host_yaml.sh /usr/local/lib/host_yaml.sh
 
 USER "${USER}"
@@ -499,8 +500,8 @@ CMD ["sleep", "infinity"]
 # scripts are exec'd in and read ISAAC_LIVESTREAM=0 to skip streaming.
 #
 # Usage:
-#   make run -- -t headless -d
-#   make exec -- -t headless /isaac-sim/python.sh <driver.py>
+#   just docker run -t headless -d
+#   just docker exec -t headless /isaac-sim/python.sh <driver.py>
 #
 # Follows the Gazebo gzserver/gzclient separation model: one
 # container = one Kit process at a time. The driver script is the
@@ -515,12 +516,12 @@ CMD ["sleep", "infinity"]
 # headless; driver scripts read ISAAC_LIVESTREAM=2 to enable streaming.
 #
 # Usage:
-#   make run -- -t stream -d
-#   make exec -- -t stream /isaac-sim/python.sh <driver.py>
+#   just docker run -t stream -d
+#   just docker exec -t stream /isaac-sim/python.sh <driver.py>
 #   # -> browser connects via web-viewer at :5173
 #
 # For one-off headless streaming without a driver script:
-#   make exec -- -t stream /isaac-sim/runheadless.sh -v \
+#   just docker exec -t stream /isaac-sim/runheadless.sh -v \
 #     --/app/livestream/nvcf/quitOnSessionEnded=false
 FROM devel AS stream
 

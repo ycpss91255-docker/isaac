@@ -11,7 +11,7 @@
 
 | 路徑 | 載入方式 | 穩定性 |
 |------|---------|------|
-| **Script Editor（建議）** | `./run.sh -t headless -d` 起 kit (`runheadless.sh -v` → `isaacsim.exp.full.streaming.kit`)，bridge 由 kit experience 預載 | M1 已驗，跨 container DDS 通 |
+| **Script Editor（建議）** | `just docker run -t headless -d` 起 kit (`runheadless.sh -v` → `isaacsim.exp.full.streaming.kit`)，bridge 由 kit experience 預載 | M1 已驗，跨 container DDS 通 |
 | Standalone `python.sh` | `isaacsim.exp.base.python.kit` 不預載 bridge，要 Python `enable_extension(...)` 後手動拉起 | Isaac Sim 5.1 已知 bug ([IsaacSim#228](https://github.com/isaac-sim/IsaacSim/issues/228))：bridge + livestream 同 process 約 2 秒後 random segfault |
 
 底下流程一律走 Script Editor 路徑。Standalone 版本（`ros2_test_pub_standalone.py` / `ros2_test_sub_standalone.py`）留檔做為 6.0 升級後的對照樣本，**5.1 不要當主驗證路徑**。
@@ -20,7 +20,7 @@
 
 ## 前置條件
 
-- `isaac_ws/src/docker/` 已 `./build.sh` 過，image 含 `config/ros2/fastdds.xml`
+- `isaac_ws/src/docker/` 已 `just docker build` 過，image 含 `config/ros2/fastdds.xml`
 - Host 已可拉 `ros:humble` image（首次跑 `docker pull ros:humble` 暖一下）
 - Docker daemon 跑得起來，`docker ps` OK
 - 沒有別的 process 占用 ROS_DOMAIN_ID=0（多人共用 server 時需要協調）
@@ -39,8 +39,8 @@ env_7 = FASTRTPS_DEFAULT_PROFILES_FILE=/isaac-sim/fastdds.xml
 
 ```bash
 cd isaac_ws/src/docker
-./stop.sh                  # 確保乾淨環境
-./run.sh -t headless -d    # 背景啟 isaac kit + WebRTC 8211
+just docker stop                  # 確保乾淨環境
+just docker run -t headless -d    # 背景啟 isaac kit + WebRTC 8211
 ```
 
 `-t headless` 用 `runheadless.sh -v`（experience 內含 bridge 預載）；`-d` 背景跑，
@@ -154,7 +154,7 @@ Isaac Script Editor 主控台預期跳出：
 Script Editor 內：
 
 - 各自 `Ctrl+Enter` 重跑 `ros2_test_pub.py` / `ros2_test_sub.py` 一次即停舊 instance（內建 cleanup）
-- 或直接停 kit：terminal 跑 `./stop.sh`
+- 或直接停 kit：terminal 跑 `just docker stop`
 
 ---
 
@@ -173,8 +173,8 @@ Script Editor 內：
 |------|---------|------|
 | `ros2 topic list` 完全沒有 `/isaac/test` | (a) Script Editor 沒按 Ctrl+Enter / Run；(b) `ROS_DOMAIN_ID` 不一致；(c) sibling 沒 `--net=host` | Step 2 重跑、檢查 `docker inspect <isaac-container> -f '{{.Config.Env}}' \| tr ' ' '\n' \| grep ROS`、確認 sibling 命令行有 `--net=host --ipc=host` |
 | `ros2 topic list` 有 `/isaac/test`，但 `echo` 卡住沒輸出 | FastDDS SHM transport 跨 container 不穩 | 確認 sibling 有 mount fastdds.xml + `FASTRTPS_DEFAULT_PROFILES_FILE` 指向 mount path（Step 3 / 5 命令範本已含） |
-| Isaac Script Editor 主控台 import 失敗 `ModuleNotFoundError: No module named 'rclpy'` | bridge 沒被 experience 預載（不該發生於 `runheadless.sh -v` 路徑） | 確認用 `./run.sh -t headless`，不是 `python.sh`；檢查 `./exec.sh -t headless cat /isaac-sim/apps/isaacsim.exp.full.streaming.kit \| grep ros2.bridge` |
-| Isaac Script Editor 主控台 `[Error] [carb]` 載 bridge 失敗 | image 構建異常 / bundled libs 缺檔 | `./exec.sh -t headless ls /isaac-sim/exts/isaacsim.ros2.bridge/humble/` 應看到 `rclpy` / `lib` 等目錄；不全則 `./build.sh --no-cache` 重建 |
+| Isaac Script Editor 主控台 import 失敗 `ModuleNotFoundError: No module named 'rclpy'` | bridge 沒被 experience 預載（不該發生於 `runheadless.sh -v` 路徑） | 確認用 `just docker run -t headless`，不是 `python.sh`；檢查 `just docker exec -t headless cat /isaac-sim/apps/isaacsim.exp.full.streaming.kit \| grep ros2.bridge` |
+| Isaac Script Editor 主控台 `[Error] [carb]` 載 bridge 失敗 | image 構建異常 / bundled libs 缺檔 | `just docker exec -t headless ls /isaac-sim/exts/isaacsim.ros2.bridge/humble/` 應看到 `rclpy` / `lib` 等目錄；不全則 `just docker build --no-cache` 重建 |
 | Step 5 sibling pub 後 Script Editor 沒印 callback | (a) Script 沒按 Run；(b) topic name typo；(c) QoS mismatch | re-Run `ros2_test_sub.py`、確認 sibling pub 與 sub 都是 `/host/test`、`ros2 topic info /host/test -v` 看 QoS（默認 reliable+volatile 對得上） |
 
 ---

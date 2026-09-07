@@ -1,5 +1,10 @@
 # Test Ownership Boundary + `test/<category>/<tool>/` Layout
 
+> **Editorial note (2026-09-07):** `ycpss91255-research/isaac` referenced in this ADR
+> has been archived; its content was merged into `ycpss91255-docker/isaac` per #78.
+> The repo-ownership split (workspace vs docker) is moot post-merge; the sublayer
+> layout decision still applies. See the Update (2026-06-11) section below.
+
 ADR-0011 split tests across two runner classes (hosted vs self-hosted GPU) but left two questions unresolved: which *repo* owns each test class, and how to colocate tests written for different runners (bats / pytest / future gtest) without breaking discovery. Both gaps surfaced concretely during local validation of `#46` + `ycpss91255-docker/isaac#63`: the workspace's `smoke-test.yaml` tried to reach across a submodule into the docker container, and the docker repo's `python-tests` job collected zero tests because the skip-check could not distinguish a directory of `.bats` files from a directory of pytest files.
 
 **Decision**: (1) `ycpss91255-research/isaac` (this repo, transferred from `ycpss91255/isaac` on 2026-05-28 -- see ADR-0012) owns *unit* tests only; `ycpss91255-docker/isaac` owns *smoke* and *integration* tests. (2) Adopt the `test/<category>/<tool>/` sublayer in any repo whose `test/<category>/` contains tests from more than one tool/language.

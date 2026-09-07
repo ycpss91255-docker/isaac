@@ -309,9 +309,10 @@ four layers: URDF in `src/isaac/sim/model/` -> `import_urdf` -> placement in `ro
 
 ## Per-ADR disposition table
 
-Disposition of all 16 existing ADRs. "Migrate" rows move physically in #136 (nothing moves in
-this change); their proposed numbers in `isaac-forklift` are reserved here in migration order
-and finalized by #136.
+Disposition of all 16 existing ADRs. "Migrate" rows were planned to move physically in #136;
+however the `isaac-forklift` repo creation is deferred per #129, so ADR-0001 / 0003 / 0004
+remain in this repo for now. Their proposed numbers in `isaac-forklift` are reserved here in
+migration order and finalized by #136 when it proceeds.
 
 | ADR | Title (short) | Disposition | Destination | New number |
 |---|---|---|---|---|
