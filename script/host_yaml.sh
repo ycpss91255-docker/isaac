@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # host_yaml.sh -- shared host.yaml `network.public_ip` extraction +
 # validation. Sourced by both call sites so they never drift (#104):
-#   - script/run_instance.sh        (host side, sourced from script_dir)
+#   - script/hooks/post/run.sh      (host side, sourced from repo_root)
+#   - script/ci/stream_smoke.sh     (host side, sourced from repo_root)
 #   - script/runheadless-host-config.sh (container side, sourced from
 #                                        /usr/local/lib/host_yaml.sh)
 #

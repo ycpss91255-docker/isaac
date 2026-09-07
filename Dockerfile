@@ -310,7 +310,8 @@ COPY --chmod=0755 script/isaac-ros-env-wrapper.sh /usr/local/bin/isaac-ros-env-w
 # parsing. See doc/ for the host.yaml schema.
 COPY --chmod=0755 script/runheadless-host-config.sh /usr/local/bin/runheadless-host-config.sh
 # Shared host.yaml parser sourced by the wrapper above (and by host-side
-# run_instance.sh from the repo tree) -- single source of truth (#104).
+# script/hooks/post/run.sh + script/ci/stream_smoke.sh) -- single source of
+# truth (#104).
 COPY --chmod=0755 script/host_yaml.sh /usr/local/lib/host_yaml.sh
 
 USER "${USER}"
