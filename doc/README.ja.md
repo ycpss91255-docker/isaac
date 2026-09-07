@@ -19,23 +19,23 @@ NGC イメージ（`nvcr.io/nvidia/isaac-sim:6.0.1`）は公開取得可能、`d
 
 ## Quick Start
 
-> **初回のみ必須：** `make build` の **前に** `./script/init_isaac_dirs.sh` を実行。スキップすると docker daemon が **root** 権限で cache mount ポイントを mkdir し、コンテナ内の非 root ユーザーが書き込めず、Isaac Sim が起動できません。
+> **初回のみ必須：** `just docker build` の **前に** `./script/init_isaac_dirs.sh` を実行。スキップすると docker daemon が **root** 権限で cache mount ポイントを mkdir し、コンテナ内の非 root ユーザーが書き込めず、Isaac Sim が起動できません。
 
 ```bash
 ./script/init_isaac_dirs.sh   # 初回のみ — host 所有の cache ディレクトリ 8 個を作成
-make build                    # devel stage を build（約 16 GB のイメージ）
-make run                      # devel コンテナで対話シェル
+just docker build                    # devel stage を build（約 16 GB のイメージ）
+just docker run                      # devel コンテナで対話シェル
 ```
 
 Production stage（両 stage とも起動後は idle — driver スクリプトを exec で実行中の container に送り込む）：
 
 ```bash
-make run -- -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-make run -- -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
-make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
+just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> 2 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（pure sim、`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC、`ISAAC_LIVESTREAM=2`）。両者とも起動時は `CMD ["sleep","infinity"]` で idle（`runheadless.sh -v` ENTRYPOINT は無い）— container は起動したまま、`make exec -- -t <stage> <cmd>` で driver スクリプト（`/isaac-sim/python.sh <driver.py>`、`ISAAC_LIVESTREAM=2` を読んで stream を有効化）または一回限りの `/usr/local/bin/runheadless-host-config.sh` を送り込む；streaming 起動後は web-viewer が `:5173` で接続する。`make run -- -t <stage> -d` で起動。
+> 2 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（pure sim、`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC、`ISAAC_LIVESTREAM=2`）。両者とも起動時は `CMD ["sleep","infinity"]` で idle（`runheadless.sh -v` ENTRYPOINT は無い）— container は起動したまま、`just docker exec -t <stage> <cmd>` で driver スクリプト（`/isaac-sim/python.sh <driver.py>`、`ISAAC_LIVESTREAM=2` を読んで stream を有効化）または一回限りの `/usr/local/bin/runheadless-host-config.sh` を送り込む；streaming 起動後は web-viewer が `:5173` で接続する。`just docker run -t <stage> -d` で起動。
 
 ## WebRTC livestream への接続
 
@@ -57,13 +57,13 @@ cp config/host.yaml.example config/host.yaml
 
 # idle な stream コンテナ + host.yaml + web-viewer を起動。
 # post-run hook（base #440）が host.yaml をコピーし viewer を起動する。
-make run -- -t stream -d
+just docker run -t stream -d
 
 # Isaac Sim をコンテナに起動 -- 明示的なステップ（run = infra、
 # exec = workload）。driver スクリプトを使う場合：
-make exec -- -t stream /isaac-sim/python.sh <driver.py>
+just docker exec -t stream /isaac-sim/python.sh <driver.py>
 # ...または driver なしのクイックストリームには livestream wrapper：
-#   make exec -- -t stream /usr/local/bin/runheadless-host-config.sh
+#   just docker exec -t stream /usr/local/bin/runheadless-host-config.sh
 
 # Isaac Sim のロードを確認
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
@@ -72,7 +72,7 @@ docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 # そのまま映像ストリームが起動します（stream-only 自動起動。UI Option 選択画面なし）
 
 # すべて停止（post-stop hook が web-viewer を削除する）
-make stop
+just docker stop
 ```
 
 `config/host.yaml` は gitignored・per-machine。`network.public_ip` が両方の container にマウントされ、Isaac 側は `runheadless-host-config.sh` が読んで Kit `publicEndpointAddress` 引数に注入、web-viewer 側は entrypoint が読んで `SIGNALING_SERVER` に設定する。
@@ -157,17 +157,17 @@ Dockerfile の `ARG ROS_DISTRO=humble` は `setup.conf [build]` と配線され�
 jazzy に切り替えるには：
 
 ```bash
-make setup -- remove build.arg "ROS_DISTRO=humble"
-make setup -- add build.arg "ROS_DISTRO=jazzy"
-make build           # 新しい ARG で rebuild（影響 layer のみ、~10 秒）
-make run -- -t headless -d
+just docker setup remove build.arg "ROS_DISTRO=humble"
+just docker setup add build.arg "ROS_DISTRO=jazzy"
+just docker build           # 新しい ARG で rebuild（影響 layer のみ、~10 秒）
+just docker run -t headless -d
 ```
 
 jazzy パスは Isaac の 24.04 自動デフォルト（2029 年まで LTS）に揃う — 既知の caveat：jazzy on noble は Python 3.11/3.12 mix と Nav2 paths まわりが NVIDIA forum で追跡中、Isaac Sim 6.0 で解消見込み。
 
 ### コンテナ間 DDS の検証
 
-`make run -- -t headless -d`（humble override env 付き）後、WebRTC client で接続し、Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。スクリプトは Play を自動押下し（publisher は timeline が再生中のみ発火）、`/isaac/test` に `std_msgs/String "hello N"` を publish 開始。
+`just docker run -t headless -d`（humble override env 付き）後、WebRTC client で接続し、Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。スクリプトは Play を自動押下し（publisher は timeline が再生中のみ発火）、`/isaac/test` に `std_msgs/String "hello N"` を publish 開始。
 
 同一 host の別 terminal で：
 
@@ -194,9 +194,9 @@ kit terminal に `[ros2_test_sub] /host/test <- 'hello-from-host'` と出力さ�
 
 ### Standalone Python workflow（Script Editor 代替手段）
 
-`isaac_ws/src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp({"livestream": 2})` で独自の kit を boot する形式で、`make run -- -t stream` + `make exec -- -t stream /isaac-sim/python.sh <script>` で起動。Ctrl+C は SIGINT handler でクリーンに終了するため Script Editor UI は不要。
+`isaac_ws/src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp({"livestream": 2})` で独自の kit を boot する形式で、`just docker run -t stream` + `just docker exec -t stream /isaac-sim/python.sh <script>` で起動。Ctrl+C は SIGINT handler でクリーンに終了するため Script Editor UI は不要。
 
-| In-kit（Script Editor → File → Open → Run） | Standalone（`make exec -- -t stream /isaac-sim/python.sh <path>`） |
+| In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t stream /isaac-sim/python.sh <path>`） |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -206,11 +206,11 @@ kit terminal に `[ros2_test_sub] /host/test <- 'hello-from-host'` と出力さ�
 使用 pattern：
 
 ```bash
-make run -- -t stream -d   # idle kit コンテナ（runheadless ENTRYPOINT なし）
-make exec -- -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+just docker run -t stream -d   # idle kit コンテナ（runheadless ENTRYPOINT なし）
+just docker exec -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Browser: localhost:8211/streaming/webrtc-client で stage を見る
 # exec session で Ctrl+C → script クリーン終了、コンテナは idle のまま
-make stop                      # 後片付け
+just docker stop                      # 後片付け
 ```
 
 `headless` と `stream` stage は **同時起動不可**（kit プロセスは一度に 1 つのみ） — 両者とも WebRTC port 8211 を bind する。セッション毎に 1 つ選択。
@@ -255,9 +255,9 @@ make stop                      # 後片付け
 使い方：
 
 ```bash
-make build -- -t devel-test                                     # devel-test ステージをビルド
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t devel-test                                     # devel-test ステージをビルド
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 システムの `python3` ではこれらのパッケージはインストールできない（Isaac base image の PEP 668 が `pip` をブロック）— 必ず `/isaac-sim/python.sh -m pytest ...` を使い、`pytest ...` は使わない。

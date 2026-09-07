@@ -52,7 +52,7 @@ git checkout main   # or a known-good tag if the head is broken
 #### b. Build the extension (Linux)
 
 ```bash
-./build.sh
+just docker build
 ```
 
 This produces a built extension under `./exts/`. On Windows, use `./build.bat` instead.
@@ -70,14 +70,14 @@ Then restart the headless container:
 
 ```bash
 cd isaac_ws/src/docker
-./stop.sh -t standalone
-./run.sh -t standalone -d
+just docker stop -t stream
+just docker run -t stream -d
 ```
 
 Verify the bind landed:
 
 ```bash
-./exec.sh -t standalone ls /isaac-sim/extra_exts/zed
+just docker exec -t stream ls /isaac-sim/extra_exts/zed
 # Expected: sl.sensor.camera (or similar Stereolabs extension dir)
 ```
 
@@ -114,7 +114,7 @@ After the four steps above, the dispatch in `script/camera_setup.py` should boot
 
 ```bash
 cd isaac_ws/src/docker
-./exec.sh -t standalone /isaac-sim/python.sh \
+just docker exec -t stream /isaac-sim/python.sh \
     /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
     --config /home/yunchien/work/src/config/camera/zed.yaml
 ```

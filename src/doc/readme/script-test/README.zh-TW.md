@@ -1,6 +1,6 @@
 # Standalone scripts smoke
 
-整合 smoke 測試 `isaac_ws/src/script/*_standalone.py`。每支 script 在透過 `./exec.sh -t standalone /isaac-sim/python.sh <script>` 跑起來後,必須在 timeout 內印出對應的 "ready marker" 字串。Runner 啟動 script、輪詢 stdout 找 marker,看到就收掉,回報每個 case 是 PASS / FAIL。
+整合 smoke 測試 `isaac_ws/src/script/*_standalone.py`。每支 script 在透過 `just docker exec -t stream /isaac-sim/python.sh <script>` 跑起來後,必須在 timeout 內印出對應的 "ready marker" 字串。Runner 啟動 script、輪詢 stdout 找 marker,看到就收掉,回報每個 case 是 PASS / FAIL。
 
 **[English](../../../script/test/README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -19,12 +19,12 @@
 
 前置條件:
 
-- `./run.sh -t standalone -d` 跑得起來(container 沒起時 smoke 會自動帶起)
+- `just docker run -t stream -d` 跑得起來(container 沒起時 smoke 會自動帶起)
 - 倉內已 track `isaac_ws/src/model/usd/robot/openbase/openbase.usda`,USD 相關 case 直接吃。如果該檔不見了(checkout 不完整 / 意外刪掉),從 repo 內 URDF 源檔重新產:
 
   ```bash
   cd isaac_ws/src/docker
-  ./exec.sh -t standalone /isaac-sim/python.sh \
+  just docker exec -t stream /isaac-sim/python.sh \
       /home/yunchien/work/src/script/import_urdf.py \
       /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \
       /tmp/openbase_generated.usda

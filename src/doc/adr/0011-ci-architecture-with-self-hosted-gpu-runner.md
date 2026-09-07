@@ -1,6 +1,10 @@
 # CI Architecture: Split Hosted + Self-Hosted by Test Bucket
 
 > **Note (2026-05-28)**: Runner topology (§Self-hosted) and the `ycpss91255` user-account tax item in §Consequences are revised per [ADR-0012](./0012-research-org-split-dual-org-runners.md). Current state is reflected inline below; ADR-0012 carries the rationale for the change (semantic split between `-docker` container-env org and `-research` code org).
+>
+> **Editorial note (2026-09-07):** `ycpss91255-research/isaac` referenced in this ADR
+> has been archived; its content was merged into `ycpss91255-docker/isaac` per #78.
+> See the Update (2026-06-02) section below for the post-merge CI layout.
 
 ADR-0010 introduces a 4-layer Isaac Dev Kit with Python tests (unit + smoke + integration). Isaac Sim requires NVIDIA GPU at runtime (Kit's CUDA/Vulkan init refuses to start without it), and GitHub-hosted runners do not provide a GPU. Existing `ci.yaml` only validates Python syntax via `py-compile`; pytest is never run in CI. We need a strategy that runs every test type in CI without paying for GPU hosted runners.
 

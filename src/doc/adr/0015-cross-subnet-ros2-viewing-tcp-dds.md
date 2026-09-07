@@ -40,4 +40,4 @@ TCP keeps the standard ROS 2 / rviz workflow (no extra apps, no browser, no rmw 
 
 ## Editorial note (2026-06-11)
 
-Incidental application-specific prose in this ADR was replaced with generic wording as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged; the original wording is preserved in git history. Literal committed artifact paths (e.g. `config/rviz/coresam_d455.rviz`) are left untouched until the content migration (#136 / #137).
+Incidental application-specific prose in this ADR was replaced with generic wording as part of the base-repo convergence (ADR-0017, #128). Decision content is unchanged; the original wording is preserved in git history. Literal committed artifact paths (e.g. `config/rviz/coresam_d455.rviz`) remain as-is; the `isaac-forklift` repo creation that would have consumed them (#136 / #137) is deferred per #129, and the files still exist at their current paths.

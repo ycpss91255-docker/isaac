@@ -19,23 +19,23 @@ NGC image（`nvcr.io/nvidia/isaac-sim:6.0.1`）公开可拉，无需 `docker log
 
 ## Quick Start
 
-> **首次必跑：** `make build` **之前**先跑 `./script/init_isaac_dirs.sh`。没跑的话 docker daemon 会以 **root** 身份 mkdir cache mount 点，导致容器内非 root user 无法写入，Isaac Sim 启动失败。
+> **首次必跑：** `just docker build` **之前**先跑 `./script/init_isaac_dirs.sh`。没跑的话 docker daemon 会以 **root** 身份 mkdir cache mount 点，导致容器内非 root user 无法写入，Isaac Sim 启动失败。
 
 ```bash
 ./script/init_isaac_dirs.sh   # 首次必跑，创建 8 个 host-owned cache 目录
-make build                    # build devel stage（约 16 GB image）
-make run                      # 进 devel 容器互动 shell
+just docker build                    # build devel stage（约 16 GB image）
+just docker run                      # 进 devel 容器互动 shell
 ```
 
 Production stage（两个 stage 启动后都 idle — driver 脚本用 exec 送进运行中的 container）：
 
 ```bash
-make run -- -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-make run -- -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
-make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
+just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> 两个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。两者启动后都 `CMD ["sleep","infinity"]` idle（没有 `runheadless.sh -v` ENTRYPOINT）— container 持续存活，由你用 `make exec -- -t <stage> <cmd>` 把 driver 脚本（`/isaac-sim/python.sh <driver.py>`，读 `ISAAC_LIVESTREAM=2` 开 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送进去；streaming 起来后 web-viewer 连 `:5173`。使用 `make run -- -t <stage> -d` 启动。
+> 两个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。两者启动后都 `CMD ["sleep","infinity"]` idle（没有 `runheadless.sh -v` ENTRYPOINT）— container 持续存活，由你用 `just docker exec -t <stage> <cmd>` 把 driver 脚本（`/isaac-sim/python.sh <driver.py>`，读 `ISAAC_LIVESTREAM=2` 开 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送进去；streaming 起来后 web-viewer 连 `:5173`。使用 `just docker run -t <stage> -d` 启动。
 
 ## 连接 WebRTC livestream
 
@@ -57,13 +57,13 @@ cp config/host.yaml.example config/host.yaml
 
 # 启动 idle stream 容器 + host.yaml + web-viewer。
 # post-run hook（base #440）把 host.yaml copy 进去并启动 viewer。
-make run -- -t stream -d
+just docker run -t stream -d
 
 # 把 Isaac Sim 启进容器 -- 一个明确的步骤（run = infra，
 # exec = workload）。可以跑 driver script：
-make exec -- -t stream /isaac-sim/python.sh <driver.py>
+just docker exec -t stream /isaac-sim/python.sh <driver.py>
 # ...或者，no-driver 快速 stream，用 livestream wrapper：
-#   make exec -- -t stream /usr/local/bin/runheadless-host-config.sh
+#   just docker exec -t stream /usr/local/bin/runheadless-host-config.sh
 
 # 看 Isaac Sim 载入
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
@@ -72,7 +72,7 @@ docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 # 直接进入实时串流（stream-only 自动启动，不显示 UI Option 选择界面）
 
 # 停掉所有东西（post-stop hook 会移除 web-viewer）
-make stop
+just docker stop
 ```
 
 `config/host.yaml` 是 gitignored、per-machine。它的 `network.public_ip` 会 mount 进两个 container：Isaac 端由 `runheadless-host-config.sh` 读取并转成 Kit `publicEndpointAddress` 参数；web-viewer 端由 entrypoint 读取设成 `SIGNALING_SERVER`。
@@ -157,17 +157,17 @@ Dockerfile 内 `ARG ROS_DISTRO=humble`，由 `setup.conf [build]` 串进来。Bu
 切到 jazzy：
 
 ```bash
-make setup -- remove build.arg "ROS_DISTRO=humble"
-make setup -- add build.arg "ROS_DISTRO=jazzy"
-make build           # 用新 ARG 重 build（只重 build 受影响 layer，~10s）
-make run -- -t headless -d
+just docker setup remove build.arg "ROS_DISTRO=humble"
+just docker setup add build.arg "ROS_DISTRO=jazzy"
+just docker build           # 用新 ARG 重 build（只重 build 受影响 layer，~10s）
+just docker run -t headless -d
 ```
 
 jazzy path 与 Isaac 在 24.04 上的 auto-default 对齐（LTS until 2029）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
 
 ### 验证 cross-container DDS
 
-跑 `make run -- -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
+跑 `just docker run -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
 
 在同一 host 另一个 terminal：
 
@@ -194,9 +194,9 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `make run -- -t stream` + `make exec -- -t stream /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
+`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `just docker run -t stream` + `just docker exec -t stream /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
 
-| In-kit（Script Editor → File → Open → Run） | Standalone（`make exec -- -t stream /isaac-sim/python.sh <path>`） |
+| In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t stream /isaac-sim/python.sh <path>`） |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -206,11 +206,11 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 使用 pattern：
 
 ```bash
-make run -- -t stream -d   # idle kit 容器（没 runheadless ENTRYPOINT）
-make exec -- -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+just docker run -t stream -d   # idle kit 容器（没 runheadless ENTRYPOINT）
+just docker exec -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Browser: localhost:8211/streaming/webrtc-client 看 stage
 # 在 exec session 按 Ctrl+C 干净杀 script，容器仍 idle
-make stop                      # 收尾
+just docker stop                      # 收尾
 ```
 
 `headless` 与 `stream` stage 每次只能跑一个 kit process — 两个都 bind WebRTC port 8211。每次选一个。
@@ -255,9 +255,9 @@ make stop                      # 收尾
 用法：
 
 ```bash
-make build -- -t devel-test                                     # 构建 devel-test 阶段
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t devel-test                                     # 构建 devel-test 阶段
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 系统的 `python3` 无法安装这些套件（Isaac base image 的 PEP 668 拦截 `pip`）— 一律走 `/isaac-sim/python.sh -m pytest ...`，不要用 `pytest ...`。

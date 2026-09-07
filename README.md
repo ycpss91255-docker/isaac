@@ -19,23 +19,23 @@ NGC image (`nvcr.io/nvidia/isaac-sim:6.0.1`) is publicly pullable — no `docker
 
 ## Quick Start
 
-> **First-time only:** run `./script/init_isaac_dirs.sh` **before** `make build`. Skipping it lets the docker daemon `mkdir` the cache mount points as **root**, and the container's non-root user will then fail to write — Isaac Sim will not start.
+> **First-time only:** run `./script/init_isaac_dirs.sh` **before** `just docker build`. Skipping it lets the docker daemon `mkdir` the cache mount points as **root**, and the container's non-root user will then fail to write — Isaac Sim will not start.
 
 ```bash
 ./script/init_isaac_dirs.sh   # first time only — creates 8 host-owned cache dirs
-make build                    # builds devel stage (~16 GB image)
-make run                      # interactive shell in devel container
+just docker build                    # builds devel stage (~16 GB image)
+just docker run                      # interactive shell in devel container
 ```
 
 Production stages (both idle on startup — exec driver scripts into the running container):
 
 ```bash
-make run -- -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-make run -- -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
-make exec -- -t stream /isaac-sim/python.sh <script>   # run a driver script
+just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> Two stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (pure sim, `ISAAC_LIVESTREAM=0`) and `stream` (sim + WebRTC, `ISAAC_LIVESTREAM=2`). Both idle on startup — the container stays up and you exec driver scripts in via `make exec -- -t <stage> <cmd>`. Use `make run -- -t <stage> -d` to launch.
+> Two stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (pure sim, `ISAAC_LIVESTREAM=0`) and `stream` (sim + WebRTC, `ISAAC_LIVESTREAM=2`). Both idle on startup — the container stays up and you exec driver scripts in via `just docker exec -t <stage> <cmd>`. Use `just docker run -t <stage> -d` to launch.
 
 ## Connecting to the WebRTC livestream
 
@@ -57,13 +57,13 @@ cp config/host.yaml.example config/host.yaml
 
 # Bring up the idle stream container + host.yaml + web-viewer.
 # The post-run hook (base #440) copies host.yaml in and starts the viewer.
-make run -- -t stream -d
+just docker run -t stream -d
 
 # Launch Isaac Sim into the container -- an explicit step (run = infra,
 # exec = workload). Either a driver script:
-make exec -- -t stream /isaac-sim/python.sh <driver.py>
+just docker exec -t stream /isaac-sim/python.sh <driver.py>
 # ...or, for a no-driver quick stream, the livestream wrapper:
-#   make exec -- -t stream /usr/local/bin/runheadless-host-config.sh
+#   just docker exec -t stream /usr/local/bin/runheadless-host-config.sh
 
 # Watch Isaac Sim load
 docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
@@ -72,7 +72,7 @@ docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
 # Boots straight into the live stream (stream-only auto-launch; no UI Option screen)
 
 # Stop everything (the post-stop hook removes the web-viewer)
-make stop
+just docker stop
 ```
 
 `config/host.yaml` is gitignored and per-machine. Its `network.public_ip` is mounted into both the Isaac container (read by `runheadless-host-config.sh` for the Kit `publicEndpointAddress` arg) and the web-viewer container (read by entrypoint for `SIGNALING_SERVER`).
@@ -157,17 +157,17 @@ The `devel` stage soft-bakes the same values via `Dockerfile ENV` (interactive s
 Switch to jazzy:
 
 ```bash
-make setup -- remove build.arg "ROS_DISTRO=humble"
-make setup -- add build.arg "ROS_DISTRO=jazzy"
-make build           # rebuild with new ARG (only the affected layers, ~10s)
-make run -- -t headless -d
+just docker setup remove build.arg "ROS_DISTRO=humble"
+just docker setup add build.arg "ROS_DISTRO=jazzy"
+just docker build           # rebuild with new ARG (only the affected layers, ~10s)
+just docker run -t headless -d
 ```
 
 The jazzy path aligns with Isaac's auto-default on 24.04 (LTS until 2029) — known caveat: jazzy on noble has a Python 3.11/3.12 mix and rough Nav2 paths still under NVIDIA forum tracking, expected smooth on Isaac Sim 6.0.
 
 ### Verify cross-container DDS
 
-After `make run -- -t stream -d` (with the humble override env) and connecting via the WebRTC client or browser viewer, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
+After `just docker run -t stream -d` (with the humble override env) and connecting via the WebRTC client or browser viewer, open Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run. The script auto-presses Play (publishers only fire while the timeline is playing) and starts publishing `std_msgs/String "hello N"` on `/isaac/test`.
 
 From a separate terminal on the same host:
 
@@ -196,7 +196,7 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 `isaac_ws/src/script/` ships both in-kit Script Editor versions of M1 / M2 demos and standalone equivalents that boot their own kit via `SimulationApp({"livestream": 2})`. Both `headless` and `stream` stages idle on startup, so standalone scripts are exec'd into the running container — Ctrl+C cleanly exits via SIGINT handler, no Script Editor UI needed.
 
-| In-kit (Script Editor → File → Open → Run) | Standalone (`make exec -- -t stream /isaac-sim/python.sh <path>`) |
+| In-kit (Script Editor → File → Open → Run) | Standalone (`just docker exec -t stream /isaac-sim/python.sh <path>`) |
 |---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
@@ -206,11 +206,11 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 Pattern:
 
 ```bash
-make run -- -t stream -d   # idle container with WebRTC streaming enabled
-make exec -- -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
+just docker run -t stream -d   # idle container with WebRTC streaming enabled
+just docker exec -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
 # Connect via WebRTC client or browser viewer to see the stage
 # Ctrl+C in the exec session kills the script cleanly; container stays idle
-make stop                           # cleanup
+just docker stop                           # cleanup
 ```
 
 ## Cache layout
@@ -253,9 +253,9 @@ The `devel-test` stage ships `pytest`, `pyyaml`, and `pytest-cov` installed into
 Usage:
 
 ```bash
-make build -- -t devel-test                                     # build the devel-test stage
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-make exec -- -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t devel-test                                     # build the devel-test stage
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
+just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 System `python3` cannot install these packages (PEP 668 blocks `pip` on the Isaac base image) — always invoke `/isaac-sim/python.sh -m pytest ...` instead of `pytest ...`.
