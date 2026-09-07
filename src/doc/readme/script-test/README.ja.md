@@ -1,6 +1,6 @@
 # Standalone scripts smoke
 
-`isaac_ws/src/script/*_standalone.py` の統合 smoke テスト。各スクリプトは `./exec.sh -t standalone /isaac-sim/python.sh <script>` 経由で実行したとき、タイムアウト内に対応する "ready marker" 文字列を出力しなければいけません。Runner はスクリプトを起動し、stdout を marker でポーリング、見つけ次第ジョブを片付け、各 case の PASS / FAIL を報告します。
+`isaac_ws/src/script/*_standalone.py` の統合 smoke テスト。各スクリプトは `just docker exec -t stream /isaac-sim/python.sh <script>` 経由で実行したとき、タイムアウト内に対応する "ready marker" 文字列を出力しなければいけません。Runner はスクリプトを起動し、stdout を marker でポーリング、見つけ次第ジョブを片付け、各 case の PASS / FAIL を報告します。
 
 **[English](../../../script/test/README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -19,12 +19,12 @@
 
 前提:
 
-- `./run.sh -t standalone -d` が成功すること(container が起きていない場合 smoke が自動で起動します)
+- `just docker run -t stream -d` が成功すること(container が起きていない場合 smoke が自動で起動します)
 - リポジトリには `isaac_ws/src/model/usd/robot/openbase/openbase.usda` が track されており、USD 依存 case はそれを直接使います。もし checkout 不完全や誤削除で当該ファイルが無ければ、repo 内の URDF ソースから再生成してください:
 
   ```bash
   cd isaac_ws/src/docker
-  ./exec.sh -t standalone /isaac-sim/python.sh \
+  just docker exec -t stream /isaac-sim/python.sh \
       /home/yunchien/work/src/script/import_urdf.py \
       /home/yunchien/work/src/model/urdf/robot/openbase/openbase_minimal.urdf \
       /tmp/openbase_generated.usda

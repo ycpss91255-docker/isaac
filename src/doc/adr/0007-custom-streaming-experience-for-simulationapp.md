@@ -1,5 +1,11 @@
 # Custom Streaming Kit Experience for `SimulationApp`-Driven Workflows
 
+> **Editorial note (2026-09-07):** The wrapper commands (`./exec.sh`, `./run.sh`) and the
+> `-t standalone` stage name in this ADR predate the justfile migration and ADR-0014
+> (sim-runtime stage taxonomy). Current equivalents: `./exec.sh` -> `just docker exec`,
+> `./run.sh` -> `just docker run`, `-t standalone` -> `-t stream`. Decision content
+> is unchanged; see ADR-0014 for the authoritative stage-name mapping.
+
 `SimulationApp({"headless": True, "livestream": 2})` invoked via `./exec.sh -t standalone /isaac-sim/python.sh <driver.py>` is supposed to launch one Kit instance that publishes a WebRTC livestream the Isaac Sim Streaming Client can attach to (ADR-0005). In practice that flag is a no-op against `SimulationApp`'s default Kit experience: no streaming extensions are loaded, the WebRTC server never starts, the Streaming Client has nothing to connect to.
 
 This ADR records why we ship a **custom Kit experience** — `isaacsim.exp.base.python.streaming.kit` — that layers the streaming extensions on top of the lightweight Python base, rather than reusing NVIDIA's bundled streaming experience or papering over the gap with env-var glue. The custom file lives in `ycpss91255-docker/isaac` (issue #21 fix-B); drivers in this repo opt in by passing `experience="/isaac-sim/apps/isaacsim.exp.base.python.streaming.kit"` to `SimulationApp(...)`.

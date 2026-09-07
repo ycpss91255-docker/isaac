@@ -1,5 +1,11 @@
 # Standalone-with-Livestream as Default Dev Entrypoint
 
+> **Editorial note (2026-09-07):** The wrapper commands (`./exec.sh`, `./run.sh`) and the
+> `-t standalone` stage name in this ADR predate the justfile migration and ADR-0014
+> (sim-runtime stage taxonomy). Current equivalents: `./run.sh` -> `just docker run`,
+> `./exec.sh` -> `just docker exec`, `-t standalone` -> `-t stream`. Decision content
+> is unchanged; see ADR-0014 for the authoritative stage-name mapping.
+
 Driver scripts in this repo are launched via the **standalone Python entrypoint with WebRTC livestream enabled** —
 `SimulationApp({"headless": True, "livestream": 2})` invoked through `./exec.sh -t headless /isaac-sim/python.sh <script>`.
 The earlier "open Kit GUI → load script in Script Editor → Ctrl+Enter" loop is retained only for quick interactive REPL experiments;
