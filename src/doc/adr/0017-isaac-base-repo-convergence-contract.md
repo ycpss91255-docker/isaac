@@ -26,6 +26,12 @@ workspace mounts into the container. `new-workspace.sh` scaffolds this in one st
 Target state: zero application-specific content in base (purity grep, M3 metric, enforced in
 #137 after the migration in #136).
 
+> **Narrowed (2026-09-07).** The purity scope is narrowed from the entire repo
+> to `framework/` -- the contract layer that downstream consumers import via
+> submodule. `src/` is retained as example/application content outside the
+> submodule contract (owner decision, #137 rationale update, #273). Complete
+> separation of application content is deferred to a later version (#136).
+
 ### 2. Framework install = mount, not baked
 
 `framework/isaac_devkit/` rides the workspace mount into the container
@@ -46,6 +52,11 @@ Deep modules, each split into a pure half (module level, Isaac-free) and an Isaa
 | `materials` | L2 | material binding + USD variant sets; **single owner of variant selection** |
 | `sensors` | L3 | catalog/placement resolution + OmniGraph -> ROS 2 publish wiring |
 | `ros_io` | input | ROS 2 inbound via OmniGraph Subscribe node (not an rclpy executor) |
+
+> **Module boundary update (2026-09-07, ADR-0023).** `ros_io` and the ROS 2
+> publish wiring portion of `sensors` are re-assigned to Module 2
+> (`isaac_ros2`). Module 1 (`isaac_devkit`) retains no ROS dependency. See
+> ADR-0023 for the full dependency-direction constraint and rationale.
 | `scene` | — | three-file scene load (pure) + stage build (Isaac) |
 | `driver` | L4 | `IsaacDriver` lifecycle (lifecycle-only pattern per ADR-0009) |
 
@@ -114,6 +125,13 @@ verify the `link` prim actually exists and attach (needs a live stage).
 three tiers -> `SensorNotFoundError`; unimplemented sensor paths -> `NotImplementedError`.
 
 ### 6. ROS 2 bidirectional bridge by default
+
+> **Clarified (2026-09-07, ADR-0023).** ROS 2 is the **default** downstream
+> consumer for the example, but it is not the sole external interface. The
+> framework's external interface is the Python API (Module 1); the ROS 2 bridge
+> (Module 2) is one of potentially several consumer layers and is replaceable.
+> The technical implementation choice described below (OmniGraph nodes, not
+> rclpy executors) is unchanged.
 
 Two-sided topology, structurally embodied in the example (#131/#133):
 
@@ -184,6 +202,14 @@ Each module keeps pure functions at module level; every Isaac import (`omni`, `p
    disguises).
 
 Type annotations that need `pxr` types use `TYPE_CHECKING` string annotations only.
+
+> **Extended (2026-09-07, ADR-0023).** For Module 1 (`isaac_devkit`) files, the
+> prohibition is extended to ROS packages: module-top `import rclpy`,
+> `import rosidl_*`, and `isaacsim.ros2.*` are also prohibited. The
+> `sys.modules` assertion must additionally verify that `rclpy` and
+> `isaacsim.ros2` are absent after importing any `isaac_devkit` module.
+> Function-local `isaacsim.ros2.*` imports are acceptable only in files that
+> belong to Module 2 (`isaac_ros2`).
 
 ### 9. API contract (PRD A7, committed shapes)
 
@@ -442,7 +468,8 @@ the grill record: ADR-0018 + PRD.
 - ADRs: 0006 / 0008 / 0010 (superseded by this file), 0012 / 0013 (amended, update sections
   appended), 0009 (lifecycle pattern carried forward), 0011 (CI split — the 4-bucket
   allocation this test contract rides on), 0014 (stage taxonomy — `headless` for GPU CI,
-  orthogonal), 0016 (per-instance bring-up, unaffected).
+  orthogonal), 0016 (per-instance bring-up, unaffected), 0023 (Python as sole external
+  interface — annotates sections 1 / 3 / 6 / 8 above).
 
 ## Update (2026-08-28) -- superseded/amended by the 6.0.1 migration (isaac#247, isaac#248)
 
