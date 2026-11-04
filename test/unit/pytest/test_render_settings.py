@@ -13,8 +13,9 @@ fact about Kit 108 / Isaac Sim 6.0.1:
     write is silently dropped and the mode stays ``RealTimePathTracing``.
   * ``RealTimePathTracing`` (the 6.0 default, and what "RTX Real-Time" now
     means) is a ONE-sample-per-pixel path tracer that leans on NGX / DLSS ray
-    reconstruction to denoise. The headless container cannot create an NGX
-    context, so the annotator reads the raw single-sample buffer.
+    reconstruction to denoise. Until isaac#285 the container lacked the
+    ``ngx`` driver capability, so the annotator read the raw single-sample
+    buffer (since #285 NGX denoises it; isaac#294).
 
 The fix is the ``PathTracing`` mode -- the one that ACCUMULATES samples across
 renders -- authored per render product. These tests pin the pure half of that
@@ -127,8 +128,7 @@ def test_hosted_import_leaves_sys_modules_isaac_free():
 def test_render_mode_is_the_accumulating_one():
     """PathTracing accumulates across renders; the two alternatives cannot.
 
-    ``RealTimePathTracing`` is 1 spp + an NGX denoiser that headless cannot
-    create, and ``RaytracedLighting`` no longer exists on 6.0.1 (the write is
+    ``RealTimePathTracing`` is 1 spp + an NGX denoiser (no accumulation), and ``RaytracedLighting`` no longer exists on 6.0.1 (the write is
     silently rejected).
     """
     module = _load_module()
