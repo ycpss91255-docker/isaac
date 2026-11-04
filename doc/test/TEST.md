@@ -1,6 +1,6 @@
 # TEST.md
 
-**104 tests** total.
+**108 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -125,17 +125,21 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `fastdds.xml is baked at /isaac-sim/fastdds.xml and world-readable` | Fast DDS profile (UDPv4-only) shipped by this repo's Dockerfile, content sanity-checked for `useBuiltinTransports=false` |
 | `custom streaming kit experience baked at /isaac-sim/apps/ (issue #21 fix-B)` | The repo's custom streaming `.kit` experience file is baked into `/isaac-sim/apps/` so the stream stage launches it |
 
-## test/bats/smoke/isaac_smoke.bats (7)
+## test/bats/smoke/isaac_smoke.bats (11)
 
 | Test | Description |
 |------|-------------|
 | `isaac-sim launchers exist and are executable` | `/isaac-sim/runheadless.sh` and `/isaac-sim/runapp.sh` both `0755` |
-| `isaac-sim ships Python 3.11 in /isaac-sim/kit/python/bin/python3` | Isolated Python interpreter exists and reports `3.11` |
+| `isaac-sim ships Python 3.12 in /isaac-sim/kit/python/bin/python3` | Isolated Python interpreter exists and reports `3.12` |
 | `runtime user is host-aligned (not root, not isaac-sim default)` | Container user is the host-UID-aligned `USER_NAME`, not the image default `isaac-sim` (UID 1234) |
 | `runtime user is in isaac-sim group (can read /isaac-sim/* mode 0750)` | Group membership unlocks read/exec on Isaac Sim binaries |
 | `HOME is writable` | `${HOME}` is owned by the runtime user — required for cache / logs / Documents writes |
 | `bundled ROS 2 humble + jazzy libs are both readable` | `librmw_fastrtps_cpp.so` present under both `humble/lib/` and `jazzy/lib/` — image carries both distros; the headless / stream shim picks one via `ARG ROS_DISTRO` |
-| `bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.11)` | `rclpy/` Python bindings present under both distros; kit-side `import rclpy` resolves to whichever the bridge extension activates |
+| `bundled ROS 2 humble + jazzy rclpy are both readable (Python 3.12)` | `rclpy/` Python bindings present under both distros; kit-side `import rclpy` resolves to whichever the bridge extension activates |
+| `Isaac Lab targets the Isaac Sim release the image bundles` | Isaac Lab's `[tool.isaaclab.versions] isaacsim` (root `pyproject.toml`) names the same `X.Y.Z` as `/isaac-sim/VERSION` -- bumping `BASE_IMAGE` without `ISAACLAB_VERSION` (or the reverse) fails at build time, not at first Kit boot (isaac#295) |
+| `Isaac python torch is Isaac Lab's pinned CUDA 13 build` | The torch distribution on the Isaac python is exactly Isaac Lab's pinned version with `+cu130` (sm_120 kernels for the RTX 5090 runner); any other build means a later pip step overrode Isaac Lab's install (isaac#295) |
+| `no pip_prebundle package lost its __init__.py (isaac#288)` | No dangling `__init__.py` symlink under any `pip_prebundle` -- the 6.0.1 build left `packaging` dangling under `omni.services.pip_archive`, breaking matplotlib plots and the Newton experience |
+| `newton_usd_schemas resolves from the Isaac python site-packages (isaac#247)` | The module the bundled URDF importer imports at load comes from the Isaac python's own `site-packages` (Isaac Lab 3.0 GA installs it), so no `sys.path` shim into the excluded `isaacsim.pip.newton` prebundle is needed |
 
 ## test/bats/smoke/isaac_ros_env_wrapper.bats (10)
 
