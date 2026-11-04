@@ -104,6 +104,8 @@ import time
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Make the worktree's framework importable regardless of PYTHONPATH (the
 # committed env var may point at the MAIN checkout's framework, not this
 # worktree). framework/ is two levels up from src/script/.
@@ -508,7 +510,7 @@ def run(args):
     render = args.livestream > 0
     result = {
         "experiment": "sag-livestream",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "launcher": "isaaclab.app.AppLauncher",
         "livestream": args.livestream,
         "scene": args.scene,

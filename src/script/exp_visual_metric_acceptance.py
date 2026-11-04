@@ -66,6 +66,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Shared render helpers live next to this driver; make them importable however
 # the driver is invoked (as a script, or imported by another driver on a
 # PYTHONPATH that does not include src/script).
@@ -410,7 +412,7 @@ def run(args):
         "issue": "isaac#209",
         "parent": "isaac#205",
         "title": "visual + metric acceptance",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "scene": (
             "self-contained deterministic representative scene: producer non-black "
             "lit stage (dome + distant key + 12x12 checkerboard) + forklift-shaped "

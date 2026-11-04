@@ -28,6 +28,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # 3 boxes at distinct origins, distinct sizes -> easy to tell apart in USD.
 _BOXES = [
     {"name": "cb_a", "size": (0.20, 0.20, 0.20), "xyz": (0.30, 0.0, 0.0)},
@@ -65,7 +67,7 @@ def run(args):
 
     result = {
         "check": "A1/A2 multi-box <collision> import fidelity",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "authored_boxes": _BOXES,
         "error": None,
     }

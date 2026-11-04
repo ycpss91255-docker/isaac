@@ -29,6 +29,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Known authored values (distinct so any reorder/recompute is visible).
 _MASS = 7.5
 _IXX, _IYY, _IZZ = 0.021, 0.034, 0.047
@@ -76,7 +78,7 @@ def run(args):
 
     result = {
         "check": "A3 origin + A4 inertia import fidelity",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "authored": {
             "mass": _MASS, "ixx": _IXX, "iyy": _IYY, "izz": _IZZ,
             "collision_origin": list(_ORIGIN), "box": list(_BOX),
