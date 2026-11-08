@@ -174,7 +174,17 @@
 #   capture path would silently reintroduce the defect), and the rejected carb
 #   render-mode write may not come back. Pure -- file reads and a fake
 #   stage/prim, no Isaac import. Live count is now 349 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 349
+#
+#   isaac#295 (Isaac Sim 6.2.0 / Isaac Lab v3.0.0): adds 8 hosted unit tests.
+#   test_sim_version.py (7) pins isaac_devkit.sim_version.isaac_sim_version --
+#   the release read from /isaac-sim/VERSION (two real NGC formats plus a bare
+#   release, "unknown" for an absent or empty file, the default path) -- and a
+#   structural scan that no src/script/*.py or test/verify_*.py writes
+#   isaac_variant as a literal: 23 drivers said "6.0.1", which would have
+#   labelled every 6.2.0 re-validation result 6.0.1. test_import_safety.py
+#   gains the new module (+1). Pure -- tmp files and source reads. Live count
+#   is now 358 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 358
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

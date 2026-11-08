@@ -78,6 +78,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Minimal single-DOF prismatic lift. base_link is fixed to the world
 # (fix_base=True at conversion); lift_link is the loaded mass, free to slide
 # along +Z under a prismatic drive. High effort limit so the drive never
@@ -200,7 +202,7 @@ def run_sweep(args):
     app = SimulationApp({"headless": True})
 
     result = {
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "mass_kg": args.mass,
         "gravity": GRAVITY,
         "load_force_N": args.mass * GRAVITY,

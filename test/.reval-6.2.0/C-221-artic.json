@@ -1,0 +1,37 @@
+{
+  "issue": "isaac#197",
+  "adr": "ADR-0008 hybrid: standalone L2 kinematic + standalone L3 via maximal loop joint",
+  "isaac_variant": "6.2.0",
+  "warmup_steps": 90,
+  "motion_steps": 240,
+  "physics_dt": 0.016666666666666666,
+  "gravity": 9.81,
+  "anchor_speed_mps": 0.5,
+  "ramp_step_m": 0.008333333333333333,
+  "weld_offset_m": [
+    0.0,
+    0.0,
+    -0.6
+  ],
+  "masses_kg": [
+    1.0,
+    10.0,
+    100.0,
+    1000.0
+  ],
+  "variants": [
+    "artic"
+  ],
+  "metric": "per (variant, mass): static_give_norm_m / static_give_z_m (seam give under gravity hold), follow_ratio (dynamic +X travel / anchor +X travel = force transfer), max_give_norm_motion_m + max_lag_x_m (dynamic give during sweep), stable (no NaN, give < blow-up); boundary_give = ||D - (anchor + offset)||",
+  "expectation_5_1_baseline": "none committed -- first-run 6.0.1 characterization. Per ADR-0008 + PhysX #308: force TRANSFERS (follow_ratio ~1, anchor carries the dynamic side), the maximal fixed joint is COMPLIANT ('weak', nonzero give rising with load), system STABLE (no blow-up) at reasonable mass ratios -> hybrid usable but soft at the seam",
+  "drive_api": "physics tensor RigidBodyView.set_kinematic_targets (pos xyz + quat xyzw) per tick on the physics:kinematicEnabled anchor -> true PhysX kinematic target with solver velocity; SingleRigidPrim.get_world_pose reads the dynamic body back; connection is a UsdPhysics.FixedJoint (maximal-coordinate loop joint)",
+  "blowup_threshold_m": 5.0,
+  "artic_build_errors": {},
+  "lanes": [],
+  "force_transfer_ok": null,
+  "compliant_confirmed": null,
+  "give_rises_with_mass": {},
+  "stable_all": null,
+  "error": "Exception: Failed to set rigid body kinematic targets in backend",
+  "traceback": "Traceback (most recent call last):\n  File \"/home/yunchien/work/src/script/exp_l2_loop_joint_boundary.py\", line 367, in run\n    anchor_view[tag].set_kinematic_targets(target, wp_idx)\n  File \"/isaac-sim/extscache/omni.physics.tensors-110.4.4+110.4.0.lx64.r.cp312.u7f4/omni/physics/tensors/api.py\", line 3398, in set_kinematic_targets\n    raise Exception(\"Failed to set rigid body kinematic targets in backend\")\nException: Failed to set rigid body kinematic targets in backend\n"
+}

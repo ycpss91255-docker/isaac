@@ -30,6 +30,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 _DEG2RAD = math.pi / 180.0
 _REL_TOL = 1e-4
 
@@ -86,7 +88,7 @@ def run(args):
 
     result = {
         "issue": "isaac#189",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "joint_type": "revolute",
         "convention": "angular DriveAPI stores per-radian = deg_input * pi/180",
         "deg2rad": _DEG2RAD,

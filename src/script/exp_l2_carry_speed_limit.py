@@ -88,6 +88,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # Swept per-tick displacements (m/tick) and friction coefficients.
@@ -196,7 +198,7 @@ def run(args):
     result = {
         "issue": "isaac#217",
         "adr": "ADR-0008 L2 kinematic contract (clause 3: kinematic target, not teleport)",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "warmup_steps": args.warmup,
         "carry_steps": args.carry_steps,
         "physics_dt": args.dt,

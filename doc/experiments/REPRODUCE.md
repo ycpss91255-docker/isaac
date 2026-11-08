@@ -10,6 +10,26 @@ Isaac Lab 3.0. Each numeric driver writes its results as JSON to a mounted
 file is the source of truth). Acceptance = read the JSON back on the host and
 check the key numbers match.
 
+**Isaac Sim 6.2.0 re-run (isaac#295, 2026-11-04).** The image now builds on
+Isaac Sim 6.2.0 (NGC `6.2.0.1`) / Isaac Lab `v3.0.0`. Every driver in section 2
+was re-run with the commands below (plus `--repo-root /home/<user>/work` for
+`exp_revolute_gain_scaling.py`, which requires it) and the results are
+committed under `test/.reval-6.2.0/<acceptance>.json`. The 6.0.1 numbers in the
+tables still hold except two stiff-end shifts recorded in ADR-0021's 2026-11-04
+update: sag at k >= 1e5 rises slightly (0.791 -> 0.856 mm @ 1e5, 0.018 ->
+0.038 mm @ 1e6) and the position-limit settle moves from 0.26 to 1.32 mm past
+the bound. The `artic` variant of C-221 now ends in a catchable exception
+instead of SIGSEGV (ADR-0008 2026-11-04 update). Each result's
+`isaac_variant` is read from the image's `/isaac-sim/VERSION`.
+
+Note on D1 / D2: the expected numbers in the table come from the driver as
+first committed (`test/.prove-D1-l25-push.json`, `.prove-D2-l25-carry.json`).
+The current driver adds a velocity feed-forward and reports different
+back-off / lag values (e.g. back-off 3.02 / 2.53 / 0.815 / 0.253 mm for
+k = 1e4 / 1e5 / 1e6 / 1e7), recorded on 6.0.1 in `test/.l25-dynamic-push.json`
+/ `.l25-dynamic-carry.json` and reproduced exactly on 6.2.0. That is a driver
+change, not an Isaac Sim one.
+
 Driver source: `src/script/exp_*.py`. Container path convention: the repo root
 is mounted at `/home/<user>/work` (see README "Cache layout" / "Container
 user"), so a driver is `/home/<user>/work/src/script/<driver>.py` and outputs

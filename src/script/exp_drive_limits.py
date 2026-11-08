@@ -74,6 +74,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # ---- Fixtures ---------------------------------------------------------------
@@ -614,7 +616,7 @@ def run(args):
 
     result = {
         "issue": "isaac#188",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "mass_kg": args.mass,
         "gravity": GRAVITY,
         "load_force_N": args.mass * GRAVITY,
