@@ -144,6 +144,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # Stiffness sweep (N/m). k=1e4 is the soft end, k=1e7 the stiff end; the knee at
@@ -283,7 +285,7 @@ def _run_push(args, app):
         "mode": "push",
         "issue": "isaac#201 (L2.5 re-validation)",
         "actuator": "L2.5 = dynamic slider on high-stiffness prismatic X drive",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "warmup_steps": args.warmup,
         "sweep_steps": args.steps,
         "settle_steps": args.settle,
@@ -548,7 +550,7 @@ def _run_carry(args, app):
         "mode": "carry",
         "issue": "isaac#217/#218 (L2.5 re-validation)",
         "actuator": "L2.5 = dynamic platform on high-stiffness prismatic X drive",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "warmup_steps": args.warmup,
         "move_steps": args.steps,
         "settle_steps": args.settle,
@@ -989,7 +991,7 @@ def _run_viz(args, app):
         "mode": "viz",
         "issue": "isaac#201 (L2.5 push, rendered for human visual confirmation)",
         "actuator": "L2.5 = dynamic slider on high-stiffness prismatic X drive",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "render": True,
         "capture_recipe": (
             "mirror exp_visual_metric_acceptance.py (#209): histogram/auto-exposure "

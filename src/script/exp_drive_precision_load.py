@@ -81,6 +81,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Minimal single-DOF prismatic lift. base_link is fixed to the world
 # (fix_base=True at conversion); lift_link is a LIGHT platform (default 0.1 kg)
 # free to slide along +Z under a prismatic drive. Both links carry <collision>
@@ -310,7 +312,7 @@ def run_experiment(args):
     supported_mass = args.link_mass + args.payload_mass
 
     result = {
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "experiment": "drive_precision_under_external_contact_load",
         "issue": 184,
         "link_mass_kg": args.link_mass,

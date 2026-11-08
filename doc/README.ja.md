@@ -2,20 +2,20 @@
 
 **[English](../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
-NVIDIA Isaac Sim 6.0.1 Docker 開発環境。[`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（旧名 `ycpss91255-docker/template`）をベースに構築。
+NVIDIA Isaac Sim 6.2.0 Docker 開発環境。[`ycpss91255-docker/base`](https://github.com/ycpss91255-docker/base)（旧名 `ycpss91255-docker/template`）をベースに構築。
 
-イメージのスコープは Isaac Sim 本体に加え、同梱の ROS 2 bridge がコンテナ間通信できるための env 配線まで。NVIDIA Isaac Lab 3.0（`v3.0.0-beta2.patch1`）も scene-spawn backend（`sim_utils` spawner、`UrdfConverter`、`AppLauncher`；ADR-0018）として image に baked。下流のアプリケーションノード（CoreSAM、AGV bring-up）と Noetic 互換用の ROS 1 / ROS 2 bridge は隣接する docker folder に配置。
+イメージのスコープは Isaac Sim 本体に加え、同梱の ROS 2 bridge がコンテナ間通信できるための env 配線まで。NVIDIA Isaac Lab 3.0（`v3.0.0`）も scene-spawn backend（`sim_utils` spawner、`UrdfConverter`、`AppLauncher`；ADR-0018）として image に baked。下流のアプリケーションノード（CoreSAM、AGV bring-up）と Noetic 互換用の ROS 1 / ROS 2 bridge は隣接する docker folder に配置。
 
 本リポジトリは Isaac Sim ワークスペース（driver スクリプト、ADR、USD / URDF モデル）も [`src/`](../src/README.md) に同梱する。root の Dockerfile + base subtree がそのワークスペースを動かす開発環境。元々は `ycpss91255-research/isaac` と `ycpss91255-docker/isaac`（research が docker を submodule として包む構成）に分かれていたが、 [#78](https://github.com/ycpss91255-docker/isaac/issues/78) に従い本リポジトリへ統合した。
 
 ## 前提条件
 
-- NVIDIA driver `>= 580.95.05`（Isaac Sim 6.0.1 の最低要件；driver 610 で検証済み）
+- NVIDIA driver `>= 580`（Isaac Lab 3.0 は CUDA 13 版 PyTorch を導入；NVIDIA は Isaac Sim 6.2.0 を 595.58.03 で検証；本 repo は driver 610 で検証済み）
 - GPU `>= RTX 4080`（または同等）、VRAM `>= 16 GB`
 - Docker + nvidia-container-toolkit
 - NGC イメージ用に約 20 GB の空き領域；初回起動後にキャッシュがさらに 5–10 GB 増加
 
-NGC イメージ（`nvcr.io/nvidia/isaac-sim:6.0.1`）は公開取得可能、`docker login nvcr.io` 不要。
+NGC イメージ（`nvcr.io/nvidia/isaac-sim:6.2.0.1`、6.2.0 GA ビルド；`:6.2.0` を使わない理由は `Dockerfile` の `BASE_IMAGE` コメント参照）は公開取得可能、`docker login nvcr.io` 不要。
 
 ## Quick Start
 
@@ -39,9 +39,9 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 
 ## WebRTC livestream への接続
 
-Isaac Sim 6.0.1 は NVCF（`omni.services.livestream.nvcf`）livestream プロトコルを使用。デスクトップ client またはブラウザベースのビューアで接続：
+Isaac Sim 6.2.0 は NVCF（`omni.services.livestream.nvcf`）livestream プロトコルを使用。デスクトップ client またはブラウザベースのビューアで接続：
 
-1. [NVIDIA ドキュメント — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/manual_livestream_clients.html) から **Isaac Sim WebRTC Streaming Client** をダウンロード。NVIDIA ドキュメントがそこに記載する、お使いの Isaac Sim バージョンに対応した client バージョンを使用してください。
+1. [NVIDIA ドキュメント — manual livestream clients](https://docs.isaacsim.omniverse.nvidia.com/6.2.0/installation/manual_livestream_clients.html) から **Isaac Sim WebRTC Streaming Client** をダウンロード。NVIDIA ドキュメントがそこに記載する、お使いの Isaac Sim バージョンに対応した client バージョンを使用してください。
 2. `stream` 実行中、client を起動し Server: `<server-ip>` を入力（同一マシン: `localhost`、リモート: server の LAN IP）。**`:8011` などの port サフィックスを付けないこと** — client が signaling / data port を内部で管理しており、port を付けると誤った経路に入って黒画面になります。
 3. Connect をクリック。初回 shader compile に 1–3 分かかってから viewport が描画されます。
 
@@ -136,9 +136,9 @@ docker inspect ghcr.io/ycpss91255-docker/isaac-stream-source:<tag> \
 
 ## ROS 2 bridge（内蔵、build-time distro）
 
-Isaac Sim 6.0.1 は Humble と Jazzy 両方の内部 ROS 2 ライブラリを `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` に同梱しており（5.1 では `isaacsim.ros2.bridge/` に配置。6.0.1 で単一の bridge ext が `isaacsim.ros2.core` + `isaacsim.ros2.nodes` などに分割された）、両方とも kit 内蔵インタプリタと一致する Python 3.12 rclpy。**本イメージは build-time に distro を hard-bake する** — `setup.conf [build] arg_N=ROS_DISTRO=<value>` 経由で指定（デフォルト `humble`、CoreSAM 整合）。
+Isaac Sim 6.2.0 は Humble と Jazzy 両方の内部 ROS 2 ライブラリを `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` に同梱しており（5.1 では `isaacsim.ros2.bridge/` に配置。6.0 で単一の bridge ext が `isaacsim.ros2.core` + `isaacsim.ros2.nodes` などに分割された）、両方とも kit 内蔵インタプリタと一致する Python 3.12 rclpy。**本イメージは build-time に distro を hard-bake する** — `setup.conf [build] arg_N=ROS_DISTRO=<value>` 経由で指定（デフォルト `humble`、CoreSAM 整合）。
 
-bridge extension は base `IsaacDriver` が Kit BOOT 時に有効化する（`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args）。これは 6.0.1 で headless camera -> ROS 2 publish に必須（isaac#248）。driver パスでは追加の launch flag は不要。
+bridge extension は base `IsaacDriver` が Kit BOOT 時に有効化する（`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args）。これは Isaac Sim 6.x で headless camera -> ROS 2 publish に必須（isaac#248；6.2.0 で再検証：runtime 有効化は依然 app を終了させる）。driver パスでは追加の launch flag は不要。
 
 `setup.conf [environment]` で配線済みの env（distro-agnostic）：
 
@@ -242,7 +242,7 @@ just docker stop                      # 後片付け
 
 ## EULA
 
-`ACCEPT_EULA=Y` と `PRIVACY_CONSENT=Y` は `setup.conf [environment]` 経由で注入。注意：Isaac Sim 6.0.1 は privacy consent を `OMNI_ENV_PRIVACY_CONSENT` から読む（この名前は 5.1 で採用され、5.1 より前の版とは異なる）；現在設定している `PRIVACY_CONSENT=Y` は無害だが実際には作用しません。telemetry opt-in したい場合は正しい変数名を設定してください。
+`ACCEPT_EULA=Y` と `PRIVACY_CONSENT=Y` は `setup.conf [environment]` 経由で注入。注意：Isaac Sim 6.x は privacy consent を `OMNI_ENV_PRIVACY_CONSENT` から読む（この名前は 5.1 で採用され、5.1 より前の版とは異なる）；現在設定している `PRIVACY_CONSENT=Y` は無害だが実際には作用しません。telemetry opt-in したい場合は正しい変数名を設定してください。
 
 ## Smoke Tests
 

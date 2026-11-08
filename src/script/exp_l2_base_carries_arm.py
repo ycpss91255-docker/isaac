@@ -111,6 +111,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # revolute_maximal sweep: angular drive stiffness (stored units) x base peak accel.
@@ -653,7 +655,7 @@ def run(args):
     result = {
         "issue": "isaac#228",
         "adr": "ADR-0008 L2 kinematic base carries an arm (rule 4: no kinematic articulation link)",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "topology": args.topology,
         "warmup_steps": args.warmup,
         "physics_dt": args.dt,

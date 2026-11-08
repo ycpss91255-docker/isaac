@@ -94,6 +94,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Minimal single-DOF revolute fixture. base_link is fixed to the world
 # (fix_base=True at conversion); arm_link swings about a VERTICAL (+Z) axis so
 # gravity makes zero torque about it -> no external load (see module docstring).
@@ -417,7 +419,7 @@ def run(args):
 
     result = {
         "issue": "isaac#180",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "joint_type": "revolute",
         "axis": "+Z (vertical, gravity-parallel -> zero axis torque, isolated)",
         "axis_inertia_izz": _AXIS_INERTIA,

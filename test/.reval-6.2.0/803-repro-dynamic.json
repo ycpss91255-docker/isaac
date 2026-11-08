@@ -1,0 +1,19 @@
+{
+  "issue": "isaac#197",
+  "purpose": "minimal repro: articulation vs plain-dynamic welded to kinematic anchor by a maximal loop FixedJoint on 6.0.1",
+  "isaac_variant": "6.2.0",
+  "body_kind": "dynamic",
+  "lanes": 1,
+  "masses_kg": [
+    10.0
+  ],
+  "reader": "singleprim",
+  "drive_steps": 2,
+  "readback": "both",
+  "topology": "standalone kinematic anchor + PLAIN DYNAMIC rigid body (no ArticulationRootAPI) + maximal loop FixedJoint anchor->body",
+  "crashed": false,
+  "stage_reached": "driven",
+  "readers_built": 1,
+  "step_ok": true,
+  "error": null
+}

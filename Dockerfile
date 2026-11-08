@@ -1,4 +1,4 @@
-# Dockerfile - Isaac Sim 6.0.1 dev container (rebased onto base v0.28.0
+# Dockerfile - Isaac Sim 6.2.0 dev container (rebased onto base v0.28.0
 # Dockerfile.example baseline; isaac-specific additions layered on top).
 #
 # Upstream baseline: .base/dockerfile/Dockerfile.example (subtree pinned
@@ -35,7 +35,16 @@
 # `devel-base` / `devel-test` here). They will be removed from the
 # blocklist in a future major.
 
-ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:6.0.1"
+# Isaac Sim 6.2.0 GA, NGC tag 6.2.0.1 (isaac#295). NGC carries two tags for
+# 6.2.0: `6.2.0` (built 2026-10-08, /isaac-sim/VERSION 6.2.0-rc.14) and
+# `6.2.0.1` (built 2026-10-14, the GA release day, 6.2.0-rc.15). Same
+# Dockerfile recipe; across all 52,988 .so/.py files the only differences
+# are the URDF importer's UDIM material XML-declaration parser
+# (material_reconstruction.py, on our model_import path), the unused UCX
+# bridge, the version plugin and one test file. Every physics, RTX,
+# replicator and ROS 2 binary is byte-identical, so evidence gathered on
+# `6.2.0` (e.g. the IsaacSim#803 repro) holds for `6.2.0.1`.
+ARG BASE_IMAGE="nvcr.io/nvidia/isaac-sim:6.2.0.1"
 ARG TEST_TOOLS_IMAGE="test-tools:local"
 
 ############################## sys ##############################
@@ -50,7 +59,7 @@ ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
 ARG DEBIAN_FRONTEND=noninteractive
 
-# [isaac] Isaac Sim 6.0.1 base image ships with a non-root default user
+# [isaac] The Isaac Sim 6.x base image ships with a non-root default user
 # (isaac-sim, UID 1234); switch to root so the system-setup steps below
 # (apt, locale-gen, useradd) have permission. devel stage drops back to
 # USER_NAME at the end. DL3002 false-positive is acknowledged upstream
@@ -143,97 +152,67 @@ ARG CONFIG_SRC="config"
 # the UrdfConverter (model_import), and AppLauncher + SimulationContext
 # (driver). Installed against the bundled Isaac Sim binary via the
 # documented _isaac_sim symlink, into /isaac-sim's Python, so every stage
-# deriving from devel (headless / stream / devel-test) has it. Pinned to a
-# 2.3 tag (built on Isaac Sim 5.1, Python 3.12 -- NVIDIA's recommended
-# pairing). Kept early in devel so day-to-day config / app COPY changes
-# below do not invalidate this large layer. The framework (isaac_devkit)
-# stays mounted, not baked (ADR-0017 section 2: base tools baked + pinned,
-# framework mounted). Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab
-# pairing for Isaac Sim 6.0.0 / 6.0.1 (Isaac Lab 3.0 Beta 2, Python 3.12).
+# deriving from devel (headless / stream / devel-test) has it. Kept early
+# in devel so day-to-day config / app COPY changes below do not invalidate
+# this large layer. The framework (isaac_devkit) stays mounted, not baked
+# (ADR-0017 section 2: base tools baked + pinned, framework mounted).
+#
+# Pinned to v3.0.0 (GA) -- the release NVIDIA pairs with Isaac Sim 6.2
+# ("This release targets Isaac Sim 6.2, Python 3.12, PyTorch 2.11 with
+# CUDA 13.0"; its pyproject pins isaacsim = "6.2.0.0"). Bumped from
+# v3.0.0-beta2.patch1 (the 6.0.1 pairing) in isaac#295.
 #
 # RL learning frameworks (rl_games / rsl_rl / sb3 / skrl / robomimic) are
-# NOT installed yet (`--install none` below): the current product is
-# single-scene + ROS 2 service, no reinforcement learning. They are
-# DEFERRED, not excluded -- parallel-environment / RL-style work is planned
-# later (the "C" / InteractiveScene direction in ADR-0018). When that
-# lands, replace the `--install none` line with the full install (the
-# cmake / build-essential that robomimic needs are already apt-installed
-# below):
+# NOT installed yet (`--install none` below; Isaac Lab 3.0 treats `none`
+# as the old name for `core`): the current product is single-scene + ROS 2
+# service, no reinforcement learning. They are DEFERRED, not excluded --
+# parallel-environment / RL-style work is planned later (the "C" /
+# InteractiveScene direction in ADR-0018). When that lands, replace the
+# `--install none` line with the full install:
 #
 #     /opt/IsaacLab/isaaclab.sh --install all && \
 #
 # or install only the frameworks you need, e.g.:
 #
-#     /opt/IsaacLab/isaaclab.sh --install rl_games rsl_rl sb3 skrl && \
+#     /opt/IsaacLab/isaaclab.sh --install rl[rsl-rl],rl[skrl] && \
 #
-# Pinned to v3.0.0-beta2.patch1 -- NVIDIA's Isaac Lab pairing for Isaac
-# Sim 6.0.1 (Isaac Lab 3.0 Beta 2; IsaacSim#655 GA + IsaacLab compat
-# matrix). Bumped from the 5.1-line v2.3.2 as part of the 6.0.1 upgrade.
+# PyTorch: Isaac Lab v3.0.0's installer owns the torch install. It
+# installs the pinned torch==2.11.0 / torchvision==0.26.0 from the cu130
+# index (cu130 wheels carry sm_120 kernels for the RTX 5090 runner; CUDA
+# 13 needs driver >= 580, the runner has 610), repoints Isaac Sim's
+# deprecated omni.isaac.ml_archive torch at the installed copy so no
+# launch path can load the old one, and aborts the install if any pip
+# step left a dangling pip_prebundle __init__.py (nvbugs 6343978). The
+# 6.0.1 build had to pre-install torch 2.11.0+cu128 itself (beta2's
+# installer let an older nccl without ncclCommShrink win); that step is
+# gone -- a pre-installed cu128 torch would just be uninstalled and
+# replaced by the cu130 one. The post-install check below asserts the
+# torch that ended up on the path is the CUDA 13 build.
 #
-# [round 2 -- torch] Isaac Sim 6.0.1 DEPRECATED its bundled PyTorch: the
-# 2.11.0+cu128 wheel now lives under /isaac-sim/extsDeprecated/
-# omni.isaac.ml_archive/pip_prebundle and is NOT on python.sh's default
-# sys.path (Isaac Sim now prints "pip install torch" and expects a
-# USER-installed torch). Isaac Lab pulls torch hard, so leaving install
-# resolution to isaaclab.sh let it drag in a torch whose bundled
-# nvidia-nccl-cu12 predates ncclCommShrink (added in NCCL 2.28); the
-# deprecated 2.11 libtorch_cuda.so then failed to load with
-# "undefined symbol: ncclCommShrink" and Kit boot aborted with
-# "PyTorch (torch) dependency is not installed/enabled" (round-1 GPU run:
-# 29/31 integration tests down from this single cause). Fix: install one
-# canonical torch (2.11.0+cu128, matching the deprecated bundle and Isaac
-# Lab 3.0's `torch>=2.10` + download.pytorch.org/whl/cu128 pin) into
-# /isaac-sim's python BEFORE isaaclab.sh runs (RUN below), so the nccl
-# 2.28.9 that ships with that wheel is the one on the path. cu128 wheels
-# carry sm_120 (Blackwell / RTX 5090) kernels -- verified
-# torch.cuda.get_arch_list() includes sm_120 and a GPU matmul runs.
+# isaac#288 (dangling pip_prebundle symlinks): on 6.0.1 the beta2 install
+# deleted omni.isaac.core_archive's prebundled `packaging`, which
+# omni.services.pip_archive links into -> 12 dangling links, matplotlib
+# plots and the Newton experience broke. v3.0.0 filters pip_prebundle
+# paths out of PYTHONPATH during every pip operation and fails the build
+# on a new dangling __init__.py. The RUN after the xacro install below
+# re-asserts it over every pip step in this file, not just Isaac Lab's.
 #
-# NOTE (URDF importer, deferred to a later round): the 5.1 line needed a
-# boot-time experience pin ("isaacsim.asset.importer.urdf-2.4.31", ADR-0020
-# decision 4 / #177) because 5.1 bundled the older 2.4.30 importer that
-# lacked set_merge_fixed_ignore_inertia(). Isaac Sim 6.0.1 instead bundles
-# isaacsim.asset.importer.urdf-3.11.2, and Isaac Lab 3.0's own
-# isaaclab.python.kit experience targets that line -- so the 2.4.31 pin in
-# framework/isaac_devkit/model_import.py (_simulation_app_kwargs) is now
-# stale. It is left as-is here because it does NOT block torch import / Kit
-# boot; the URDF-import path is revisited in a dedicated round.
-ARG ISAACLAB_VERSION="v3.0.0-beta2.patch1"
-# Two build-env quirks are worked around here:
-#   1. isaaclab.sh runs `set -e` then `tabs 4` at the top; in a docker
-#      build (no TTY, no TERM) `tabs` fails with "'ansi+tabs': unknown
-#      terminal type" and set -e kills the script before install. TERM=xterm
-#      + ncurses-term make the terminfo lookup resolve.
-#   2. A core isaaclab dependency (flatdict 4.0.1) ships only an sdist with
-#      a legacy setup.py that does `from pkg_resources import ...`. pip's
-#      build isolation installs the latest setuptools, which removed
-#      pkg_resources (>= 81), so the wheel build dies with
-#      "No module named 'pkg_resources'" and the core `isaaclab` package
-#      never installs (`pip show isaaclab` then fails the build). PIP_CONSTRAINT
-#      pins setuptools < 80 (still ships pkg_resources) for every install AND
-#      the isolated build envs (pip >= 22.1 applies constraints to build deps).
-# [isaac round 2] Install the canonical PyTorch FIRST (see the torch note
-# above). Isaac Sim 6.0.1 no longer ships an importable torch on the
-# default path, and Isaac Lab depends on it hard. Pinning torch==2.11.0
-# from the cu128 index here -- before isaaclab.sh --install -- makes
-# isaaclab.sh see `torch>=2.10` already satisfied and leaves the matching
-# nvidia-nccl-cu12 2.28.9 (which HAS ncclCommShrink) as the one on the
-# path, avoiding the round-1 "undefined symbol: ncclCommShrink" boot
-# abort. cu128 wheels include sm_120 (RTX 5090) kernels. Baked in `devel`
-# so every derived stage (headless / stream / devel-test) inherits it.
-RUN /isaac-sim/python.sh -m pip install --no-cache-dir \
-        "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128 && \
-    /isaac-sim/python.sh -c "import torch; assert torch.cuda.is_available() is not None; print('torch', torch.__version__)"
-
+# URDF importer: Isaac Sim 6.2.0 bundles isaacsim.asset.importer.urdf
+# 3.11.12 (6.0.1: 3.11.2), and Isaac Lab 3.0's isaaclab.python.kit does not
+# pin it. The 2.4.31 experience pin in
+# framework/isaac_devkit/model_import.py (_simulation_app_kwargs) is a 5.1
+# leftover that is now only a docstring; it does not block anything.
+ARG ISAACLAB_VERSION="v3.0.0"
+# cmake / build-essential are what isaaclab.sh would otherwise apt-install
+# itself (it skips that when cmake is already present).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git cmake build-essential ncurses-term && \
+    apt-get install -y --no-install-recommends git cmake build-essential && \
     git clone --depth 1 --branch "${ISAACLAB_VERSION}" \
         https://github.com/isaac-sim/IsaacLab.git /opt/IsaacLab && \
     ln -s /isaac-sim /opt/IsaacLab/_isaac_sim && \
-    printf 'setuptools<80\n' > /tmp/pip-constraint.txt && \
-    TERM=xterm PIP_CONSTRAINT=/tmp/pip-constraint.txt \
-        /opt/IsaacLab/isaaclab.sh --install none && \
-    rm -f /tmp/pip-constraint.txt && \
+    /opt/IsaacLab/isaaclab.sh --install none && \
     /isaac-sim/python.sh -m pip show isaaclab && \
+    /isaac-sim/python.sh -c "import torch; v = torch.__version__; assert v.endswith('+cu130'), v; print('torch', v)" && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -244,6 +223,18 @@ RUN apt-get update && \
 # Installed into the Isaac python so the offline commit step
 # (/isaac-sim/python.sh -m isaac_devkit.model_import) can import it.
 RUN /isaac-sim/python.sh -m pip install --no-cache-dir xacro
+
+# [isaac#288] Fail the build if any pip step above left a pip_prebundle
+# package without its __init__.py. Isaac Sim shares prebundled packages
+# between extensions as symlink farms; a pip install that removes the copy
+# others link into breaks those extensions at runtime (6.0.1: `packaging`
+# under omni.services.pip_archive -> matplotlib + the Newton experience).
+RUN dangling="$(find /isaac-sim -xtype l -name '__init__.py' -path '*pip_prebundle*')" && \
+    if [ -n "${dangling}" ]; then \
+        echo "dangling pip_prebundle package(s):" >&2; \
+        echo "${dangling}" >&2; \
+        exit 1; \
+    fi
 
 # Add your application-specific packages here
 # RUN apt-get update && \

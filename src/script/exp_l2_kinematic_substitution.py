@@ -65,6 +65,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # (name, link_class, kind, dims). dims: box -> (sx,sy,sz); cylinder -> (radius,height).
@@ -220,7 +222,7 @@ def run(args):
     result = {
         "issue": "isaac#193",
         "adr": "ADR-0008 L2 kinematic contract",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "steps": args.steps,
         "physics_dt": args.dt,
         "gravity": GRAVITY,

@@ -232,3 +232,17 @@ The L2.5 / L3 drive physics was empirically re-run on Isaac Sim 6.0.1 / Isaac La
 - **Drive constraints (isaac#188):** effort clamp (holds/stalls at m*g), velocity clamp (70.3 -> 0.303 m/s), position limit (clamps at bound), and solver position-iteration count vs precision (near-flat, droop set by the PD `m*g/k` not iterations) -- all verified empirically for the first time.
 
 Isaac Lab 3.0's drive changes did not shift the steady-state drive behaviour. See ADR-0008's 2026-08-31 update for the L2-kinematic side and the `set_world_pose` vs `set_kinematic_targets` finding.
+
+## Update (2026-11-04) -- re-validated on Isaac Sim 6.2.0; two small quantitative shifts (isaac#295)
+
+Re-run on Isaac Sim 6.2.0 (NGC `6.2.0.1`) / Isaac Lab `v3.0.0` (driver 610) with the same drivers and arguments; results under `test/.reval-6.2.0/`, compared leaf by leaf against the committed 6.0.1 JSONs (tolerance 5% relative or 1e-6 absolute). The qualitative behaviour holds everywhere and no boolean acceptance flag flips:
+
+- **L2.5 dynamic interaction (D1 push / D2 carry):** identical to the 6.0.1 run of the current (feed-forward) driver on all 72 / 73 leaves.
+- **`*pi/180` gain scaling (isaac#189):** 61/61 leaves identical.
+- **Trajectory tracking (isaac#216):** RMS / max tracking error within 8%; the only larger relative changes are at the float32 floor (step overshoot -6e-8 -> 1.8e-6 rad).
+- **Multi-joint sag (isaac#226):** per-link sag within tolerance; held-joint residual after a neighbour step shrinks 0.0115 -> 0.0023 mm.
+- **Sag sweep (isaac#185) -- shift 1:** droop at the soft end is unchanged (19.40 -> 19.43 mm @ k=5000, 9.59 -> 9.63 mm @ k=1e4) but rises at the stiff end (0.791 -> 0.856 mm @ 1e5, 0.076 -> 0.118 mm @ 5e5, 0.018 -> 0.038 mm @ 1e6), i.e. closer to `m*g/k` than 6.0.1 was. Still monotone in k; tens of microns in absolute terms.
+- **Position limit (isaac#188/#191) -- shift 2:** a stiff drive commanded 1.5 m past the upper limit still clamps at the limit, but settles 1.32 mm past it instead of 0.26 mm. Effort and velocity clamps unchanged in behaviour (effort-clamped droop 0.791 -> 0.856 mm follows shift 1).
+- **Precision under contact load (isaac#184):** L2.5 error 0.919 -> 0.992 mm; payload gap / drift move by under 0.4 mm.
+
+Neither shift changes a physics-level decision in this ADR; anything that relies on sub-0.1 mm stiff-drive sag or sub-mm limit penetration should re-measure on 6.2.0.

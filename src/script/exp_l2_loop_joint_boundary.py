@@ -89,6 +89,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # Payload masses swept (kg) -- the mass-ratio stress (heavier => harder constraint load).
@@ -250,7 +252,7 @@ def run(args):
     result = {
         "issue": "isaac#197",
         "adr": "ADR-0008 hybrid: standalone L2 kinematic + standalone L3 via maximal loop joint",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "warmup_steps": args.warmup,
         "motion_steps": args.motion_steps,
         "physics_dt": args.dt,

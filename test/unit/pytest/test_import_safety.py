@@ -38,6 +38,7 @@ _DEVKIT_MODULES = (
     "isaac_devkit.ros_io",
     "isaac_devkit.scene",
     "isaac_devkit.driver",
+    "isaac_devkit.sim_version",
 )
 
 

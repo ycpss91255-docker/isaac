@@ -75,6 +75,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Serial vertical prismatic stack. base_link is fixed to the world
 # (fix_base=True at conversion). Each link_i is a moving mass free to slide
 # along +Z relative to its parent under an independent prismatic drive. High
@@ -233,7 +235,7 @@ def run_experiment(args):
     supported = [sum(masses[j:]) for j in range(n)]
 
     result = {
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "experiment": "multi_joint_coupling",
         "masses_kg": masses,
         "num_joints": n,

@@ -1,0 +1,20 @@
+{
+  "issue": "isaac#197",
+  "purpose": "minimal repro: articulation vs plain-dynamic welded to kinematic anchor by a maximal loop FixedJoint on 6.0.1",
+  "isaac_variant": "6.2.0",
+  "body_kind": "artic",
+  "lanes": 1,
+  "masses_kg": [
+    10.0
+  ],
+  "reader": "singleprim",
+  "drive_steps": 2,
+  "readback": "both",
+  "topology": "standalone kinematic anchor + standalone floating articulation (ArticulationRootAPI base + child + internal fixed joint) + maximal loop FixedJoint anchor->base",
+  "crashed": false,
+  "stage_reached": "anchor_rigid_body_views",
+  "readers_built": null,
+  "step_ok": null,
+  "error": "Exception: Failed to get rigid body velocities from backend",
+  "traceback": "Traceback (most recent call last):\n  File \"/home/yunchien/work/src/script/repro_artic_kinematic_loopjoint_sigsegv.py\", line 283, in run\n    r = SingleRigidPrim(body_path)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/isaac-sim/extsDeprecated/isaacsim.core.prims/isaacsim/core/prims/impl/single_rigid_prim.py\", line 121, in __init__\n    self._rigid_prim_view = RigidPrim(\n                            ^^^^^^^^^^\n  File \"/isaac-sim/extsDeprecated/isaacsim.core.prims/isaacsim/core/prims/impl/rigid_prim.py\", line 202, in __init__\n    RigidPrim._on_physics_ready(self, None)\n  File \"/isaac-sim/extsDeprecated/isaacsim.core.prims/isaacsim/core/prims/impl/rigid_prim.py\", line 2028, in _on_physics_ready\n    linear_velocities = self.get_linear_velocities()\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/isaac-sim/extsDeprecated/isaacsim.core.prims/isaacsim/core/prims/impl/rigid_prim.py\", line 493, in get_linear_velocities\n    linear_velocities = self._physics_view.get_velocities()\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/isaac-sim/extscache/omni.physics.tensors-110.4.4+110.4.0.lx64.r.cp312.u7f4/omni/physics/tensors/api.py\", line 3337, in get_velocities\n    raise Exception(\"Failed to get rigid body velocities from backend\")\nException: Failed to get rigid body velocities from backend\n"
+}
