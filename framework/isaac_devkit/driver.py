@@ -124,7 +124,7 @@ def boot_extension_kit_args(extensions) -> list:
     the underlying Kit process, so appending ``--enable <ext>`` pairs
     before constructing the launcher makes Kit enable those extensions
     during boot. See ``IsaacDriver.BOOT_EXTENSIONS`` for why the ROS 2
-    bridge must load at boot under Isaac Sim 6.0.1 (isaac#248).
+    bridge must load at boot under Isaac Sim 6.0.1 and 6.2.0 (isaac#248).
 
     Pure (host-runnable): returns the flat argv list; the caller splices
     it into ``sys.argv``. Empty / falsy input yields ``[]`` (no-op).
@@ -205,7 +205,8 @@ class IsaacDriver:
     SCENE: str = ""
 
     # Extensions enabled at Kit BOOT (via ``--enable`` kit args) rather
-    # than at runtime. Isaac Sim 6.0.1 regression (isaac#248): calling
+    # than at runtime. Isaac Sim 6.x regression (isaac#248; first seen on
+    # 6.0.1, re-checked and still present on 6.2.0 in isaac#295): calling
     # ``isaacsim.core.utils.extensions.enable_extension("isaacsim.ros2.bridge")``
     # AFTER boot, while running on the Isaac Lab ``AppLauncher``
     # (``isaaclab.python.headless.rendering.kit`` experience, headless +
@@ -248,7 +249,7 @@ class IsaacDriver:
         # Enable the boot-time extensions (ros2.bridge et al.) via Kit
         # ``--enable`` args, which AppLauncher forwards from leftover
         # sys.argv to the Kit process it constructs. This must happen at
-        # boot, not at runtime, under Isaac Sim 6.0.1 (isaac#248 -- see
+        # boot, not at runtime, under Isaac Sim 6.x (isaac#248 -- see
         # BOOT_EXTENSIONS). AppLauncher reads sys.argv only during
         # construction, so restore it immediately afterwards to avoid
         # leaking the flags to anything else parsing argv.

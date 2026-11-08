@@ -138,7 +138,7 @@ Required: an NVIDIA GPU runtime (`--gpus all`) for NVENC frame encoding, `--netw
 
 Isaac Sim 6.2.0 ships internal ROS 2 libraries for both Humble and Jazzy under `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` (in 5.1 this lived under `isaacsim.ros2.bridge/`; 6.0 split the monolithic bridge ext into `isaacsim.ros2.core` + `isaacsim.ros2.nodes` etc.), both with Python 3.12 rclpy matching kit's embedded interpreter. **This image hard-bakes the distro at build time** via `setup.conf [build] arg_N=ROS_DISTRO=<value>` (default `humble`, CoreSAM-aligned).
 
-The bridge extension is enabled at Kit boot by the base `IsaacDriver` (`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args), which is required for headless camera -> ROS 2 publish under 6.0.1 (isaac#248). No additional launch flag is needed on the driver path.
+The bridge extension is enabled at Kit boot by the base `IsaacDriver` (`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args), which is required for headless camera -> ROS 2 publish under Isaac Sim 6.x (isaac#248; re-checked on 6.2.0: a runtime enable still closes the app). No additional launch flag is needed on the driver path.
 
 Env wiring shipped in `setup.conf [environment]` (distro-agnostic):
 

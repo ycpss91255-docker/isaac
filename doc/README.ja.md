@@ -138,7 +138,7 @@ docker inspect ghcr.io/ycpss91255-docker/isaac-stream-source:<tag> \
 
 Isaac Sim 6.2.0 は Humble と Jazzy 両方の内部 ROS 2 ライブラリを `/isaac-sim/exts/isaacsim.ros2.core/{humble,jazzy}/` に同梱しており（5.1 では `isaacsim.ros2.bridge/` に配置。6.0 で単一の bridge ext が `isaacsim.ros2.core` + `isaacsim.ros2.nodes` などに分割された）、両方とも kit 内蔵インタプリタと一致する Python 3.12 rclpy。**本イメージは build-time に distro を hard-bake する** — `setup.conf [build] arg_N=ROS_DISTRO=<value>` 経由で指定（デフォルト `humble`、CoreSAM 整合）。
 
-bridge extension は base `IsaacDriver` が Kit BOOT 時に有効化する（`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args）。これは 6.0.1 で headless camera -> ROS 2 publish に必須（isaac#248）。driver パスでは追加の launch flag は不要。
+bridge extension は base `IsaacDriver` が Kit BOOT 時に有効化する（`BOOT_EXTENSIONS` -> `--enable isaacsim.ros2.bridge` kit args）。これは Isaac Sim 6.x で headless camera -> ROS 2 publish に必須（isaac#248；6.2.0 で再検証：runtime 有効化は依然 app を終了させる）。driver パスでは追加の launch flag は不要。
 
 `setup.conf [environment]` で配線済みの env（distro-agnostic）：
 
