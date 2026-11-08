@@ -37,6 +37,9 @@ setup() {
   # INSTANCE_SUFFIX (base#666); the viewer suffix is now derived from the
   # resolved PROJECT_NAME (empty when it equals ${DOCKER_HUB_USER}-${IMAGE_NAME}).
   unset PROJECT_NAME
+  # The per-run stream container override (isaac#291) is opt-in; keep it out
+  # of every test that does not set it explicitly.
+  unset ISAAC_STREAM_CONTAINER
   mkdir -p "${REPO}/config"
   # Identity vars live in .env.generated (base A2 model), NOT .env -- the
   # hook must source .env.generated to resolve USER_NAME / IMAGE_NAME /
@@ -166,6 +169,22 @@ teardown() {
   # `run ...; [ status -ne 0 ]` (effective under bats set -e; a bare
   # `! grep` is exempt, SC2314) -- and LAST, since `run` clobbers $output.
   run grep -qE 'docker cp .*alice-isaac-stream-demo:/etc/host.yaml' <<< "${output}"
+  [ "$status" -ne 0 ]
+}
+
+@test "post-run: ISAAC_STREAM_CONTAINER retargets the Isaac cp (per-run smoke name, isaac#291)" {
+  # The nightly smoke renames its own stream container per run so it cannot
+  # collide with a co-hosted stack on the base-fixed name; the hook must then
+  # copy host.yaml + the port env file into THAT container, not the fixed
+  # name (which may be someone else's container, or none).
+  printf 'network:\n  public_ip: "127.0.0.1"\nlivestream:\n  ports:\n    signal: 49291\n' \
+    > "${REPO}/config/host.yaml"
+  ISAAC_STREAM_CONTAINER=alice-isaac-stream-isaac-smoke-7-1 \
+    run --separate-stderr "${HOOK}" -t stream -d
+  [ "$status" -eq 0 ]
+  echo "${output}" | grep -qE 'docker cp .* alice-isaac-stream-isaac-smoke-7-1:/etc/host.yaml'
+  echo "${output}" | grep -qE 'docker cp .* alice-isaac-stream-isaac-smoke-7-1:/etc/isaac/livestream-ports.env'
+  run grep -qE 'docker cp .* alice-isaac-stream:/' <<< "${output}"
   [ "$status" -ne 0 ]
 }
 
