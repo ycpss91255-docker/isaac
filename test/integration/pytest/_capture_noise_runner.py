@@ -6,8 +6,8 @@ surface is what makes the speckle visible -- a nearly empty scene hides it),
 and captures the SAME static scene twice through the SAME render product:
 
   1. as replicator creates it -- the Isaac Sim 6.0 default RealTimePathTracing,
-     one path-traced sample per pixel with an NGX denoiser the headless
-     container cannot create;
+     one path-traced sample per pixel denoised by NGX (available since
+     isaac#285);
   2. after ``viz_render.apply_converged_render_settings`` authors the
      converged-still recipe on the RenderProduct prim.
 
