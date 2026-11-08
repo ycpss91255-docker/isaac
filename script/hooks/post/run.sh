@@ -70,8 +70,11 @@ else
   _viewer_suffix=""
 fi
 # Isaac stream container: base-fixed name (compose.yaml container_name, no
-# suffix). Viewer: isaac-owned, per-project.
-isaac_container="${USER_NAME}-${IMAGE_NAME}-stream"
+# suffix) unless the caller renamed it and says so via ISAAC_STREAM_CONTAINER
+# (the nightly smoke gives its stream container a per-run name so it cannot
+# collide with a co-hosted stack on the fixed one, isaac#291). Viewer:
+# isaac-owned, per-project.
+isaac_container="${ISAAC_STREAM_CONTAINER:-${USER_NAME}-${IMAGE_NAME}-stream}"
 wv_container="${USER_NAME}-${IMAGE_NAME}-owv${_viewer_suffix}"
 wv_image="${DOCKER_HUB_USER:-local}/omniverse_web_viewer:runtime"
 host_yaml="${repo_root}/config/host.yaml"

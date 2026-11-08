@@ -140,6 +140,22 @@ LOG
   [ "${output}" = "9" ]
 }
 
+@test "drop_line: Kit 110 'Client disconnected from WebRTC server' after anchor -> rc 0 (isaac#291)" {
+  # Kit 110 (Isaac Sim 6.x) no longer logs NVST_CCE_DISCONNECTED or
+  # per-stream stops; its only peer-drop line is this one (captured on the
+  # GPU host ~15 s after a real browser peer went away). Without it in the
+  # default regex a dropped client would pass the dwell.
+  cat > "${LOG}" <<'LOG'
+[Info] [omni.kit.livestream.app.plugin] Started primary stream server on signal port 49291 and stream port 47291
+[Info] [omni.kit.livestream.webrtc.plugin] Processing 12 signaling headers
+[Info] [omni.kit.livestream.webrtc.plugin] Client connected to WebRTC server
+[Info] [omni.kit.livestream.webrtc.plugin] Client disconnected from WebRTC server
+LOG
+  run --separate-stderr smoke_drop_line "${LOG}" 3
+  [ "$status" -eq 0 ]
+  [ "${output}" = "4" ]
+}
+
 @test "drop_line: a drop BEFORE the anchor is ignored (stale prior session)" {
   # A previous client's teardown must not fail this run's dwell.
   printf '[carb] onClientEventRaised: NVST_CCE_DISCONNECTED\n' > "${LOG}"

@@ -2,8 +2,9 @@ name: Stream Smoke (GPU)
 
 # Tier A producer-side smoke (isaac#172): boot the stream stage on a
 # self-hosted GPU runner and assert Isaac's WebRTC livestream actually
-# serves a client -- a browser-free client attaches, the stream-start
-# sequence is asserted from the kit log, and the connection is held for a
+# serves a client -- a headless-Chromium WebRTC peer attaches (no frame
+# assertion; that is Tier B), the stream-start sequence is asserted from the
+# kit log, and the connection is held for a
 # dwell window that fails if Kit dies or the streams stop (isaac#233;
 # before that this only checked the signaling port, so a Kit that died on
 # first client attach passed green). Hosted runners have no GPU, so this
@@ -79,6 +80,13 @@ jobs:
           # .env.generated. base self-test.yaml convention -- run_id +
           # run_attempt (stable across a job's steps, unique per re-run).
           SMOKE_PROJECT: isaac-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          # Every SMOKE_PROJECT above shares this prefix, and the concurrency
+          # group keeps a single smoke live, so any OTHER project under it is
+          # a previous run whose teardown never ran (cancelled / SIGKILLed
+          # job). The script removes those before bring-up so a leftover Kit
+          # cannot hold the signaling port or the stream container name
+          # (isaac#291). Developer projects never carry this prefix.
+          SMOKE_REAP_PROJECT_PREFIX: isaac-smoke-
         run: bash script/ci/stream_smoke.sh
 
       - name: Upload kit log on failure
