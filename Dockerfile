@@ -452,12 +452,16 @@ COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # [base #440] Scripts under test by the migrated specs: the livestream
 # wrapper + the post run/stop hooks. The hooks are named run.sh / stop.sh
 # inside their post dir, so they are baked under distinct flat names that
-# match the *_spec.bats files. The pre/run.sh hook is a no-op stub
-# (ADR-0019 removed its per-instance cache logic), so it has no spec and
-# is not baked.
+# match the *_spec.bats files.
 COPY --chmod=0755 script/runheadless-host-config.sh /smoke_test/runheadless-host-config.sh
 COPY --chmod=0755 script/hooks/post/run.sh /smoke_test/post_run_hook.sh
 COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
+# [base#1550 / base#1551 stopgap] The pre build/run/stop hooks refuse a
+# checkout still on the shared image tag / compose project; baked next to
+# checkout_identity_spec.bats so the spec drives the real hooks.
+COPY --chmod=0755 script/hooks/pre/build.sh /smoke_test/pre_build_hook.sh
+COPY --chmod=0755 script/hooks/pre/run.sh /smoke_test/pre_run_hook.sh
+COPY --chmod=0755 script/hooks/pre/stop.sh /smoke_test/pre_stop_hook.sh
 # [owv#55] The GPU-pytest baseline gate, baked next to
 # assert_pytest_baseline_isolation_spec.bats so the spec can exercise its
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
