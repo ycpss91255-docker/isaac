@@ -14,7 +14,12 @@
 # client attaches (e.g. the media pipeline allocating into a 64 MB private
 # /dev/shm) satisfied the first while failing the second.
 #
-# Observed healthy attach sequence on the GPU host:
+# Observed healthy attach sequence on the GPU host, Kit 110 (Isaac Sim 6.x,
+# isaac#291):
+#   [omni.kit.livestream.webrtc.plugin] Processing N signaling headers
+#   [omni.kit.livestream.webrtc.plugin] Client connected to WebRTC server
+# and on teardown "Client disconnected from WebRTC server" (about 15 s after
+# the peer goes away). Kit 107 (Isaac Sim 5.x) logged instead:
 #   NetStreamServer::onSignalingHeaders numHeaders: N
 #   Stream server: connected stream ...
 #   onClientEventRaised: NVST_CCE_CONNECTED
@@ -30,11 +35,12 @@
 # Env knobs:
 #   SMOKE_DROP_REGEX  ERE for a stream drop (default below)
 
-# ERE matched against kit log lines after the connect anchor. Either the
-# client-event disconnect or an individual stream stopping counts as the
-# stream going away mid-dwell.
+# ERE matched against kit log lines after the connect anchor. The Kit 110
+# client disconnect, the Kit 107 client-event disconnect, or an individual
+# Kit 107 stream stopping counts as the stream going away mid-dwell.
 if [[ -z "${SMOKE_DROP_REGEX:-}" ]]; then
-  SMOKE_DROP_REGEX='NVST_CCE_DISCONNECTED'
+  SMOKE_DROP_REGEX='Client disconnected from WebRTC server'
+  SMOKE_DROP_REGEX+='|NVST_CCE_DISCONNECTED'
   SMOKE_DROP_REGEX+='|Stream Server: stream[0-9]+.*stopped'
 fi
 
