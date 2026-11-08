@@ -8,9 +8,9 @@ the only thing anyone cares about, so this test renders one.
 
 ``_capture_noise_runner.py`` builds one lit room and captures it twice through
 the SAME render product: once as replicator creates it (Isaac Sim 6.0 defaults
-to ``RealTimePathTracing`` -- one path-traced sample per pixel, denoised by an
-NGX context the headless container cannot create), then again after the recipe
-is authored on the prim. Both legs are gathered from one Kit boot because
+to ``RealTimePathTracing`` -- one path-traced sample per pixel, denoised by
+NGX / DLSS ray reconstruction), then again after the recipe is authored on the
+prim. Both legs are gathered from one Kit boot because
 ``SimulationApp`` is a process-global singleton.
 
 The metric is the mean absolute difference between horizontally neighbouring
@@ -20,9 +20,15 @@ own: it is dominated by scene contrast and moves when the render mode
 legitimately changes the image, which is exactly why every failed hypothesis in
 that issue "left std unchanged" and looked equally inert.
 
-Reference measurement on the RTX 5090 runner: default noise ~53, converged
-~2.1, and the default leg renders 6.8% fully black pixels where the converged
-leg renders none.
+Reference measurements on the RTX 5090 runner. Before isaac#285 the container
+lacked the ``ngx`` driver capability, NGX could not be created, and the default
+leg was raw single-sample noise: default ~53 (6.8% fully black pixels),
+converged ~2.1. Since #285 (``gpu_capabilities = all``) NGX denoises the
+default leg: default ~0.41, converged ~1.53 (CI run 34233956492, isaac#294).
+Both legs are now clean, so the old relative check ("converged is 5x cleaner
+than default") no longer holds and is gone. Each leg is held to an absolute
+ceiling instead: the default leg regressing to ~53 means NGX dropped out of the
+container again, the converged leg regressing means the recipe stopped landing.
 
 Runtime requirement: the Isaac Sim devel-test GPU container
 (``/isaac-sim/python.sh -m pytest``).
@@ -47,12 +53,14 @@ _MARKER_RE = re.compile(
     r"std=([0-9.]+) black=([0-9.]+)"
 )
 
-# The default leg is raw single-sample path tracing; measured ~53 on the
-# reference runner. A floor well under that still fails if the defect is gone
-# without the fix, which would mean this test proves nothing.
-NOISY_FLOOR = 20.0
-# The converged leg measured ~2.1. A ceiling of 10 leaves room for a different
-# GPU / driver without admitting a frame anyone would call speckled.
+# The default leg is NGX-denoised single-sample path tracing; measured ~0.41 on
+# the reference runner, versus ~53 when NGX was missing (pre-#285). A ceiling
+# of 10 sits far from both, so a lost NGX context fails loudly while a
+# different GPU / driver still passes.
+DEFAULT_CEILING = 10.0
+# The converged leg measured ~1.53 (without the OptiX weights, isaac#293) and
+# ~2.1 historically. A ceiling of 10 leaves room for a different GPU / driver
+# without admitting a frame anyone would call speckled.
 CONVERGED_CEILING = 10.0
 
 
@@ -90,17 +98,20 @@ def legs():
     return parsed
 
 
-def test_default_render_product_is_the_noisy_one(legs):
-    """Guard the guard: without the recipe the frame must still be speckled.
+def test_default_render_product_is_denoised_by_ngx(legs):
+    """The unconfigured real-time frame must come out clean (isaac#285).
 
-    If this ever passes cheaply (a driver / Kit update brings NGX up headless),
-    the comparison below stops proving anything and should be revisited.
+    ``RealTimePathTracing`` renders one sample per pixel and relies on NGX to
+    denoise it. Before #285 the container never received the ``ngx`` driver
+    capability and this leg measured ~53. A regression of the capability list
+    (or anything else that stops NGX coming up) sends it back there.
     """
     default = legs["default"]
     assert default["mode"] == "RealTimePathTracing"
-    assert default["noise"] > NOISY_FLOOR, (
-        f"the unconfigured render product rendered a clean frame "
-        f"(noise={default['noise']:.3f}); this test no longer proves the fix"
+    assert default["noise"] < DEFAULT_CEILING, (
+        f"the unconfigured render product is speckled "
+        f"(noise={default['noise']:.3f}); NGX is probably not available in "
+        f"the container (check gpu_capabilities, isaac#279 / #285)"
     )
 
 
@@ -116,13 +127,8 @@ def test_recipe_lands_on_the_render_product_prim(legs):
 def test_converged_capture_is_clean(legs):
     """The frame the fix produces, measured rather than eyeballed."""
     converged = legs["converged"]
-    default = legs["default"]
     assert converged["noise"] < CONVERGED_CEILING, (
         f"converged capture is still speckled (noise={converged['noise']:.3f})"
-    )
-    assert converged["noise"] * 5 < default["noise"], (
-        f"converged capture is not materially cleaner: "
-        f"{converged['noise']:.3f} vs default {default['noise']:.3f}"
     )
     assert converged["black"] == 0.0, (
         f"converged capture still has fully black pixels "

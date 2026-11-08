@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Shared RTX-render + MP4 helpers for the motion experiment drivers.
 
-The headless 6.0.1 container cannot create an NGX context, so nothing denoises
-the renderer's default one-sample-per-pixel output. This module centralises the
-clean-frame recipe: the converged-still render settings authored on each render
+The renderer's default one-sample-per-pixel output is only as clean as the NGX
+denoiser makes it (and was raw noise before isaac#285 gave the container the
+``ngx`` capability). This module centralises the converged-still recipe: the converged-still render settings authored on each render
 product (:func:`apply_converged_render_settings`, isaac#266), two deterministic
 directional lights, and N accumulation renders per capture. Drivers add a thin
 ``--mp4`` path: author materials + a camera, then step with render=True and call
@@ -21,9 +21,11 @@ import math
 # --------------------------------------------------------------------------
 # Isaac Sim 6.0.1 boots the RealTimePathTracing render mode -- which is what
 # "RTX Real-Time" now means. It path-traces ONE sample per pixel per frame and
-# leans on NGX / DLSS ray reconstruction to clean the result. The headless
-# container logs "Failed to create NGX context" on every boot, so nothing
-# denoises that single sample and the rgb annotator hands back raw noise.
+# leans on NGX / DLSS ray reconstruction to clean the result. Until isaac#285
+# the container lacked the ``ngx`` driver capability, logged "Failed to create
+# NGX context" on every boot, and the rgb annotator handed back raw noise. With
+# NGX present the real-time frame is clean (isaac#294); this recipe remains the
+# deterministic, accumulated path for offline stills.
 #
 # The lever is NOT a carb setting. A render product's RTX settings are authored
 # on its RenderProduct PRIM as ``omni:rtx:*`` USD attributes; the global
