@@ -1,0 +1,154 @@
+{
+  "issue": "isaac#209",
+  "parent": "isaac#205",
+  "title": "visual + metric acceptance",
+  "isaac_variant": "6.2.0",
+  "scene": "self-contained deterministic representative scene: producer non-black lit stage (dome + distant key + 12x12 checkerboard) + forklift-shaped robot (base + mast + 2 forks) -- no external asset (isaac#223 discipline)",
+  "baseline_5_1": "none committed -- parent #205 blocked on real CAD; this is a first-run 6.0.1 characterization of the visual+metric acceptance harness itself",
+  "png_path": "/home/yunchien/work/test/.reval-6.2.0/visual_metric_frame.png",
+  "frame": {
+    "shape": [
+      720,
+      1280,
+      3
+    ],
+    "mean_luminance": 147.219771406467,
+    "min_luminance": 15.4646,
+    "max_luminance": 193.1444,
+    "luminance_span": 177.6798,
+    "nonblack_fraction": 1.0,
+    "per_channel_std": [
+      34.89579363183398,
+      34.98573477265708,
+      32.83086862720808
+    ],
+    "min_channel_std": 32.83086862720808,
+    "mean_rgb": [
+      147.16509874131944,
+      146.97561957465277,
+      149.79928385416667
+    ],
+    "unique_colours": 4945
+  },
+  "frame_checks": {
+    "mean_luminance_in_range": true,
+    "nonblack_fraction_ok": true,
+    "channel_variance_ok": true,
+    "luminance_span_ok": true
+  },
+  "frame_ok": true,
+  "inventory": {
+    "total_world_prims": 165,
+    "cubes": 148,
+    "lights": 2,
+    "cameras": 1,
+    "materials": 5
+  },
+  "inventory_expected": {
+    "cubes": 148,
+    "lights": 2,
+    "cameras": 1,
+    "materials": 5
+  },
+  "inventory_ok": true,
+  "key_prims": {
+    "base": {
+      "world_pos": [
+        0.0,
+        0.0,
+        0.15
+      ],
+      "bbox_min": [
+        -0.4000000059604645,
+        -0.25,
+        -5.960464483090178e-09
+      ],
+      "bbox_max": [
+        0.4000000059604645,
+        0.25,
+        0.3000000059604645
+      ],
+      "extent": [
+        0.800000011920929,
+        0.5,
+        0.30000001192092896
+      ]
+    },
+    "base_pos_ok": true,
+    "base_dim_ok": true,
+    "robot_assembly": {
+      "world_pos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bbox_min": [
+        -0.4000000059604645,
+        -0.25,
+        -5.960464483090178e-09
+      ],
+      "bbox_max": [
+        0.9000000119209289,
+        0.25,
+        1.350000023841858
+      ],
+      "extent": [
+        1.3000000178813935,
+        0.5,
+        1.3500000298023225
+      ]
+    },
+    "robot_extent_ok": true,
+    "authored": {
+      "base_pos": [
+        0.0,
+        0.0,
+        0.15
+      ],
+      "base_dims": [
+        0.8,
+        0.5,
+        0.3
+      ],
+      "mast_top_z": 1.35
+    }
+  },
+  "key_prims_ok": true,
+  "camera_framing": [
+    {
+      "name": "robot_centroid",
+      "ndc": [
+        4.7431676673105714e-17,
+        2.4393433717597224e-16
+      ],
+      "in_frame": true
+    },
+    {
+      "name": "base_pos",
+      "ndc": [
+        -0.028361867578688235,
+        -0.08559142907814173
+      ],
+      "in_frame": true
+    },
+    {
+      "name": "mast_top",
+      "ndc": [
+        0.011076203294065072,
+        0.21757923008153796
+      ],
+      "in_frame": true
+    },
+    {
+      "name": "fork_tip",
+      "ndc": [
+        0.07882989578381693,
+        -0.18120373114151483
+      ],
+      "in_frame": true
+    }
+  ],
+  "camera_framing_ok": true,
+  "accept": true,
+  "error": null
+}
