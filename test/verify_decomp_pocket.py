@@ -35,6 +35,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 # Shared render helpers live in src/script/ (isaac#266: a render product must
 # be configured for a converged still or every captured frame is speckled).
 _SCRIPT_DIR = Path(__file__).resolve().parents[1] / "src" / "script"
@@ -196,7 +198,7 @@ def run(args):
 
     result = {
         "check": "Claim 2 -- convex_decomposition functional pocket (probe drop)",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "slot_width_m": _SLOT_WIDTH,
         "probe_width_m": _PROBE_HALF[0] * 2,
         "enter_z_threshold_m": _ENTER_Z_THRESH,

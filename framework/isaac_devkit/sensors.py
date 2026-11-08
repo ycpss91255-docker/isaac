@@ -412,7 +412,7 @@ def _setup_imu(cfg, stage):
 def _ensure_ros2_bridge_enabled():
     """Enable ``isaacsim.ros2.bridge`` only if it is not already enabled.
 
-    Isaac Sim 6.0.1 regression (isaac#248): under the Isaac Lab
+    Isaac Sim 6.x regression (isaac#248; 6.0.1 and 6.2.0): under the Isaac Lab
     ``AppLauncher`` (``isaaclab.python.headless.rendering.kit`` experience,
     headless + ``enable_cameras``), *touching the isaacsim extension API at
     runtime* -- even ``import isaacsim.core.utils.extensions`` on its own,

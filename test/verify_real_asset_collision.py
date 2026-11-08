@@ -31,6 +31,8 @@ import os
 import sys
 import traceback
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 _DEFAULT_URL = (
     "https://omniverse-content-production.s3-us-west-2.amazonaws.com"
     "/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd"
@@ -136,7 +138,7 @@ def run(args):
     urls = [u.strip() for u in args.url.split(",") if u.strip()]
     result = {
         "check": "real-asset collision probe (Hub-bypass via direct HTTPS)",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "asset_count": len(urls),
         "assets": [],
         "error": None,

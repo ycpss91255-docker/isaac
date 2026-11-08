@@ -29,6 +29,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 _PALLET_URL = (
     "https://omniverse-content-production.s3-us-west-2.amazonaws.com"
     "/Assets/Isaac/6.0/Isaac/Props/Pallet/pallet.usd"
@@ -120,7 +122,7 @@ def run(args):
 
     result = {
         "check": "URDF <collision><mesh> import path vs real concave pallet",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "source_mesh": _PALLET_URL,
         "error": None,
     }

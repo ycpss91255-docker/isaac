@@ -64,6 +64,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 GRAVITY = 9.81
 
 # Scene geometry (metres). Plate is a thin tall wall; cube is a free rigid box.
@@ -164,7 +166,7 @@ def run(args):
     result = {
         "issue": "isaac#201",
         "adr": "ADR-0008 L2/L3 one-way force transfer (coexistence rule 1)",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "warmup_steps": args.warmup,
         "push_steps": args.push_steps,
         "physics_dt": args.dt,

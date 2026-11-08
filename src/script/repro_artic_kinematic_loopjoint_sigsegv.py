@@ -85,6 +85,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from isaac_devkit.sim_version import isaac_sim_version
+
 
 def _bc(msg):
     """Flushed stderr breadcrumb -- the last one before a native crash pins it."""
@@ -210,7 +212,7 @@ def run(args):
         "issue": "isaac#197",
         "purpose": "minimal repro: articulation vs plain-dynamic welded to kinematic "
                    "anchor by a maximal loop FixedJoint on 6.0.1",
-        "isaac_variant": "6.0.1",
+        "isaac_variant": isaac_sim_version(),
         "body_kind": args.body_kind,
         "lanes": len(masses),
         "masses_kg": masses,
