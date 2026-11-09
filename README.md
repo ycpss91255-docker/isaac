@@ -22,6 +22,7 @@ NGC image (`nvcr.io/nvidia/isaac-sim:6.2.0.1`, the 6.2.0 GA build -- see the `Do
 > **First-time only:** run `./script/init_isaac_dirs.sh` **before** `just docker build`. Skipping it lets the docker daemon `mkdir` the cache mount points as **root**, and the container's non-root user will then fail to write — Isaac Sim will not start.
 
 ```bash
+./script/checkout_identity.sh isolate   # first time only — gives this checkout its own image tag + compose project
 ./script/init_isaac_dirs.sh   # first time only — creates 8 host-owned cache dirs
 just docker build                    # builds devel stage (~16 GB image)
 just docker run                      # interactive shell in devel container
@@ -36,6 +37,15 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
 > Two stages auto-emitted as profile-gated compose services per [base #215](https://github.com/ycpss91255-docker/base/issues/215): `headless` (pure sim, `ISAAC_LIVESTREAM=0`) and `stream` (sim + WebRTC, `ISAAC_LIVESTREAM=2`). Both idle on startup — the container stays up and you exec driver scripts in via `just docker exec -t <stage> <cmd>`. Use `just docker run -t <stage> -d` to launch.
+
+### One image and one compose project per checkout
+
+Every checkout of this repo on a host used to resolve the same image tag (`<hub>/isaac:<stage>`) and the same compose project (`<hub>-isaac`). `just docker build` then pruned the image another checkout had built, and `just docker stop` / `run` removed another checkout's containers (upstream: [base#1550](https://github.com/ycpss91255-docker/base/issues/1550), [base#1551](https://github.com/ycpss91255-docker/base/issues/1551), [base#1552](https://github.com/ycpss91255-docker/base/issues/1552)). Until base fixes that:
+
+- `./script/checkout_identity.sh isolate` writes `[image] rule_1 = string:isaac-<dir>-<hash>` into the gitignored `.setup.conf.local`. The image tag, the compose project and the container names all follow it. `./script/checkout_identity.sh show` prints what this checkout resolves to.
+- The pre build / run / stop hooks refuse to act on the shared names. `ISAAC_ALLOW_SHARED_IDENTITY=1` overrides that; CI's build steps use it.
+- `just docker run` does not rebuild an image that already exists (base#1552). After pulling changes, run `just docker build -t <stage>` before `just docker run -t <stage>`.
+- Containers started before isolating stay in the shared project. List them with `docker compose -p <hub>-isaac ps -a` and stop yours by name. `ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` stops the whole shared project, other checkouts' containers included.
 
 ## Connecting to the WebRTC livestream
 

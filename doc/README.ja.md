@@ -22,6 +22,7 @@ NGC イメージ（`nvcr.io/nvidia/isaac-sim:6.2.0.1`、6.2.0 GA ビルド；`:6
 > **初回のみ必須：** `just docker build` の **前に** `./script/init_isaac_dirs.sh` を実行。スキップすると docker daemon が **root** 権限で cache mount ポイントを mkdir し、コンテナ内の非 root ユーザーが書き込めず、Isaac Sim が起動できません。
 
 ```bash
+./script/checkout_identity.sh isolate   # 初回のみ — この checkout 専用の image tag と compose project を割り当てる
 ./script/init_isaac_dirs.sh   # 初回のみ — host 所有の cache ディレクトリ 8 個を作成
 just docker build                    # devel stage を build（約 16 GB のイメージ）
 just docker run                      # devel コンテナで対話シェル
@@ -36,6 +37,15 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
 > 2 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（pure sim、`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC、`ISAAC_LIVESTREAM=2`）。両者とも起動時は `CMD ["sleep","infinity"]` で idle（`runheadless.sh -v` ENTRYPOINT は無い）— container は起動したまま、`just docker exec -t <stage> <cmd>` で driver スクリプト（`/isaac-sim/python.sh <driver.py>`、`ISAAC_LIVESTREAM=2` を読んで stream を有効化）または一回限りの `/usr/local/bin/runheadless-host-config.sh` を送り込む；streaming 起動後は web-viewer が `:5173` で接続する。`just docker run -t <stage> -d` で起動。
+
+### checkout ごとに 1 つの image と 1 つの compose project
+
+以前は同じ host 上のこの repo のすべての checkout が同じ image tag（`<hub>/isaac:<stage>`）と同じ compose project（`<hub>-isaac`）に解決されていた。そのため `just docker build` が別の checkout の build した image を prune し、`just docker stop` / `run` が別の checkout の container を削除していた（上流：[base#1550](https://github.com/ycpss91255-docker/base/issues/1550)、[base#1551](https://github.com/ycpss91255-docker/base/issues/1551)、[base#1552](https://github.com/ycpss91255-docker/base/issues/1552)）。base が修正するまでは：
+
+- `./script/checkout_identity.sh isolate` が `[image] rule_1 = string:isaac-<dir>-<hash>` を gitignore 済みの `.setup.conf.local` に書き込む。image tag・compose project・container 名はすべてこれに従う。`./script/checkout_identity.sh show` でこの checkout の解決結果を表示できる。
+- pre build / run / stop hook は共有名のままでは実行を拒否する。`ISAAC_ALLOW_SHARED_IDENTITY=1` で上書きできる（CI の build ステップが使用）。
+- `just docker run` は既存の image を再 build しない（base#1552）。変更を pull したら `just docker run -t <stage>` の前に `just docker build -t <stage>` を実行する。
+- isolate 前に起動した container は共有 project に残る。`docker compose -p <hub>-isaac ps -a` で一覧し、自分のものを名前で停止する。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` は共有 project 全体（別の checkout の container を含む）を停止する。
 
 ## WebRTC livestream への接続
 
