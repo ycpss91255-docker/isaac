@@ -19,22 +19,30 @@ NGC イメージ（`nvcr.io/nvidia/isaac-sim:6.2.0.1`、6.2.0 GA ビルド；`:6
 
 ## Quick Start
 
-fresh clone から、repo root で以下を実行：
+clone した直後の repo で、まず repo root から次の 2 つの初回手順を実行する：
 
 ```bash
-./script/checkout_identity.sh isolate   # first time only — gives this checkout its own image tag + compose project
-./script/init_isaac_dirs.sh             # first time only — runs ./script/setup.sh apply, creates the 10 host-owned cache dirs
-just docker build                       # builds the devel stage (~31 GB image, see Prerequisites)
-just docker run                         # interactive shell in the devel container
+./script/checkout_identity.sh isolate   # 初回のみ — この checkout 専用の image tag と compose project を割り当てる
+./script/init_isaac_dirs.sh             # 初回のみ — ./script/setup.sh apply を実行し、host 所有の cache ディレクトリ 10 個を作成
 ```
 
 > cache ディレクトリは、container が mount する **前に** 存在し、自分の所有になっている必要がある。そうでないと docker daemon がそれらを **root** で作成し、Kit が cache を書き込めない。その結果 ROS 2 OmniGraph node を登録できず（`[Errno 13] ... kit/cache/ogn_generated`）、それでも exit 0 で終了する。`init_isaac_dirs.sh` がこれらを作成し、pre-run hook が毎回の `just docker run` の前に再実行する。すでに root 所有になっている場合、スクリプトは停止して `chown` による修正方法を表示する。
 
+次に経路を**1 つだけ**選ぶ。各 stage は互いに独立しており、実行する stage だけを build すればよい。headless の経路の前に devel を build する必要は**ない**。
+
+| やりたいこと | Build | Run |
+|---|---|---|
+| シーンを実行して ROS 2 topic を見る（まずはここから） | `just docker build -t headless` | `just docker run -t headless -d`、続いて下の「Headless：Isaac を起動してシーンを実行する」 |
+| 開発用の対話 shell | `just docker build`（devel） | `just docker run` |
+| WebRTC でシミュレーションを見る | `just docker build -t stream` | `just docker run -t stream -d`、続いて「WebRTC livestream への接続」 |
+
+コールド状態の初回 build には約 1 時間かかる。20.7 GB の NGC base image を pull してから Isaac Lab をインストールするためである。GitHub-hosted CI の build は 45〜84 分だった（[45 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42550974606/job/128946327237)、[58 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42545601510/job/128929863953)、[84 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42491566385/job/128764928999)）。以降の build は layer cache を再利用し、他の stage もそれらの layer を共有するので、2 つ目の stage の build は数秒から数分で済む。
+
 Production stage（両 stage とも起動後は idle — driver スクリプトを exec で実行中の container に送り込む）：
 
 ```bash
-just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker run -t headless -d                             # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d                               # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
 just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
@@ -48,15 +56,27 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 just docker build -t headless
 just docker run -t headless -d
 ./script/exec.sh -t headless bash -c \
-  'echo $$ > /tmp/isaac-driver.pid; EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
+  'echo $$ > /tmp/isaac-driver.pid; ROS_DOMAIN_ID=77 EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
 # prints [CAMERA GRAPH OK] and [BOOT OK] in about 30 s
 
-# In a second terminal: the camera topic, from a sibling ROS 2 container
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble bash -c \
+# In a second terminal: the camera topic, from a sibling ROS 2 container on the same domain
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
   'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw sensor_msgs/msg/Image --field header'
 # frame_id: camera_bot_camera_color_optical_frame
 
 just docker stop
+```
+
+この例は意図的にプライベートな ROS domain（`77`）で動かしている。共有 host ではデフォルトの domain 0 に別の `/cmd_vel` publisher がいることがあり、それもロボットを動かしてしまう。空いている domain（0〜101）を選び、両側で同じ `ROS_DOMAIN_ID` を使うこと。
+
+**初回起動では、camera topic は `[BOOT OK]` の約 2 分後に現れる。** camera publisher は最初の frame の render が終わってから現れ、cache が空のときは renderer がまず shader をコンパイルする。あるコールド実行では topic が `[BOOT OK]` の 1 分 52 秒後に現れ、`ros2 topic echo --once` はその 2 秒後に返った。その実行で残った cache で再実行すると、topic は `[BOOT OK]` から 3 秒以内に存在した。待ち時間は DDS discovery ではない：Isaac が publish している間は、新しく起動した sibling container がすぐに topic を見つけた。`echo` で待つ代わりに出現を監視するには：
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
+  'source /opt/ros/humble/setup.bash &&
+   until ros2 topic list | grep -q image_raw; do sleep 1; done &&
+   ros2 topic hz /camera_bot/camera/color/image_raw'
+# average rate: ~30
 ```
 
 `EXAMPLE_TICK_BUDGET` を指定しない場合、driver は 1800 update（headless で約 2 分）後に自動で停止し、`[EXIT CLEAN]` を出力する。Kit は session log を host 側の `isaac-sim/kit/logs/Kit/<app>/<version>/kit_<timestamp>.log` に書き込む。最新のものを追うには：
@@ -68,6 +88,13 @@ tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
 container の `docker logs` には idle の main process（`sleep infinity`）しか出ず、exec で送り込んだスクリプトの出力は表示されない。
 
 > quote された `bash -c '...'` を含むコマンドは `just docker exec` ではなく `./script/exec.sh` を経由する。base v0.42.0 では `just` recipe が引数を再分割するため、quote したコマンドや `>` が host 側で実行されてしまう。base は v0.43.0-rc5（base PR #1298）で修正済みだが、本 repo はまだ v0.42.0 を pin している（#297）。
+
+### 無視してよい起動時の警告
+
+Kit は起動のたびに、実行に影響しない警告をいくつか出力する：
+
+- `OmniHub: ... Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: ..."`、最初の 2 秒で約 40 行。OmniHub は Nucleus asset 用の任意のローカル cache サービスである。その helper（`/usr/local/bin/hub`）は container 内で `Permission denied` で終了するため、Kit は asset を直接読み込む。ここの例はローカルファイルしか使わない。
+- `Extensions config 'extension.toml' doesn't exist '/home/<user>/work/<dir>'`、repo のトップレベルディレクトリごとに 1 行（約 15 行）。これはこの修正より前に build した image で出る：experience ファイルの `extsUser` extension フォルダが image になく、container user もそれを作成できないため、Kit が代わりに作業ディレクトリで extension を探していた。現在の image はこのフォルダを作成する。まだこの警告が出る場合は `just docker build -t <stage>` でその stage を再 build すること。
 
 ### driver スクリプトの停止
 
@@ -86,6 +113,7 @@ container の `docker logs` には idle の main process（`sleep infinity`）�
 - `./script/checkout_identity.sh isolate` が `[image] rule_1 = string:isaac-<dir>-<hash>` を gitignore 済みの `.setup.conf.local` に書き込む。image tag・compose project・container 名はすべてこれに従う。`./script/checkout_identity.sh show` でこの checkout の解決結果を表示できる。
 - pre build / run / stop hook は共有名のままでは実行を拒否する。`ISAAC_ALLOW_SHARED_IDENTITY=1` で上書きできる（CI の build ステップが使用）。
 - `just docker run` は既存の image を再 build しない（base#1552）。変更を pull したら `just docker run -t <stage>` の前に `just docker build -t <stage>` を実行する。
+- 1 つの image はまだ共有される：毎回の build で lint/bats 用ツール image `test-tools:<base バージョン>`（現在は `test-tools:v0.42.0`）も build され、その名前は pin した base バージョンだけで決まる。同じ base バージョンを pin する host 上のすべての checkout と repo が同じ tag を書き込むため、別の checkout が build 中かもしれないときは削除しないこと。`just docker build --clean-tools` は全員の分をまとめて削除する。これは base の `build.sh` に由来し、上流では [base#1551](https://github.com/ycpss91255-docker/base/issues/1551) で追跡している。
 - isolate 前に起動した container は共有 project に残る。`docker compose -p <hub>-isaac ps -a` で一覧し、自分のものを名前で停止する。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` は共有 project 全体（別の checkout の container を含む）を停止する。
 
 ## WebRTC livestream への接続
@@ -314,9 +342,9 @@ container は health status を報告しない（`HEALTHCHECK NONE`）。NGC bas
 使い方：
 
 ```bash
-just docker build -t devel-test                                     # devel-test ステージをビルド
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t test                                                 # devel-test ステージをビルド (compose service `test`)
+just docker run -t test -- /isaac-sim/python.sh -m pytest test/unit/
+just docker run -t test -- /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 システムの `python3` ではこれらのパッケージはインストールできない（Isaac base image の PEP 668 が `pip` をブロック）— 必ず `/isaac-sim/python.sh -m pytest ...` を使い、`pytest ...` は使わない。

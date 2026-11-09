@@ -19,22 +19,30 @@ NGC image (`nvcr.io/nvidia/isaac-sim:6.2.0.1`, the 6.2.0 GA build -- see the `Do
 
 ## Quick Start
 
-From a fresh clone, run these from the repo root:
+From a fresh clone, run these two first-time steps from the repo root:
 
 ```bash
 ./script/checkout_identity.sh isolate   # first time only — gives this checkout its own image tag + compose project
 ./script/init_isaac_dirs.sh             # first time only — runs ./script/setup.sh apply, creates the 10 host-owned cache dirs
-just docker build                       # builds the devel stage (~31 GB image, see Prerequisites)
-just docker run                         # interactive shell in the devel container
 ```
 
 > The cache dirs must exist and be owned by you **before** a container mounts them. Otherwise the docker daemon creates them as **root**, and Kit cannot write its caches. It then cannot register the ROS 2 OmniGraph nodes (`[Errno 13] ... kit/cache/ogn_generated`), and it still exits 0. `init_isaac_dirs.sh` creates them, and the pre-run hook runs it again before every `just docker run`. If they are already root-owned, the script stops and prints a `chown` fix.
 
+Then pick **one** path. The stages are independent: build only the stage you are going to run. The devel build is **not** needed before the headless path.
+
+| You want to | Build | Run |
+|---|---|---|
+| Run a scene and its ROS 2 topics (start here) | `just docker build -t headless` | `just docker run -t headless -d`, then [Headless: bring Isaac up and run a scene](#headless-bring-isaac-up-and-run-a-scene) |
+| An interactive shell to develop in | `just docker build` (devel) | `just docker run` |
+| Watch the sim over WebRTC | `just docker build -t stream` | `just docker run -t stream -d`, then [Connecting to the WebRTC livestream](#connecting-to-the-webrtc-livestream) |
+
+A cold first build takes about an hour. It pulls the 20.7 GB NGC base image and then installs Isaac Lab; GitHub-hosted CI builds took 45 to 84 min ([45 min](https://github.com/ycpss91255-docker/isaac/actions/runs/42550974606/job/128946327237), [58 min](https://github.com/ycpss91255-docker/isaac/actions/runs/42545601510/job/128929863953), [84 min](https://github.com/ycpss91255-docker/isaac/actions/runs/42491566385/job/128764928999)). Later builds reuse the layer cache, and the other stages share those layers, so building a second stage takes seconds to minutes.
+
 Production stages (both idle on startup — exec driver scripts into the running container):
 
 ```bash
-just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker run -t headless -d                             # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d                               # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
 just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
@@ -48,15 +56,27 @@ The `example/` camera_bot scene runs headless, publishes a ROS 2 camera topic an
 just docker build -t headless
 just docker run -t headless -d
 ./script/exec.sh -t headless bash -c \
-  'echo $$ > /tmp/isaac-driver.pid; EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
+  'echo $$ > /tmp/isaac-driver.pid; ROS_DOMAIN_ID=77 EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
 # prints [CAMERA GRAPH OK] and [BOOT OK] in about 30 s
 
-# In a second terminal: the camera topic, from a sibling ROS 2 container
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble bash -c \
+# In a second terminal: the camera topic, from a sibling ROS 2 container on the same domain
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
   'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw sensor_msgs/msg/Image --field header'
 # frame_id: camera_bot_camera_color_optical_frame
 
 just docker stop
+```
+
+The example runs on a private ROS domain (`77`) on purpose. A shared host can have other `/cmd_vel` publishers on the default domain 0, and they would drive the robot too. Pick any free domain (0 to 101), and use the same `ROS_DOMAIN_ID` on both sides.
+
+**On the first launch, expect the camera topic about 2 minutes after `[BOOT OK]`.** The camera publisher only appears once the first frame has rendered, and with empty caches the renderer compiles its shaders first. In one cold run the topic appeared 1 min 52 s after `[BOOT OK]`, and `ros2 topic echo --once` returned 2 s later. With the caches from that run, the topic was there within 3 s of `[BOOT OK]`. The wait is not DDS discovery: a new sibling container saw the topic at once while Isaac was publishing. To watch for it instead of waiting on `echo`:
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
+  'source /opt/ros/humble/setup.bash &&
+   until ros2 topic list | grep -q image_raw; do sleep 1; done &&
+   ros2 topic hz /camera_bot/camera/color/image_raw'
+# average rate: ~30
 ```
 
 Without `EXAMPLE_TICK_BUDGET`, the driver stops by itself after 1800 updates (about 2 minutes headless) and prints `[EXIT CLEAN]`. Kit writes its session log to `isaac-sim/kit/logs/Kit/<app>/<version>/kit_<timestamp>.log` on the host. To follow the newest one:
@@ -68,6 +88,13 @@ tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
 `docker logs` on the container shows only its idle main process (`sleep infinity`), not the scripts you exec in.
 
 > Commands with a quoted `bash -c '...'` go through `./script/exec.sh` instead of `just docker exec`. In base v0.42.0, the `just` recipe re-splits its arguments, so the quoted command and any `>` would run on the host. base fixed this in v0.43.0-rc5 (base PR #1298), and this repo still pins v0.42.0 (#297).
+
+### Startup warnings you can ignore
+
+Kit prints a few warnings on every launch that do not affect the run:
+
+- `OmniHub: ... Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: ..."`, about 40 lines in the first 2 seconds. OmniHub is an optional local cache service for Nucleus assets. Its helper (`/usr/local/bin/hub`) exits with `Permission denied` inside the container, so Kit loads assets directly. The examples here use only local files.
+- `Extensions config 'extension.toml' doesn't exist '/home/<user>/work/<dir>'`, one per top-level directory of the repo (about 15). These came from images built before this fix: the experience file's `extsUser` extension folder was missing from the image, the container user could not create it, and Kit searched the working directory for extensions instead. The image now creates the folder. If you still see these warnings, rebuild the stage with `just docker build -t <stage>`.
 
 ### Stopping a driver script
 
@@ -86,6 +113,7 @@ Every checkout of this repo on a host used to resolve the same image tag (`<hub>
 - `./script/checkout_identity.sh isolate` writes `[image] rule_1 = string:isaac-<dir>-<hash>` into the gitignored `.setup.conf.local`. The image tag, the compose project and the container names all follow it. `./script/checkout_identity.sh show` prints what this checkout resolves to.
 - The pre build / run / stop hooks refuse to act on the shared names. `ISAAC_ALLOW_SHARED_IDENTITY=1` overrides that; CI's build steps use it.
 - `just docker run` does not rebuild an image that already exists (base#1552). After pulling changes, run `just docker build -t <stage>` before `just docker run -t <stage>`.
+- One image stays shared: every build also builds the lint/bats tool image `test-tools:<base version>` (now `test-tools:v0.42.0`), named by the pinned base version only. Every checkout and every repo on the host that pins the same base version writes the same tag, so do not delete it while another checkout may be building. `just docker build --clean-tools` removes it for all of them. It comes from base's `build.sh` and is tracked upstream on [base#1551](https://github.com/ycpss91255-docker/base/issues/1551).
 - Containers started before isolating stay in the shared project. List them with `docker compose -p <hub>-isaac ps -a` and stop yours by name. `ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` stops the whole shared project, other checkouts' containers included.
 
 ## Connecting to the WebRTC livestream
@@ -314,9 +342,9 @@ The `devel-test` stage ships `pytest`, `pyyaml`, and `pytest-cov` installed into
 Usage:
 
 ```bash
-just docker build -t devel-test                                     # build the devel-test stage
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t test                                                 # build the devel-test stage (compose service `test`)
+just docker run -t test -- /isaac-sim/python.sh -m pytest test/unit/
+just docker run -t test -- /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 System `python3` cannot install these packages (PEP 668 blocks `pip` on the Isaac base image) — always invoke `/isaac-sim/python.sh -m pytest ...` instead of `pytest ...`.
