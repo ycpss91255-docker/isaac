@@ -53,7 +53,12 @@ jobs:
           ./script/setup.sh apply
           sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env.generated
 
+      # Shared image name `isaac` is kept on purpose (see main.yaml); the
+      # smoke pins its own PROJECT_NAME, so only the build opts out of the
+      # pre-build shared-identity guard (script/checkout_identity.sh).
       - name: Build stream stage (cached if unchanged)
+        env:
+          ISAAC_ALLOW_SHARED_IDENTITY: "1"
         run: ./script/build.sh -t stream
 
       # The stream compose bind-mounts ${WS_PATH}/isaac-sim/* caches; with

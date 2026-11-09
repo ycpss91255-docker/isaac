@@ -22,6 +22,7 @@ NGC image（`nvcr.io/nvidia/isaac-sim:6.2.0.1`，即 6.2.0 GA build；為何不�
 > **首次必跑：** `just docker build` **之前**先跑 `./script/init_isaac_dirs.sh`。沒跑的話 docker daemon 會以 **root** 身份 mkdir cache mount 點，導致容器內非 root user 無法寫入，Isaac Sim 啟動失敗。
 
 ```bash
+./script/checkout_identity.sh isolate   # 首次必跑，讓這個 checkout 有自己的 image tag 與 compose project
 ./script/init_isaac_dirs.sh   # 首次必跑，建好 8 個 host-owned cache 目錄
 just docker build                    # build devel stage（約 16 GB image）
 just docker run                      # 進 devel 容器互動 shell
@@ -36,6 +37,15 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
 > 兩個 stage 透過 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 為 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）與 `stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。兩者啟動後都 `CMD ["sleep","infinity"]` idle（沒有 `runheadless.sh -v` ENTRYPOINT）— container 持續存活，由你用 `just docker exec -t <stage> <cmd>` 把 driver 腳本（`/isaac-sim/python.sh <driver.py>`，讀 `ISAAC_LIVESTREAM=2` 開 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送進去；streaming 起來後 web-viewer 連 `:5173`。使用 `just docker run -t <stage> -d` 啟動。
+
+### 每個 checkout 一個 image 與一個 compose project
+
+以前同一台 host 上這個 repo 的每個 checkout 都會解析出同一個 image tag（`<hub>/isaac:<stage>`）與同一個 compose project（`<hub>-isaac`）。結果 `just docker build` 會 prune 掉別的 checkout build 的 image，`just docker stop` / `run` 會移除別的 checkout 的 container（上游：[base#1550](https://github.com/ycpss91255-docker/base/issues/1550)、[base#1551](https://github.com/ycpss91255-docker/base/issues/1551)、[base#1552](https://github.com/ycpss91255-docker/base/issues/1552)）。在 base 修好之前：
+
+- `./script/checkout_identity.sh isolate` 會把 `[image] rule_1 = string:isaac-<dir>-<hash>` 寫進 gitignored 的 `.setup.conf.local`。image tag、compose project 與 container 名稱都跟著它走。`./script/checkout_identity.sh show` 會印出這個 checkout 解析出的名稱。
+- pre build / run / stop hook 會拒絕對共用名稱動作。`ISAAC_ALLOW_SHARED_IDENTITY=1` 可以略過；CI 的 build 步驟就是這樣用。
+- `just docker run` 不會重 build 已存在的 image（base#1552）。pull 新變更後，先 `just docker build -t <stage>` 再 `just docker run -t <stage>`。
+- isolate 之前啟動的 container 還留在共用 project 裡。用 `docker compose -p <hub>-isaac ps -a` 列出，按名稱停掉自己的。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` 會停掉整個共用 project，包含別的 checkout 的 container。
 
 ## 連接 WebRTC livestream
 
