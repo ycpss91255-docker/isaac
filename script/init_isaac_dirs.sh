@@ -8,24 +8,46 @@
 #   on first launch (shader cache writes, log files, etc.). Pre-creating
 #   the dirs as the host user makes the bind mount inherit that ownership.
 #
-# Usage: ./script/init_isaac_dirs.sh
+# It also runs from the pre-run hook (script/hooks/pre/run.sh), so a
+# `just docker run` before this script no longer lets the daemon create
+# the mount sources as root.
+#
+# Usage: ./script/init_isaac_dirs.sh [--quiet]
 # Idempotent: subsequent runs are a no-op.
 
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "$0")/.." && pwd)"
+quiet=0
+if [[ "${1:-}" == "--quiet" ]]; then
+  quiet=1
+fi
 
-if [[ ! -f "${script_dir}/.env" ]]; then
-  echo "[init_isaac_dirs] ERROR: ${script_dir}/.env not found." >&2
-  echo "[init_isaac_dirs] Run ./build.sh once first to trigger setup.sh and generate .env." >&2
+script_dir="$(cd "$(dirname "$0")/.." && pwd)"
+env_generated="${script_dir}/.env.generated"
+
+# WS_PATH is resolved by base setup into .env.generated (.env is only the
+# hand-edited workload overlay). On a fresh clone there is no cache yet:
+# generate it through the base setup wrapper.
+if [[ ! -f "${env_generated}" ]] && [[ -x "${script_dir}/script/setup.sh" ]]; then
+  echo "[init_isaac_dirs] no .env.generated yet; running ./script/setup.sh apply"
+  "${script_dir}/script/setup.sh" apply
+fi
+if [[ ! -f "${env_generated}" ]]; then
+  echo "[init_isaac_dirs] ERROR: ${env_generated} not found." >&2
+  echo "[init_isaac_dirs] Generate it with: ./script/setup.sh apply" >&2
   exit 1
 fi
 
-# shellcheck source=/dev/null
-source "${script_dir}/.env"
+WS_PATH=""
+while IFS= read -r line || [[ -n "${line}" ]]; do
+  case "${line}" in
+    WS_PATH=*) WS_PATH="${line#WS_PATH=}" ;;
+  esac
+done < "${env_generated}"
 
-if [[ -z "${WS_PATH:-}" ]]; then
-  echo "[init_isaac_dirs] ERROR: WS_PATH not set in .env" >&2
+if [[ -z "${WS_PATH}" ]]; then
+  echo "[init_isaac_dirs] ERROR: WS_PATH not set in ${env_generated}" >&2
+  echo "[init_isaac_dirs] Regenerate it with: ./script/setup.sh apply" >&2
   exit 1
 fi
 
@@ -85,14 +107,25 @@ if (( ${#root_owned[@]} > 0 )); then
   echo >&2
   echo "[init_isaac_dirs] Container's non-root user cannot write to them. Fix with:" >&2
   echo "  sudo chown -R \"\$(id -u):\$(id -g)\" ${base}" >&2
+  echo "or, without sudo:" >&2
+  echo "  docker run --rm -v \"${base}:/x\" busybox:1 chown -R \"\$(id -u):\$(id -g)\" /x" >&2
   exit 2
 fi
 
 mkdir -p "${dirs[@]}"
 
+# Kit creates documents/Kit/shared/screenshots with mode 000 when it does
+# not exist yet, which later breaks anything that walks the tree (a docker
+# build context, backups). Pre-create it 0755 and repair a mode-000 one.
+screenshots="${base}/documents/Kit/shared/screenshots"
+mkdir -p "${screenshots}"
+chmod 0755 "${screenshots}"
+
 if (( ${#migrated[@]} > 0 )); then
   echo "[init_isaac_dirs] migrated ${#migrated[@]} dirs to new layout:"
   printf '  %s\n' "${migrated[@]}"
 fi
-echo "[init_isaac_dirs] OK — ${#dirs[@]} cache dirs ready under ${base}/"
-echo "[init_isaac_dirs] Next: ./build.sh && ./run.sh"
+if (( ! quiet )); then
+  echo "[init_isaac_dirs] OK — ${#dirs[@]} cache dirs ready under ${base}/"
+  echo "[init_isaac_dirs] Next: just docker build && just docker run"
+fi

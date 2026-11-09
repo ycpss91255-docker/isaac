@@ -1,38 +1,38 @@
-# isaac
+# isaac — workspace
 
-NVIDIA Isaac Sim workspace 内容(scripts、文档、USD/URDF 模型),搭配 [ycpss91255-docker/isaac](https://github.com/ycpss91255-docker/isaac) 使用。
+NVIDIA Isaac Sim workspace 内容（scripts、文档、USD/URDF 模型），属于 `ycpss91255-docker/isaac`。
 
-本 repo 收的是跑在 Isaac Sim Docker 开发环境**内**的可编辑内容(driver scripts、文档、3D 模型);Docker 环境本身以 submodule 的方式挂在 `docker/` 之下。
+本目录收的是运行在 repo 根目录定义的 Isaac Sim Docker 开发环境**内**的可编辑内容（driver scripts、文档、3D 模型）。它以前是独立的 repo `ycpss91255-research/isaac`，以 `docker/` submodule 包着 Docker 环境；两者已依 [#78](https://github.com/ycpss91255-docker/isaac/issues/78) 合并成这一个 repo，research repo 已归档。
 
 **[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
 ## 目录结构
 
 ```
-.
-├── README.md       # 主 README(英文)
+src/
+├── README.md      # 主 README（英文）
 ├── LICENSE
-├── doc/            # 文档、ADR、SOP
-│   ├── readme/     # README 翻译版本
-│   └── adr/        # 架构决策记录(ADR)
-├── script/         # Driver scripts(于 Isaac Sim Kit / standalone Python 内执行)
-├── model/          # 3D 模型
-│   ├── sw/         # SolidWorks 原始档
-│   ├── urdf/       # URDF + mesh
-│   └── usd/        # 自制或转档产生的 USD
-└── docker/         # Submodule:ycpss91255-docker/isaac(Isaac Sim Docker 环境)
+├── config/        # Sensor / scene 配置
+├── doc/           # 文档、ADR、SOP
+│   ├── readme/    # README 翻译版本
+│   └── adr/       # 架构决策记录（ADR）
+├── scene/         # Scene 定义
+├── script/        # Driver scripts（在 Isaac Sim Kit / standalone Python 内执行）
+└── model/         # 3D 模型
+    ├── sw/        # SolidWorks 原始文件
+    ├── urdf/      # URDF + mesh
+    └── usd/       # 自制或转换生成的 USD
 ```
 
 ## 上手
 
-连 submodule 一起 clone:
-
 ```bash
-git clone --recurse-submodules https://github.com/ycpss91255-research/isaac.git
+git clone https://github.com/ycpss91255-docker/isaac.git
+cd isaac
 ```
 
-接着依 `docker/README.md` 启动 Isaac Sim 开发容器。容器跑起来后,本 repo 内容会挂到容器内的 `/home/yunchien/work/src/`。
+接着按 [根目录 README](../../../README.md) 的 Quick Start build 并启动 Isaac Sim 容器。repo 根目录会挂到容器内的 `/home/<你的用户>/work`，也是容器的工作目录，所以本目录在容器内是 `~/work/src/`，script 以 `/isaac-sim/python.sh src/script/<name>.py` 运行。
 
-## 授权
+## 许可
 
 [Apache-2.0](../../LICENSE)
