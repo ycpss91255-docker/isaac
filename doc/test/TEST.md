@@ -1,6 +1,6 @@
 # TEST.md
 
-**130 tests** total.
+**136 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -124,7 +124,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `log_tail: prints the last N lines between markers` | Failure reporting emits a framed, bounded kit log tail. |
 | `log_tail: missing log -> rc 0 and says so (teardown stays safe)` | The failure reporter never itself fails, so teardown still runs. |
 
-## test/bats/smoke/docker_env.bats (4)
+## test/bats/smoke/docker_env.bats (5)
 
 | Test | Description |
 |------|-------------|
@@ -132,6 +132,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `bash is available on PATH` | Shell sanity |
 | `fastdds.xml is baked at /isaac-sim/fastdds.xml and world-readable` | Fast DDS profile (UDPv4-only) shipped by this repo's Dockerfile, content sanity-checked for `useBuiltinTransports=false` |
 | `custom streaming kit experience baked at /isaac-sim/apps/ (issue #21 fix-B)` | The repo's custom streaming `.kit` experience file is baked into `/isaac-sim/apps/` so the stream stage launches it |
+| `devel stage drops the NGC Kit healthcheck (idle containers are not 'unhealthy')` | The NGC base image's HEALTHCHECK greps a Kit log for `App is loaded`. devel / headless / stream / test idle with no Kit by design, so the devel stage (inherited by the others) resets it with `HEALTHCHECK NONE`. |
 
 ## test/bats/smoke/isaac_smoke.bats (11)
 
@@ -164,7 +165,7 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `devel stage ENV ROS_DISTRO is baked (soft)` | Devel interactive shell sees `ROS_DISTRO=humble` from Dockerfile `ENV` |
 | `devel stage ENV LD_LIBRARY_PATH points to baked humble lib` | Same — `ENV LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` interpolated at build time |
 
-## test/bats/smoke/init_isaac_dirs_spec.bats (6)
+## test/bats/smoke/init_isaac_dirs_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -173,7 +174,12 @@ Pass/fail decision logic of the Tier A stream smoke (`script/ci/stream_smoke_lib
 | `second run is idempotent (no error, no double-mkdir noise)` | Re-running does not error or re-create existing dirs |
 | `migration: pre-2026-05-21 layout is auto-moved to new namespaces` | Legacy cache layout is migrated into the namespaced layout |
 | `migration skips when destination already exists (no overwrite)` | Migration does not clobber an existing destination |
-| `missing .env errors with actionable message` | Absent `.env` produces a clear, actionable error |
+| `WS_PATH comes from .env.generated, not the .env overlay` | `WS_PATH` is read from the setup-derived `.env.generated`; a stale `.env` value is ignored. |
+| `no .env.generated yet: runs ./script/setup.sh apply to generate it` | On a fresh clone the script runs `./script/setup.sh apply` first (stubbed here), then creates the dirs. |
+| `no .env.generated and no setup.sh: actionable error, no removed ./build.sh hint` | The error names `./script/setup.sh apply`, not the removed `./build.sh`. |
+| `success hint names just docker, not the removed ./build.sh / ./run.sh` | The next-step hint is `just docker build` / `just docker run`. |
+| `Kit screenshots dir is pre-created writable and a mode-000 one is repaired` | `documents/Kit/shared/screenshots` exists as 0755, and one that Kit created as mode 000 is reset to 0755. |
+| `pre-run hook creates the cache dirs before compose can mount them as root` | The pre-run hook runs the script, so a `just docker run` before init no longer leaves root-owned mount sources. With root-owned sources, Kit failed `kit/cache/ogn_generated` with EACCES, never registered the ROS 2 OmniGraph nodes, and still exited 0. |
 
 ## test/bats/smoke/python_testing.bats (3)
 
@@ -235,6 +241,8 @@ Host-runnable unit tests for the `isaac_devkit` framework pure surface (no Isaac
 | `test_xc_compose_project_isolation.py` | 3 | Hosted guard for the isaac-side root cause of `ycpss91255-docker/omniverse_web_viewer#55`: the cross-container round-trip's default `COMPOSE_PROJECT` is the dedicated `xc-isaac-roundtrip` (not the `${DOCKER_HUB_USER}-${IMAGE_NAME}` stream-stack project, e.g. `yunchien-isaac`), so its project-level teardown can never reach a co-hosted manual `stream` container; asserts the dedicated literal, the isolation intent (distinct from any `${user}-${image}` derivation, which would still coincide), and that the `XC_COMPOSE_PROJECT` env override still wins. Loads the integration module by file path with env cleaned -- pure, no docker/GPU. |
 | `test_render_settings.py` | 13 | Capture-speckle fix (isaac#266): the pure converged-still render recipe in `src/script/viz_render.py`. RTX settings are PER RENDER PRODUCT -- `omni:rtx:*` attributes on the RenderProduct prim -- so the `/rtx/*` carb writes the capture drivers used never reached a live product (the frame came back byte-identical no matter what was changed), and the 6.0 default `RealTimePathTracing` mode is one path-traced sample per pixel with an NGX denoiser the headless container cannot create. Pins the accumulating `PathTracing` mode, the sample budget and its `clampSpp` ceiling (which defaults to 64 and silently caps the budget), the per-key Sdf types, the applier's authored output against a fake stage/prim, and its missing-prim raise -- plus the root cause restated as an assertion: every recipe key must be an `omni:rtx:*` prim attribute, never a `/rtx/*` carb path. Two structural scans over `src/script/` and `test/` stop a second capture path appearing without the recipe and stop the rejected carb render-mode write coming back. Pure -- file reads and a fake stage, no Isaac import. |
 | `test_sim_version.py` | 7 | `isaac_devkit.sim_version.isaac_sim_version` (isaac#295): the Isaac Sim release read from `/isaac-sim/VERSION` (`6.2.0-rc.15+...` -> `6.2.0`, `6.0.1-rc.7+...` -> `6.0.1`, a bare `5.1.0`), `unknown` for an absent or empty file, the default path; plus a structural scan over `src/script/*.py` and `test/verify_*.py` that no script writes `isaac_variant` as a literal (23 said `"6.0.1"` before the 6.2.0 upgrade). Pure -- tmp files and source reads. |
+| `test_standalone_scripts.py` | 28 | The README-listed standalone drivers (`src/script/{ros2_test_pub,ros2_test_sub,move_openbase_planar,cmd_vel_planar}_standalone.py`), from a README-only onboarding run on 6.2.0. Pins the pure helper `src/script/standalone_common.py`: `kit_config` follows `ISAAC_LIVESTREAM`, `openbase_usd_path` is repo-relative and exists, `PeriodicTimer` fires once per wall-clock period whatever the Kit update rate and does not burst after a stall, and `run_and_exit` turns an exception into exit code 1 and passes a return code through. Each script has no `omni.isaac.dynamic_control` import (removed in 6.x), no hard-coded `/home/yunchien`, no module-top Isaac import or `SimulationApp(...)` (a module-top failure bypassed every handler and exited 0), and a `__main__` block that goes through `run_and_exit`. `ros2_test_pub` publishes on a `PeriodicTimer` instead of every 60 ticks (measured 3.5-7.5 Hz against a claimed ~1 Hz), and both planar scripts disable gravity on `base_link`. Pure -- AST parses, file reads, and a fake clock. |
+| `test_repo_config.py` | 2 | Repo-level config found by onboarding. `.dockerignore` keeps the host Isaac Sim cache tree `isaac-sim/` out of the build context; Kit creates `isaac-sim/documents/Kit/shared/screenshots` with mode 000, which made `just docker build` fail with `permission denied` after the first launch. `.setup.conf` `[deploy]` uses `gpu_runtime`, not the deprecated `runtime` that base warns about on every setup. Pure file reads. |
 | `test_onboarding_gate.py` | 13 | M5 onboarding agent-proxy gate precondition (#135): the 4-lang `example/README.{md,zh-TW,zh-CN,ja}` exists, the English README documents the three onboarding tasks (first-topic / URDF swap / in-scope sensor swap), carries the lidar/imu `NotImplementedError` out-of-scope callout, and the URDF + sensor swap surfaces (`example/sim/model/camera_bot.urdf`, `example/sim/config/sensor/custom.yaml`) are present; plus the `test/onboarding/agent_proxy_gate.sh` harness passes its structure precondition (`STRUCTURE PASS`) and its `--audit` mode fails on a tool-call log that reads `framework/isaac_devkit/*` and passes on a clean log. Hosted, no Isaac/GPU/network. |
 
 ## test/integration/pytest/ — GPU integration (pytest, not in the bats count above)

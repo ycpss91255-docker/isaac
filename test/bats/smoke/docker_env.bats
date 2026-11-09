@@ -42,3 +42,13 @@ setup() {
   run grep -q 'omni.kit.livestream.webrtc' /isaac-sim/apps/isaacsim.exp.base.python.streaming.kit
   assert_success
 }
+
+@test "devel stage drops the NGC Kit healthcheck (idle containers are not 'unhealthy')" {
+  # nvcr.io/nvidia/isaac-sim ships a HEALTHCHECK that greps a Kit log for
+  # "App is loaded". devel / headless / stream / test idle with no Kit by
+  # design, and this repo mounts the Kit logs elsewhere, so every container
+  # was reported `unhealthy` forever. The devel stage (inherited by the
+  # others) must reset it.
+  run awk '/^FROM .* AS devel$/{p=1; next} /^FROM /{p=0} p && /^HEALTHCHECK NONE/{found=1} END{exit !found}' /lint/Dockerfile
+  assert_success
+}
