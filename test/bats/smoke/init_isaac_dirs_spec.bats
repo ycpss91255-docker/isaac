@@ -173,3 +173,29 @@ STUB
   test -d "${WS_PATH}/isaac-sim/kit/cache"
   test -d "${WS_PATH}/isaac-sim/documents/Kit/shared/screenshots"
 }
+
+@test "--help / -h print usage and exit 0 without creating anything" {
+  # --help used to be ignored: the script ran setup.sh and made the dirs.
+  rm "${REPO_ROOT}/.env.generated"
+  cat > "${REPO_ROOT}/script/setup.sh" <<STUB
+#!/usr/bin/env bash
+touch "${BATS_TEST_TMPDIR}/setup.called"
+STUB
+  chmod +x "${REPO_ROOT}/script/setup.sh"
+  local _flag
+  for _flag in --help -h; do
+    run "${REPO_ROOT}/script/init_isaac_dirs.sh" "${_flag}"
+    assert_success
+    assert_output --partial "Usage:"
+    assert_output --partial "--quiet"
+  done
+  test ! -e "${BATS_TEST_TMPDIR}/setup.called"
+  test ! -e "${WS_PATH}/isaac-sim"
+}
+
+@test "an unknown option is an error with usage, not a silent run" {
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh" --bogus
+  assert_failure 2
+  assert_output --partial "Usage:"
+  test ! -e "${WS_PATH}/isaac-sim"
+}
