@@ -19,22 +19,30 @@ NGC image（`nvcr.io/nvidia/isaac-sim:6.2.0.1`，即 6.2.0 GA build；为何不�
 
 ## Quick Start
 
-fresh clone 之后，在 repo root 依序执行：
+从刚 clone 下来的 repo 开始，先在 repo root 跑这两个首次步骤：
 
 ```bash
-./script/checkout_identity.sh isolate   # first time only — gives this checkout its own image tag + compose project
-./script/init_isaac_dirs.sh             # first time only — runs ./script/setup.sh apply, creates the 10 host-owned cache dirs
-just docker build                       # builds the devel stage (~31 GB image, see Prerequisites)
-just docker run                         # interactive shell in the devel container
+./script/checkout_identity.sh isolate   # 首次必跑，让这个 checkout 有自己的 image tag 与 compose project
+./script/init_isaac_dirs.sh             # 首次必跑，会执行 ./script/setup.sh apply，并建好 10 个 host-owned cache 目录
 ```
 
 > cache 目录必须在容器 mount 之**前**就存在且 owner 是你。否则 docker daemon 会以 **root** 身份创建它们，Kit 就无法写入自己的 cache，进而无法注册 ROS 2 OmniGraph node（`[Errno 13] ... kit/cache/ogn_generated`），而且照样 exit 0。`init_isaac_dirs.sh` 负责创建这些目录，pre-run hook 也会在每次 `just docker run` 之前再跑一次。如果目录已经是 root 所有，脚本会停下来并打印 `chown` 修复指令。
 
+接着**只选一条**路径。各 stage 相互独立：只 build 你要跑的那个 stage。走 headless 路径之前**不需要**先 build devel。
+
+| 你想要 | Build | Run |
+|---|---|---|
+| 跑一个场景并看它的 ROS 2 topic（建议从这里开始） | `just docker build -t headless` | `just docker run -t headless -d`，接着看下方「Headless：启动 Isaac 并跑一个场景」 |
+| 一个用来开发的交互 shell | `just docker build`（devel） | `just docker run` |
+| 通过 WebRTC 看仿真画面 | `just docker build -t stream` | `just docker run -t stream -d`，接着看「连接 WebRTC livestream」 |
+
+冷启动的第一次 build 大约要一小时：先 pull 20.7 GB 的 NGC base image，再安装 Isaac Lab。GitHub-hosted CI 的 build 花了 45 到 84 分钟（[45 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42550974606/job/128946327237)、[58 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42545601510/job/128929863953)、[84 分](https://github.com/ycpss91255-docker/isaac/actions/runs/42491566385/job/128764928999)）。之后的 build 会复用 layer cache，其他 stage 也共用这些 layer，所以 build 第二个 stage 只要几秒到几分钟。
+
 Production stage（两个 stage 启动后都 idle — driver 脚本用 exec 送进运行中的 container）：
 
 ```bash
-just docker run -t headless -d                # pure sim, no streaming (ISAAC_LIVESTREAM=0)
-just docker run -t stream -d         # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
+just docker run -t headless -d                             # pure sim, no streaming (ISAAC_LIVESTREAM=0)
+just docker run -t stream -d                               # sim + WebRTC streaming (ISAAC_LIVESTREAM=2)
 just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
@@ -48,15 +56,27 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 just docker build -t headless
 just docker run -t headless -d
 ./script/exec.sh -t headless bash -c \
-  'echo $$ > /tmp/isaac-driver.pid; EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
+  'echo $$ > /tmp/isaac-driver.pid; ROS_DOMAIN_ID=77 EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
 # prints [CAMERA GRAPH OK] and [BOOT OK] in about 30 s
 
-# In a second terminal: the camera topic, from a sibling ROS 2 container
-docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble bash -c \
+# In a second terminal: the camera topic, from a sibling ROS 2 container on the same domain
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
   'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw sensor_msgs/msg/Image --field header'
 # frame_id: camera_bot_camera_color_optical_frame
 
 just docker stop
+```
+
+示例刻意跑在私有 ROS domain（`77`）上。共用的 host 可能有其他 `/cmd_vel` publisher 在默认的 domain 0，它们也会驱动这台机器人。任选一个没人用的 domain（0 到 101），两端用同一个 `ROS_DOMAIN_ID`。
+
+**第一次启动时，camera topic 大约会在 `[BOOT OK]` 之后 2 分钟才出现。** camera publisher 要等第一个 frame render 完才会出现，而 cache 为空时 renderer 要先编译 shader。在一次冷启动中，topic 在 `[BOOT OK]` 之后 1 分 52 秒出现，`ros2 topic echo --once` 再过 2 秒返回。用那次留下的 cache 再跑，topic 在 `[BOOT OK]` 之后 3 秒内就在。等待的不是 DDS discovery：Isaac 在发布时，新开的 sibling container 立刻就能看到 topic。想要看它何时出现、而不是干等 `echo`：
+
+```bash
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=77 ros:humble bash -c \
+  'source /opt/ros/humble/setup.bash &&
+   until ros2 topic list | grep -q image_raw; do sleep 1; done &&
+   ros2 topic hz /camera_bot/camera/color/image_raw'
+# average rate: ~30
 ```
 
 不设 `EXAMPLE_TICK_BUDGET` 的话，driver 会在 1800 次 update（headless 下约 2 分钟）后自行停止并打印 `[EXIT CLEAN]`。Kit 会把 session log 写到 host 端的 `isaac-sim/kit/logs/Kit/<app>/<version>/kit_<timestamp>.log`。追最新一份：
@@ -68,6 +88,13 @@ tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
 对容器跑 `docker logs` 只会看到它 idle 的 main process（`sleep infinity`），看不到你 exec 进去的脚本。
 
 > 带引号 `bash -c '...'` 的指令改走 `./script/exec.sh`，不走 `just docker exec`。在 base v0.42.0 中，`just` recipe 会重新切分参数，导致带引号的指令以及任何 `>` 都在 host 上执行。base 已在 v0.43.0-rc5 修正（base PR #1298），而本 repo 仍 pin 在 v0.42.0（#297）。
+
+### 可以忽略的启动警告
+
+Kit 每次启动都会打印几种不影响运行的警告：
+
+- `OmniHub: ... Hub encountered error. Trying to reconnect to Hub. retry_reason="Hub failed to launch: ..."`，前 2 秒大约 40 行。OmniHub 是 Nucleus asset 的可选本地 cache 服务。它的 helper（`/usr/local/bin/hub`）在 container 内以 `Permission denied` 退出，所以 Kit 直接加载 asset。这里的示例只用本地文件。
+- `Extensions config 'extension.toml' doesn't exist '/home/<user>/work/<dir>'`，repo 每个顶层目录一行（约 15 行）。这来自本修正之前 build 的 image：experience 文件的 `extsUser` extension 目录不在 image 里，container user 又无法创建它，Kit 就改去工作目录找 extension。现在 image 会创建这个目录。如果还看到这些警告，用 `just docker build -t <stage>` 重新 build 该 stage。
 
 ### 停止 driver 脚本
 
@@ -86,6 +113,7 @@ tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
 - `./script/checkout_identity.sh isolate` 会把 `[image] rule_1 = string:isaac-<dir>-<hash>` 写进 gitignored 的 `.setup.conf.local`。image tag、compose project 与 container 名称都跟着它走。`./script/checkout_identity.sh show` 会打印这个 checkout 解析出的名称。
 - pre build / run / stop hook 会拒绝对共用名称操作。`ISAAC_ALLOW_SHARED_IDENTITY=1` 可以跳过；CI 的 build 步骤就是这样用。
 - `just docker run` 不会重新 build 已存在的 image（base#1552）。pull 新变更后，先 `just docker build -t <stage>` 再 `just docker run -t <stage>`。
+- 有一个 image 仍然共用：每次 build 也会 build lint/bats 工具 image `test-tools:<base 版本>`（目前是 `test-tools:v0.42.0`），名称只由 pin 住的 base 版本决定。host 上所有 pin 同一个 base 版本的 checkout 与 repo 都写同一个 tag，所以别的 checkout 可能正在 build 时不要删它。`just docker build --clean-tools` 会替所有人把它删掉。它来自 base 的 `build.sh`，上游追踪在 [base#1551](https://github.com/ycpss91255-docker/base/issues/1551)。
 - isolate 之前启动的 container 还留在共用 project 里。用 `docker compose -p <hub>-isaac ps -a` 列出，按名称停掉自己的。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` 会停掉整个共用 project，包含别的 checkout 的 container。
 
 ## 连接 WebRTC livestream
@@ -314,9 +342,9 @@ just docker stop                           # cleanup
 用法：
 
 ```bash
-just docker build -t devel-test                                     # 构建 devel-test 阶段
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest test/unit/
-just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
+just docker build -t test                                                 # 构建 devel-test 阶段 (compose service `test`)
+just docker run -t test -- /isaac-sim/python.sh -m pytest test/unit/
+just docker run -t test -- /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 ```
 
 系统的 `python3` 无法安装这些套件（Isaac base image 的 PEP 668 拦截 `pip`）— 一律走 `/isaac-sim/python.sh -m pytest ...`，不要用 `pytest ...`。
