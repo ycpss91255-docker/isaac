@@ -13,20 +13,22 @@ Image scope 涵盖 Isaac Sim 本体，加上让其内建 ROS 2 bridge 跨容器�
 - NVIDIA driver `>= 580`（Isaac Lab 3.0 会装 CUDA 13 版 PyTorch；NVIDIA 以 595.58.03 测过 Isaac Sim 6.2.0；本 repo 已在 driver 610 验证）
 - GPU `>= RTX 4080`（或同级），VRAM `>= 16 GB`
 - Docker + nvidia-container-toolkit
-- 约 20 GB 空闲空间给 NGC image；首次启动后 cache 再增长 5–10 GB
+- 约 50 GB 空闲空间。build 出来的 image 约 31 GB，其中 20.7 GB 是 NGC base image，约 10 GB 是 Isaac Lab 与工具链；其他 stage 共用这些 layer。build 时还需要预留 BuildKit cache 的空间，首次启动后 cache 目录再增长 5–10 GB
 
 NGC image（`nvcr.io/nvidia/isaac-sim:6.2.0.1`，即 6.2.0 GA build；为何不用 `:6.2.0` 见 `Dockerfile` `BASE_IMAGE` 注释）公开可拉，无需 `docker login nvcr.io`。
 
 ## Quick Start
 
-> **首次必跑：** `just docker build` **之前**先跑 `./script/init_isaac_dirs.sh`。没跑的话 docker daemon 会以 **root** 身份 mkdir cache mount 点，导致容器内非 root user 无法写入，Isaac Sim 启动失败。
+fresh clone 之后，在 repo root 依序执行：
 
 ```bash
-./script/checkout_identity.sh isolate   # 首次必跑，让这个 checkout 有自己的 image tag 与 compose project
-./script/init_isaac_dirs.sh   # 首次必跑，创建 8 个 host-owned cache 目录
-just docker build                    # build devel stage（约 16 GB image）
-just docker run                      # 进 devel 容器互动 shell
+./script/checkout_identity.sh isolate   # first time only — gives this checkout its own image tag + compose project
+./script/init_isaac_dirs.sh             # first time only — runs ./script/setup.sh apply, creates the 10 host-owned cache dirs
+just docker build                       # builds the devel stage (~31 GB image, see Prerequisites)
+just docker run                         # interactive shell in the devel container
 ```
+
+> cache 目录必须在容器 mount 之**前**就存在且 owner 是你。否则 docker daemon 会以 **root** 身份创建它们，Kit 就无法写入自己的 cache，进而无法注册 ROS 2 OmniGraph node（`[Errno 13] ... kit/cache/ogn_generated`），而且照样 exit 0。`init_isaac_dirs.sh` 负责创建这些目录，pre-run hook 也会在每次 `just docker run` 之前再跑一次。如果目录已经是 root 所有，脚本会停下来并打印 `chown` 修复指令。
 
 Production stage（两个 stage 启动后都 idle — driver 脚本用 exec 送进运行中的 container）：
 
@@ -37,6 +39,45 @@ just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
 > 两个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。两者启动后都 `CMD ["sleep","infinity"]` idle（没有 `runheadless.sh -v` ENTRYPOINT）— container 持续存活，由你用 `just docker exec -t <stage> <cmd>` 把 driver 脚本（`/isaac-sim/python.sh <driver.py>`，读 `ISAAC_LIVESTREAM=2` 开 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送进去；streaming 起来后 web-viewer 连 `:5173`。使用 `just docker run -t <stage> -d` 启动。
+
+### Headless：启动 Isaac 并跑一个场景
+
+`example/` 的 camera_bot 场景以 headless 运行，发布一个 ROS 2 camera topic 并订阅 `/cmd_vel`。容器的工作目录是 repo root（mount 在 `~/work`），所以脚本路径都相对于 repo。以下流程已在 Isaac Sim 6.2.0（RTX 5090）验证：
+
+```bash
+just docker build -t headless
+just docker run -t headless -d
+./script/exec.sh -t headless bash -c \
+  'echo $$ > /tmp/isaac-driver.pid; EXAMPLE_TICK_BUDGET=100000 exec /isaac-sim/python.sh example/sim/example_driver.py'
+# prints [CAMERA GRAPH OK] and [BOOT OK] in about 30 s
+
+# In a second terminal: the camera topic, from a sibling ROS 2 container
+docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble bash -c \
+  'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw --field header'
+# frame_id: camera_bot_camera_color_optical_frame
+
+just docker stop
+```
+
+不设 `EXAMPLE_TICK_BUDGET` 的话，driver 会在 1800 次 update（headless 下约 2 分钟）后自行停止并打印 `[EXIT CLEAN]`。Kit 会把 session log 写到 host 端的 `isaac-sim/kit/logs/Kit/<app>/<version>/kit_<timestamp>.log`。追最新一份：
+
+```bash
+tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
+```
+
+对容器跑 `docker logs` 只会看到它 idle 的 main process（`sleep infinity`），看不到你 exec 进去的脚本。
+
+> 带引号 `bash -c '...'` 的指令改走 `./script/exec.sh`，不走 `just docker exec`。在 base v0.42.0 中，`just` recipe 会重新切分参数，导致带引号的指令以及任何 `>` 都在 host 上执行。base 已在 v0.43.0-rc5 修正（base PR #1298），而本 repo 仍 pin 在 v0.42.0（#297）。
+
+### 停止 driver 脚本
+
+在互动式 `just docker exec` 中按 Ctrl+C 会送到脚本，脚本的 SIGINT handler 随即关闭 Kit。但如果 exec client 不是 TTY，或者 client 被杀掉（关掉 terminal、`timeout`、CI），信号就到不了脚本，**Kit 会继续在容器里运行**。要可靠地停止，请在启动脚本时记录 PID，如上面范例用 `echo $$ > /tmp/isaac-driver.pid` 那样。然后对该进程的子进程（即 `python.sh` 启动的 Python）送 SIGINT：
+
+```bash
+./script/exec.sh -t headless bash -c 'pkill -INT -P "$(cat /tmp/isaac-driver.pid)"'
+```
+
+不要直接用 `pkill -f <script>`。容器以 `pid: host` 运行，这个 pattern 也会匹配到 host 与其他容器里的进程。若要全部停掉，`just docker stop` 会移除这个 checkout 的容器，连同里面运行的 Kit 一起。
 
 ### 每个 checkout 一个 image 与一个 compose project
 
@@ -75,8 +116,9 @@ just docker exec -t stream /isaac-sim/python.sh <driver.py>
 # ...或者，no-driver 快速 stream，用 livestream wrapper：
 #   just docker exec -t stream /usr/local/bin/runheadless-host-config.sh
 
-# 看 Isaac Sim 载入
-docker logs -f $(. .env && echo "${USER_NAME}-${IMAGE_NAME}-stream")
+# Watch Isaac Sim load: Kit's session log on the host (docker logs only
+# shows the container's idle main process)
+tail -f "$(ls -t isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1)"
 
 # 打开 Chrome -> http://<host-ip>:5173
 # 直接进入实时串流（stream-only 自动启动，不显示 UI Option 选择界面）
@@ -93,7 +135,7 @@ post-run hook 同时也把 `network.public_ip` 当 `SIGNALING_SERVER` env 传给
 
 注意：
 
-- streaming kit app 同时 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）、`49100`（self-host WebRTC）与 `8211`（kit API / streaming viewer）。1.1.5 client 会自己选对的，**不要写 port**
+- streaming kit app 同时 listen 在 `8011`（NVCF signaling，FastAPI/uvicorn）、`49100`（self-host WebRTC）与 `8211`（kit API / streaming viewer）。WebRTC Streaming Client 会自己选对的，**不要写 port**
 - **同时只能一个 client 连**（NVIDIA 限制）。第二个连接会被拒绝
 - `setup.conf` 已开 `network_mode: host`，容器内 listen 的 port = host 的 port。Host 防火墙要放行 `8011/tcp` 跟 `49100/tcp`（`sudo ufw allow 8011/tcp && sudo ufw allow 49100/tcp`）
 - `setup.conf [deploy] gpu_capabilities` 必须含 `video` — 否则 nvidia-container-runtime 不 mount NVENC libs（`libnvidia-encode.so` / `libnvcuvid.so`），server 连得上但画面 encode 不出来 → 黑画面。当前 `setup.conf` 已加
@@ -116,10 +158,12 @@ post-run hook 同时也把 `network.public_ip` 当 `SIGNALING_SERVER` env 传给
 docker run --rm --network=host --gpus all \
   -e PUBLIC_IP=<host-lan-ip> \
   -e ISAAC_SIGNAL_PORT=49100 \
-  ghcr.io/ycpss91255-docker/isaac-stream-source:0.0.1
+  ghcr.io/ycpss91255-docker/isaac-stream-source:0.0.2
 
 # 然后用浏览器 / omniverse_web_viewer 连 <host-lan-ip>（见上）。
 ```
+
+目前还没有从 Isaac Sim 6.2.0 发布的 producer image。最新的是 `0.0.2`，建在 6.0.1 上，所以下表到此为止。发布方式是手动对 publish workflow 做 `workflow_dispatch`，表格会依 image 本身的 label 更新。
 
 ### 版本与 Isaac Sim 对应
 
@@ -160,7 +204,7 @@ Env wiring 写在 `setup.conf [environment]`（distro-agnostic）：
 
 ### Distro 选择（build-time、hard-baked）
 
-Dockerfile 内 `ARG ROS_DISTRO=humble`，由 `setup.conf [build]` 串进来。Build time 时该值写入 `/etc/isaac/ros-distro`，并把 `script/isaac-ros-env-wrapper.sh` 装到 `/usr/local/bin/`。`headless` / `stream` stage 把 `ENTRYPOINT` 设成该 wrapper，每次 container 起来都从 baked file 无条件 re-export `ROS_DISTRO` 与 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/${ROS_DISTRO}/lib` — 因此 production path 上 runtime 的 `-e ROS_DISTRO=...` flag 不会生效。
+Dockerfile 内 `ARG ROS_DISTRO=humble`，由 `setup.conf [build]` 串进来。Build time 时该值写入 `/etc/isaac/ros-distro`，并把 `script/isaac-ros-env-wrapper.sh` 装到 `/usr/local/bin/`。`headless` / `stream` stage 把 `ENTRYPOINT` 设成该 wrapper，每次 container 起来都从 baked file 无条件 re-export `ROS_DISTRO` 与 `LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/${ROS_DISTRO}/lib` — 因此 production path 上 runtime 的 `-e ROS_DISTRO=...` flag 不会生效。
 
 `devel` stage 透过 Dockerfile `ENV` 做 soft-bake（互动 shell 默认带这两个值；developer 可 `export ROS_DISTRO=...` 临时实验）。
 
@@ -173,11 +217,11 @@ just docker build           # 用新 ARG 重 build（只重 build 受影响 laye
 just docker run -t headless -d
 ```
 
-jazzy path 与 Isaac 在 24.04 上的 auto-default 对齐（LTS until 2029）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中，预期 Isaac Sim 6.0 修平。
+jazzy path 与 Isaac 在 24.04 上的 auto-default 对齐（LTS until 2029）— 已知坑：jazzy on noble 有 Python 3.11/3.12 混用与 Nav2 path 粗糙问题，仍在 NVIDIA 论坛追踪中。本 repo 尚未在 Isaac Sim 6.2.0 上重新验证 jazzy path；humble 是已验证的默认值。
 
 ### 验证 cross-container DDS
 
-跑 `just docker run -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `isaac_ws/src/script/ros2_test_pub.py` → Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
+跑 `just docker run -t headless -d`（已带 humble override env）并用 WebRTC client 连上后，开 Script Editor → File → Open → `~/work/src/script/ros2_test_pub.py`（即 repo 的 `src/script/`，mount 在容器内的位置）→ Run。脚本会自动按 Play（publisher 只在 timeline 播放时触发），开始在 `/isaac/test` 发布 `std_msgs/String "hello N"`。
 
 在同一 host 另一个 terminal：
 
@@ -204,30 +248,31 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`isaac_ws/src/script/` 同时放 in-kit Script Editor 版本与 standalone 版本（透过 `SimulationApp({"livestream": 2})` 启自己的 kit）。standalone 走 `just docker run -t stream` + `just docker exec -t stream /isaac-sim/python.sh <script>` — Ctrl+C 透过 SIGINT handler 干净退出，不需要 Script Editor UI。
+`src/script/` 放有 M1 / M2 demo 的 in-kit Script Editor 版本与 standalone 版本。standalone 版本透过 `SimulationApp` 启动自己的 Kit，并依 stage 的 `ISAAC_LIVESTREAM` 决定模式（`headless` 为 0，`stream` 为 2）。`cmd_vel_planar_standalone.py` 一律以 headless 跑 Kit，因为在同一个 standalone process 里同时开 livestream 与 ROS 2 bridge 曾让 Kit crash（IsaacSim#228）。每个 standalone 脚本都接受 `--run-seconds N`，遇到任何错误都 exit 1（以前是 exit 0）。
 
-| In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t stream /isaac-sim/python.sh <path>`） |
-|---|---|
-| `ros2_test_pub.py` | `ros2_test_pub_standalone.py` |
-| `ros2_test_sub.py` | `ros2_test_sub_standalone.py` |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py` |
-| （无 in-kit 版本） | `cmd_vel_planar_standalone.py` — 订阅 `/cmd_vel` (geometry_msgs/Twist) → OpenBase 平面移动 |
+| In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 验证结果（headless） |
+|---|---|---|
+| `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒在 `/isaac/test` 发布一次 | `ros2 topic hz` 1.000 |
+| `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：打印每则 `/host/test` 讯息 | 3/3 收到 |
+| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：固定 `CMD_VX/VY/WZ` 平面移动 | x +0.5 m/s，z 维持 0 |
+| （无 in-kit 版本） | `cmd_vel_planar_standalone.py`：订阅 `/cmd_vel`（geometry_msgs/Twist）并让 OpenBase 在平面上移动 | 0 指令时静止，`linear.x: 0.5` 时 x +0.5 m/s，z 维持 0 |
 
 使用 pattern：
 
 ```bash
-just docker run -t stream -d   # idle kit 容器（没 runheadless ENTRYPOINT）
-just docker exec -t stream /isaac-sim/python.sh /home/yunchien/work/src/script/<name>_standalone.py
-# Browser: localhost:8211/streaming/webrtc-client 看 stage
-# 在 exec session 按 Ctrl+C 干净杀 script，容器仍 idle
-just docker stop                      # 收尾
+just docker run -t headless -d
+./script/exec.sh -t headless bash -c \
+  'echo $$ > /tmp/isaac-driver.pid; exec /isaac-sim/python.sh src/script/<name>_standalone.py'
+# stop it (see "Stopping a driver script"):
+./script/exec.sh -t headless bash -c 'pkill -INT -P "$(cat /tmp/isaac-driver.pid)"'
+just docker stop                           # cleanup
 ```
 
-`headless` 与 `stream` stage 每次只能跑一个 kit process — 两个都 bind WebRTC port 8211。每次选一个。
+共用的 host 上，ROS domain 0 可能有其他 `/cmd_vel` publisher，它们也会让 OpenBase 移动。给你的 run 一个私有 domain，例如 `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'`，相邻容器也要带同样的 `-e ROS_DOMAIN_ID=77`。
 
 ## Cache 路径
 
-所有 Isaac Sim runtime state 都持久化在 host 端的 `${WS_PATH}/isaac-sim/`（即 `isaac_ws/isaac-sim/`）：
+所有 Isaac Sim runtime state 都持久化在 host 端的 `${WS_PATH}/isaac-sim/`。`WS_PATH` 解析为 repo root，所以就是你 checkout 里的 `isaac-sim/`。该目录已 gitignored，并由 `.dockerignore` 排除在 docker build context 之外：
 
 | Host | Container | 用途 |
 |------|-----------|------|
@@ -243,6 +288,10 @@ just docker stop                      # 收尾
 | `isaac-sim/documents` | `/home/${USER_NAME}/Documents` | User Documents（USD scenes 等）|
 
 2026-05-21 以前的 layout（`cache/{kit,ov,pip,glcache,computecache}`、flat `logs/`、flat `data/`)会在升版后第一次跑 `./script/init_isaac_dirs.sh` 自动 migrate 到新的 namespaced path(issue #21 fix-A）。已累积的 shader / pip / compute cache 透过 mv 保留。
+
+当 `isaac-sim/documents/Kit/shared/screenshots` 尚不存在时，Kit 会以 mode 000 创建它。`init_isaac_dirs.sh` 会预先以 0755 创建，并修复已是 mode 000 的目录。
+
+容器不回报 health status（`HEALTHCHECK NONE`）。NGC base image 的 check 会在 Kit log 里 grep `App is loaded`，但这些容器按设计是没有 Kit 的 idle 状态，所以每一个都会被标成 `unhealthy`。
 
 首次 headless 启动需 1–3 分钟编译 shader；之后启动 cache hit `< 30 秒`。
 
@@ -275,7 +324,7 @@ just docker exec -t devel-test /isaac-sim/python.sh -m pytest --cov=<pkg> test/
 GPU integration test（需要 Isaac Sim 真正启动，例如 camera → ROS 2 headless smoke，#127）走 `test` compose service；该 service 的 NVIDIA GPU reservation 来自 `setup.conf` 的 `[stage:devel-test]` override（`deploy.gpu_mode = force`，base #493）：
 
 ```bash
-./script/run.sh -t test -- /isaac-sim/python.sh -m pytest \
+just docker run -t test -- /isaac-sim/python.sh -m pytest \
     test/integration/pytest/test_camera_ros2_headless.py
 ```
 

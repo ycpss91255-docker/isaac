@@ -184,7 +184,20 @@
 #   labelled every 6.2.0 re-validation result 6.0.1. test_import_safety.py
 #   gains the new module (+1). Pure -- tmp files and source reads. Live count
 #   is now 358 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 358
+#
+#   README-only onboarding fixes (6.2.0): adds 30 hosted unit tests.
+#   test_standalone_scripts.py (28) pins the pure helper
+#   src/script/standalone_common.py (kit_config follows ISAAC_LIVESTREAM,
+#   repo-relative OpenBase USD path, a wall-clock PeriodicTimer that does
+#   not burst after a stall, run_and_exit turning an exception into exit
+#   code 1) and, for each of the four README-listed standalone scripts, no
+#   removed omni.isaac.dynamic_control, no hard-coded /home/yunchien, no
+#   module-top Isaac import or SimulationApp, and a run_and_exit __main__;
+#   plus the 1 Hz publisher timer and the base_link gravity fix.
+#   test_repo_config.py (2): .dockerignore keeps isaac-sim/ out of the
+#   build context, and .setup.conf [deploy] uses gpu_runtime. Pure -- AST,
+#   file reads and a fake clock. Live count is now 388 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 388
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

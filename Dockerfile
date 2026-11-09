@@ -354,6 +354,14 @@ WORKDIR "${HOME}/work"
 
 EXPOSE 22
 
+# [isaac] The NGC base image ships a HEALTHCHECK that greps a Kit log under
+# /isaac-sim/.nvidia-omniverse/logs/Kit for "App is loaded". devel and the
+# stages built on it (headless / stream / test) idle with no Kit by design
+# and mount the Kit logs elsewhere, so every container reported
+# `unhealthy` forever. Health is not meaningful for an idle shell; Kit's
+# state is in its log.
+HEALTHCHECK NONE
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 

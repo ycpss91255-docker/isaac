@@ -107,8 +107,8 @@ def test_periodic_timer_fires_once_per_period_regardless_of_tick_rate():
     now = [100.0]
     timer = helper.PeriodicTimer(1.0, clock=lambda: now[0])
     fired = 0
-    # 600 updates/s for 3 s: a tick-count gate (every 60) would fire 30x.
-    for _ in range(1800):
+    # 600 updates/s for 3.5 s: a tick-count gate (every 60) would fire 35x.
+    for _ in range(2100):
         now[0] += 1.0 / 600.0
         if timer.due():
             fired += 1
@@ -208,4 +208,6 @@ def test_ros2_test_pub_publishes_on_a_wall_clock_period():
 )
 def test_planar_scripts_disable_gravity_on_base_link(name):
     source = (_SCRIPT_DIR / name).read_text(encoding="utf-8")
-    assert "GetDisableGravityAttr().Set(True)" in source
+    assert "standalone_common.setup_openbase_stage(" in source
+    helper = _HELPER.read_text(encoding="utf-8")
+    assert ".GetDisableGravityAttr().Set(True)" in helper
