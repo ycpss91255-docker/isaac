@@ -17,3 +17,9 @@ isaac_ws/
 .setup.conf.local
 log/
 /deploy/
+
+# Host-side Isaac Sim cache tree (bind-mount sources under WS_PATH = the
+# repo root). GBs once Kit has run, and Kit creates
+# documents/Kit/shared/screenshots with mode 000, which fails the build
+# context with "permission denied".
+isaac-sim/

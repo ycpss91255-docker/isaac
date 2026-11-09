@@ -21,11 +21,12 @@ setup() {
   WS_PATH="${BATS_TEST_TMPDIR}/ws"
   mkdir -p "${REPO_ROOT}/script" "${WS_PATH}"
 
-  # Copy the script + write a fake .env one level up (matches script's
-  # `${script_dir}/.env` expectation where script_dir = dirname/..).
+  # Copy the script + write the setup-derived cache one level up. base
+  # v0.42.0 writes WS_PATH to .env.generated; .env is only the hand-edited
+  # workload overlay and carries no WS_PATH.
   cp "${SCRIPT_UNDER_TEST}" "${REPO_ROOT}/script/init_isaac_dirs.sh"
   chmod +x "${REPO_ROOT}/script/init_isaac_dirs.sh"
-  printf 'WS_PATH=%s\n' "${WS_PATH}" > "${REPO_ROOT}/.env"
+  printf 'WS_PATH=%s\n' "${WS_PATH}" > "${REPO_ROOT}/.env.generated"
 }
 
 @test "script-under-test is baked into the test stage" {
@@ -105,10 +106,70 @@ setup() {
   test -d "${base}/cache/kit"
 }
 
-@test "missing .env errors with actionable message" {
-  rm "${REPO_ROOT}/.env"
+@test "WS_PATH comes from .env.generated, not the .env overlay" {
+  # A fresh checkout's .env is the workload overlay; it has no WS_PATH, and
+  # a stale one must not win over the resolved cache.
+  printf 'WS_PATH=%s\n' "${BATS_TEST_TMPDIR}/wrong" > "${REPO_ROOT}/.env"
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh"
+  assert_success
+  test -d "${WS_PATH}/isaac-sim/kit/cache"
+  test ! -e "${BATS_TEST_TMPDIR}/wrong/isaac-sim"
+}
+
+@test "no .env.generated yet: runs ./script/setup.sh apply to generate it" {
+  rm "${REPO_ROOT}/.env.generated"
+  # Stub of the base setup wrapper: records the call, writes the cache.
+  cat > "${REPO_ROOT}/script/setup.sh" <<STUB
+#!/usr/bin/env bash
+echo "\$*" > "${BATS_TEST_TMPDIR}/setup.args"
+printf 'WS_PATH=%s\n' "${WS_PATH}" > "${REPO_ROOT}/.env.generated"
+STUB
+  chmod +x "${REPO_ROOT}/script/setup.sh"
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/setup.args"
+  assert_output "apply"
+  test -d "${WS_PATH}/isaac-sim/documents"
+}
+
+@test "no .env.generated and no setup.sh: actionable error, no removed ./build.sh hint" {
+  rm "${REPO_ROOT}/.env.generated"
   run "${REPO_ROOT}/script/init_isaac_dirs.sh"
   assert_failure
-  run grep -q ".env not found" <<<"${output}"
+  assert_output --partial "setup.sh apply"
+  refute_output --partial "./build.sh"
+}
+
+@test "success hint names just docker, not the removed ./build.sh / ./run.sh" {
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh"
   assert_success
+  assert_output --partial "just docker build"
+  refute_output --partial "./build.sh"
+  refute_output --partial "./run.sh"
+}
+
+@test "Kit screenshots dir is pre-created writable and a mode-000 one is repaired" {
+  local _shots="${WS_PATH}/isaac-sim/documents/Kit/shared/screenshots"
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh"
+  assert_success
+  test -d "${_shots}" && test -w "${_shots}" && test -x "${_shots}"
+  # Kit creates this dir with mode 000 when it does not exist yet.
+  chmod 000 "${_shots}"
+  run "${REPO_ROOT}/script/init_isaac_dirs.sh"
+  assert_success
+  run stat -c '%a' "${_shots}"
+  assert_output "755"
+}
+
+@test "pre-run hook creates the cache dirs before compose can mount them as root" {
+  # `just docker run` before init used to let the daemon mkdir the mount
+  # sources as root, and Kit then failed to register the ROS 2 OmniGraph
+  # nodes ([Errno 13] .../kit/cache/ogn_generated) while still exiting 0.
+  printf 'WS_PATH=%s\nIMAGE_NAME=isaac-wt-1a2b3c\nPROJECT_NAME=alice-isaac-wt-1a2b3c\nDOCKER_HUB_USER=alice\n' \
+    "${WS_PATH}" > "${REPO_ROOT}/.env.generated"
+  FILE_PATH="${REPO_ROOT}" ISAAC_IDENTITY_LIB="${BATS_TEST_DIRNAME}/checkout_identity.sh" \
+    run "${BATS_TEST_DIRNAME}/pre_run_hook.sh" -t headless -d
+  assert_success
+  test -d "${WS_PATH}/isaac-sim/kit/cache"
+  test -d "${WS_PATH}/isaac-sim/documents/Kit/shared/screenshots"
 }

@@ -1,21 +1,24 @@
-"""ROS 2 bridge smoke (subscriber side) — SimulationApp standalone.
+"""ROS 2 bridge smoke (subscriber side) -- standalone SimulationApp.
 
 Subscribes to /host/test (std_msgs/String) and prints each received
 message. Same behaviour as the in-kit Script Editor variant
-(ros2_test_sub.py), but driven by SimulationApp + a main while-loop so
-it can be launched directly from python.sh without the Script Editor.
+(ros2_test_sub.py), but driven by SimulationApp + a main loop so it can be
+launched directly from python.sh.
 
-The bridge extension auto-loads via isaacsim.exp.full's [settings]
-block, so `import rclpy` resolves to Isaac's bundled Python 3.11 rclpy
-without sourcing external ROS 2.
+Kit follows the container's ISAAC_LIVESTREAM (0 in the `headless` stage,
+2 = WebRTC in the `stream` stage).
 
-用法 (容器內):
-    ./exec.sh -t standalone /isaac-sim/python.sh \\
-        /home/yunchien/work/src/script/ros2_test_sub_standalone.py
+Usage (the container's working directory is the repo root, ~/work):
 
-Ctrl+C 乾淨退出。
+    just docker run -t headless -d
+    just docker exec -t headless /isaac-sim/python.sh \\
+        src/script/ros2_test_sub_standalone.py [--run-seconds N]
 
-Drive a message from a sibling docker container:
+Stop: SIGINT / SIGTERM to the Python process (README "Stopping a
+standalone script"), or --run-seconds N. Exit code 0 on a clean stop,
+1 on any error.
+
+Drive a message from a sibling container:
 
     docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \\
         bash -c 'source /opt/ros/humble/setup.bash &&
@@ -23,63 +26,59 @@ Drive a message from a sibling docker container:
                      "{data: hello-from-host}" --once'
 """
 
+import argparse
+import os
 import signal
 import sys
+import time
+from pathlib import Path
 
-# SimulationApp must be the first instantiation — all kit / omni / rclpy
-# imports must come AFTER, otherwise modules resolve before kit's plugin
-# manager registers them and binding errors result.
-from isaacsim import SimulationApp
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import standalone_common  # noqa: E402
 
+NODE_NAME = "isaac_test_sub"
+TOPIC = "/host/test"
 
-# livestream=2 → WebRTC streaming (Isaac Sim 5.1 default streaming proto);
-# headless=False keeps the renderer alive so WebRTC client can connect to
-# localhost:8211/streaming/webrtc-client.
-APP = SimulationApp({
-    "headless": False,
-    "livestream": 2,
-    "renderer": "RaytracedLighting",
-})
-
-# SimulationApp installs its own SIGINT handler that swallows Ctrl+C, so
-# Python's KeyboardInterrupt never fires from the main while-loop.
-# Override with our own flag-setting handler AFTER SimulationApp init —
-# the main loop checks _SHOULD_QUIT each tick and breaks out cleanly.
 _SHOULD_QUIT = False
 
 
 def _signal_handler(_signum, _frame):
     global _SHOULD_QUIT
-    print("[ros2_test_sub] SIGINT/SIGTERM — requesting shutdown", flush=True)
+    print("[ros2_test_sub] SIGINT/SIGTERM -- requesting shutdown", flush=True)
     _SHOULD_QUIT = True
 
 
-signal.signal(signal.SIGINT, _signal_handler)
-signal.signal(signal.SIGTERM, _signal_handler)
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="ROS 2 subscriber smoke")
+    parser.add_argument(
+        "--run-seconds",
+        type=float,
+        default=0.0,
+        help="stop after N seconds (default 0 = until signalled)",
+    )
+    return parser.parse_args(argv)
 
 
-# Imports below depend on the kit app being alive.
-import omni.timeline  # noqa: E402
+def main():
+    args = _parse_args(sys.argv[1:])
 
-# Standalone python.sh uses `isaacsim.exp.base.python.kit` experience which
-# does NOT auto-load the ROS 2 bridge extension (unlike the default
-# `isaacsim.exp.full.kit` used in Script Editor). Bundled rclpy lives at
-# /isaac-sim/exts/isaacsim.ros2.bridge/<distro>/rclpy/ and is only added
-# to PYTHONPATH when the bridge extension actually starts. Enable it
-# before importing rclpy or the import resolves to "ModuleNotFoundError".
-from isaacsim.core.utils.extensions import enable_extension  # noqa: E402
-enable_extension("isaacsim.ros2.bridge")
+    from isaacsim import SimulationApp
 
-import rclpy  # noqa: E402
-from rclpy.node import Node  # noqa: E402
-from std_msgs.msg import String  # noqa: E402
+    app = SimulationApp(
+        standalone_common.kit_config(os.environ.get("ISAAC_LIVESTREAM"))
+    )
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
+    import omni.timeline
+    from isaacsim.core.utils.extensions import enable_extension
 
-NODE_NAME = "isaac_test_sub"
-TOPIC = "/host/test"
+    enable_extension("isaacsim.ros2.bridge")
 
+    import rclpy
+    from rclpy.node import Node
+    from std_msgs.msg import String
 
-def _make_ros_node():
     rclpy.init()
     node = Node(NODE_NAME)
 
@@ -87,44 +86,30 @@ def _make_ros_node():
         print(f"[ros2_test_sub] {TOPIC} <- {msg.data!r}", flush=True)
 
     node.create_subscription(String, TOPIC, _callback, 10)
-    return node
 
-
-def main():
-    node = _make_ros_node()
-
-    tl = omni.timeline.get_timeline_interface()
-    tl.set_end_time(1.0e9)
-    tl.play()
+    timeline = omni.timeline.get_timeline_interface()
+    timeline.set_end_time(1.0e9)
+    timeline.play()
+    deadline = None
+    if args.run_seconds > 0:
+        deadline = time.monotonic() + args.run_seconds
 
     print(
-        f"[ros2_test_sub] standalone subscribed to {TOPIC}; "
-        "Ctrl+C 乾淨退出。",
+        f"[ros2_test_sub] subscribed to {TOPIC}; SIGINT/SIGTERM stops it",
         flush=True,
     )
-    print("[ros2_test_sub] drive from sibling container:", flush=True)
-    print(
-        "  docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble \\",
-        flush=True,
-    )
-    print("      bash -c 'source /opt/ros/humble/setup.bash && \\", flush=True)
-    print("               ros2 topic pub /host/test std_msgs/String \\", flush=True)
-    print("                   \"{data: hello-from-host}\" --once'", flush=True)
-
     try:
-        while APP.is_running() and not _SHOULD_QUIT:
-            APP.update()
+        while app.is_running() and not _SHOULD_QUIT:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            app.update()
             rclpy.spin_once(node, timeout_sec=0.0)
-    except KeyboardInterrupt:
-        print("[ros2_test_sub] KeyboardInterrupt — shutting down", flush=True)
     finally:
-        try:
-            node.destroy_node()
-        except Exception as exc:
-            print(f"[ros2_test_sub] destroy_node ignored: {exc}", flush=True)
+        node.destroy_node()
         rclpy.shutdown()
-        APP.close()
+    print("[ros2_test_sub] exiting", flush=True)
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    standalone_common.run_and_exit(main)
