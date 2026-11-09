@@ -128,7 +128,13 @@ jobs:
           ./script/setup.sh apply
           sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env.generated
 
+      # CI keeps the shared image name `isaac` (the GPU tests resolve
+      # <hub>/isaac:test) and pins a per-run PROJECT_NAME for run.sh below,
+      # so only the build needs the explicit opt-out from the pre-build
+      # shared-identity guard (script/checkout_identity.sh, base#1551).
       - name: Build test image (devel-test stage, cached if unchanged)
+        env:
+          ISAAC_ALLOW_SHARED_IDENTITY: "1"
         run: ./script/build.sh -t test
 
       # Pre-create the Isaac Sim cache mount sources writable. The

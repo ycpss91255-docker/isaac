@@ -462,6 +462,7 @@ COPY --chmod=0755 script/hooks/post/stop.sh /smoke_test/post_stop_hook.sh
 COPY --chmod=0755 script/hooks/pre/build.sh /smoke_test/pre_build_hook.sh
 COPY --chmod=0755 script/hooks/pre/run.sh /smoke_test/pre_run_hook.sh
 COPY --chmod=0755 script/hooks/pre/stop.sh /smoke_test/pre_stop_hook.sh
+COPY --chmod=0755 script/checkout_identity.sh /smoke_test/checkout_identity.sh
 # [owv#55] The GPU-pytest baseline gate, baked next to
 # assert_pytest_baseline_isolation_spec.bats so the spec can exercise its
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
