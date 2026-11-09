@@ -53,7 +53,7 @@ just docker run -t headless -d
 
 # In a second terminal: the camera topic, from a sibling ROS 2 container
 docker run --rm --net=host --ipc=host -e ROS_DOMAIN_ID=0 ros:humble bash -c \
-  'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw --field header'
+  'source /opt/ros/humble/setup.bash && ros2 topic echo --once /camera_bot/camera/color/image_raw sensor_msgs/msg/Image --field header'
 # frame_id: camera_bot_camera_color_optical_frame
 
 just docker stop
