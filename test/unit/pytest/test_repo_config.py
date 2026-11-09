@@ -43,3 +43,16 @@ def test_setup_conf_deploy_uses_gpu_runtime_key():
     ]
     assert "runtime" not in keys
     assert "gpu_runtime" in keys
+
+
+def test_dockerfile_precreates_kit_extension_folders():
+    # The experience file lists ${app}/../extsUser as an extension folder.
+    # It is missing from the NGC image, and the non-root container user
+    # cannot create it under /isaac-sim (mode 0750), so Kit drops it to ''
+    # and scans the working directory (the repo root, ~/work) instead:
+    # one "Extensions config 'extension.toml' doesn't exist" warning per
+    # top-level directory on every launch.
+    dockerfile = (_REPO_ROOT / "Dockerfile").read_text()
+    mkdirs = re.findall(r"^RUN\s+mkdir\s+-p\s+([^\n&]+)", dockerfile, re.M)
+    created = {path for line in mkdirs for path in line.split()}
+    assert "/isaac-sim/extsUser" in created
