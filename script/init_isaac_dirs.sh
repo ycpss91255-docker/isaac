@@ -12,15 +12,43 @@
 # `just docker run` before this script no longer lets the daemon create
 # the mount sources as root.
 #
-# Usage: ./script/init_isaac_dirs.sh [--quiet]
+# Usage: ./script/init_isaac_dirs.sh [--quiet] [-h|--help]
 # Idempotent: subsequent runs are a no-op.
 
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: ./script/init_isaac_dirs.sh [--quiet] [-h|--help]
+
+Create the 10 host-owned Isaac Sim cache dirs under ${WS_PATH}/isaac-sim/
+before a container bind-mounts them (otherwise the docker daemon creates
+them as root). Runs ./script/setup.sh apply first when .env.generated is
+missing. Idempotent; the pre-run hook also runs it before every
+`just docker run`.
+
+Options:
+  --quiet     Do not print the success summary.
+  -h, --help  Show this help and exit.
+USAGE
+}
+
 quiet=0
-if [[ "${1:-}" == "--quiet" ]]; then
-  quiet=1
-fi
+while (( $# > 0 )); do
+  case "$1" in
+    --quiet) quiet=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "[init_isaac_dirs] ERROR: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 script_dir="$(cd "$(dirname "$0")/.." && pwd)"
 env_generated="${script_dir}/.env.generated"

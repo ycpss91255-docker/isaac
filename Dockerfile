@@ -281,6 +281,16 @@ COPY --chmod=0644 apps/*.kit /isaac-sim/apps/
 ARG ROS_DISTRO=humble
 RUN mkdir -p /etc/isaac && echo "${ROS_DISTRO}" > /etc/isaac/ros-distro
 
+# [isaac] Pre-create the extension folders Kit tries to create at boot.
+# The experience file lists ${app}/../extsUser, which the NGC image does
+# not ship, and the non-root container user cannot create it under
+# /isaac-sim (0750, owned by isaac-sim). Kit then keeps that folder as ''
+# and scans the working directory (~/work, the repo root) for extensions,
+# warning "Extensions config 'extension.toml' doesn't exist" once per
+# top-level directory on every launch. kit/exts and kit/extsPhysics are
+# the other two folders Kit tries to create there.
+RUN mkdir -p /isaac-sim/extsUser /isaac-sim/kit/exts /isaac-sim/kit/extsPhysics
+
 # [isaac] Soft bake for devel stage (interactive shell). headless / stream
 # stages additionally run the wrapper shim below — that re-exports from
 # /etc/isaac/ros-distro at every container start, hard-baking against
