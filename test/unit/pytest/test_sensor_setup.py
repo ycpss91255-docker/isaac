@@ -377,11 +377,18 @@ class TestEnableExtensions:
             ("isaacsim.sensors.rtx", True),
         ]
 
-    def test_ros2_bridge_enabled_at_runtime_without_core_utils(self, fake_kit):
-        # The setup_camera entry path: with nothing enabled at boot (the
-        # pre-fix code fell through to the fatal deprecated import here).
-        sensor_setup._ensure_ros2_bridge_enabled()
-        assert fake_kit.immediate_calls == [("isaacsim.ros2.bridge", True)]
+    def test_camera_path_enables_core_nodes_and_bridge(self, fake_kit):
+        # The setup_camera entry path enables both isaacsim.core.nodes
+        # (for IsaacCreateRenderProduct) and isaacsim.ros2.bridge (for
+        # ROS2CameraHelper). With BOOT_EXTENSIONS = () the pre-fix code
+        # fell through to the fatal deprecated import here (isaac#248).
+        sensor_setup._enable_extensions(
+            "isaacsim.core.nodes", "isaacsim.ros2.bridge",
+        )
+        assert fake_kit.immediate_calls == [
+            ("isaacsim.core.nodes", True),
+            ("isaacsim.ros2.bridge", True),
+        ]
 
     def test_failed_enable_raises(self, fake_kit, monkeypatch):
         # set_extension_enabled_immediate reports failure by return value;

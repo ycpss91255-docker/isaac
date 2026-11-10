@@ -431,11 +431,6 @@ def _setup_imu(cfg, stage):
 # -- Camera framework (former camera_setup.py, ADR-0006) --
 
 
-def _ensure_ros2_bridge_enabled():
-    """Enable ``isaacsim.ros2.bridge`` if it is not already enabled."""
-    _enable_extensions("isaacsim.ros2.bridge")
-
-
 def setup_camera(cfg, stage):
     """Dispatch to the per-sensor-type setup function.
 
@@ -445,7 +440,11 @@ def setup_camera(cfg, stage):
     validate_camera(cfg, source=cfg.get("_source", "<cfg>"))
 
     sensor_type = cfg["sensor"]["type"]
-    _ensure_ros2_bridge_enabled()
+    # The camera OmniGraph uses isaacsim.core.nodes (IsaacCreateRenderProduct)
+    # and isaacsim.ros2.bridge (ROS2CameraHelper / ROS2CameraInfoHelper).
+    # Both must be enabled; _ensure_ros2_bridge_enabled() alone is not
+    # enough when the driver boots without BOOT_EXTENSIONS (isaac#248).
+    _enable_extensions("isaacsim.core.nodes", "isaacsim.ros2.bridge")
 
     if sensor_type == "realsense":
         return _setup_realsense(cfg, stage)
