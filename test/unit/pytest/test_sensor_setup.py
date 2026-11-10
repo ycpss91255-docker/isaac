@@ -295,3 +295,125 @@ class TestGetCategory:
     def test_camera(self, camera_cfg):
         cfg = sensor_setup.load_config(camera_cfg)
         assert sensor_setup.get_category(cfg) == "camera"
+
+
+# ---------- extension enable without isaacsim.core.utils (isaac#248) ----------
+
+
+class _FakeExtManager:
+    """Records Kit extension-manager calls; ``enabled`` seeds the state."""
+
+    def __init__(self, enabled=()):
+        self.enabled = set(enabled)
+        self.immediate_calls = []
+
+    def is_extension_enabled(self, name):
+        return name in self.enabled
+
+    def set_extension_enabled_immediate(self, name, value):
+        self.immediate_calls.append((name, value))
+        if value:
+            self.enabled.add(name)
+        return True
+
+
+@pytest.fixture
+def fake_kit(monkeypatch):
+    """Install a fake ``omni.kit.app`` and make ``isaacsim.core.utils``
+    unimportable, as it is under the Isaac Lab AppLauncher experience
+    (the deprecated extension lives in extsDeprecated and is never
+    loaded there, so ``import isaacsim.core.utils...`` raises
+    ModuleNotFoundError)."""
+    import types
+
+    mgr = _FakeExtManager()
+    omni_pkg = types.ModuleType("omni")
+    omni_pkg.__path__ = []
+    kit_pkg = types.ModuleType("omni.kit")
+    kit_pkg.__path__ = []
+    app_mod = types.ModuleType("omni.kit.app")
+
+    class _App:
+        def get_extension_manager(self):
+            return mgr
+
+    app_mod.get_app = lambda: _App()
+    omni_pkg.kit = kit_pkg
+    kit_pkg.app = app_mod
+    monkeypatch.setitem(sys.modules, "omni", omni_pkg)
+    monkeypatch.setitem(sys.modules, "omni.kit", kit_pkg)
+    monkeypatch.setitem(sys.modules, "omni.kit.app", app_mod)
+    # A None entry makes the import raise ImportError (ModuleNotFoundError
+    # subclass semantics are close enough: any attempt fails loudly).
+    for name in (
+        "isaacsim.core.utils",
+        "isaacsim.core.utils.extensions",
+    ):
+        monkeypatch.setitem(sys.modules, name, None)
+    return mgr
+
+
+class TestEnableExtensions:
+    """``sensors`` enables Kit extensions through the ``omni.kit.app``
+    extension manager, never through the deprecated
+    ``isaacsim.core.utils.extensions`` (isaac#248)."""
+
+    def test_enables_missing_extension_via_ext_manager(self, fake_kit):
+        sensor_setup._enable_extensions("isaacsim.ros2.bridge")
+        assert fake_kit.immediate_calls == [("isaacsim.ros2.bridge", True)]
+
+    def test_skips_already_enabled_extension(self, fake_kit):
+        fake_kit.enabled.add("isaacsim.ros2.bridge")
+        sensor_setup._enable_extensions("isaacsim.ros2.bridge")
+        assert fake_kit.immediate_calls == []
+
+    def test_enables_several_in_order(self, fake_kit):
+        fake_kit.enabled.add("isaacsim.ros2.bridge")
+        sensor_setup._enable_extensions(
+            "isaacsim.core.nodes", "isaacsim.ros2.bridge", "isaacsim.sensors.rtx"
+        )
+        assert fake_kit.immediate_calls == [
+            ("isaacsim.core.nodes", True),
+            ("isaacsim.sensors.rtx", True),
+        ]
+
+    def test_camera_path_enables_core_nodes_and_bridge(self, fake_kit):
+        # The setup_camera entry path enables both isaacsim.core.nodes
+        # (for IsaacCreateRenderProduct) and isaacsim.ros2.bridge (for
+        # ROS2CameraHelper). With BOOT_EXTENSIONS = () the pre-fix code
+        # fell through to the fatal deprecated import here (isaac#248).
+        sensor_setup._enable_extensions(
+            "isaacsim.core.nodes", "isaacsim.ros2.bridge",
+        )
+        assert fake_kit.immediate_calls == [
+            ("isaacsim.core.nodes", True),
+            ("isaacsim.ros2.bridge", True),
+        ]
+
+    def test_failed_enable_raises(self, fake_kit, monkeypatch):
+        # set_extension_enabled_immediate reports failure by return value;
+        # surface it instead of building graphs on missing node types.
+        monkeypatch.setattr(
+            fake_kit, "set_extension_enabled_immediate", lambda *_a: False
+        )
+        with pytest.raises(RuntimeError, match="isaacsim.ros2.bridge"):
+            sensor_setup._enable_extensions("isaacsim.ros2.bridge")
+
+    def test_no_deprecated_core_utils_import_in_framework(self):
+        # Static guard over the whole package: the lidar / IMU setup paths
+        # need a live stage, so pin the absence of the import instead.
+        import ast
+
+        pkg = Path(sensor_setup.__file__).resolve().parent
+        offenders = []
+        for path in sorted(pkg.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                names = []
+                if isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                elif isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                for name in names:
+                    if name.startswith("isaacsim.core.utils"):
+                        offenders.append(f"{path.name}:{node.lineno} {name}")
+        assert offenders == []

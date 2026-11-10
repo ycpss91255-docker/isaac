@@ -199,8 +199,18 @@
 #   file reads and a fake clock. Live count was then 388.
 #   README polish adds 1 (test_repo_config.py 2 -> 3): the Dockerfile
 #   pre-creates /isaac-sim/extsUser, so Kit stops scanning ~/work for
-#   extensions. Live count is now 389 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 389
+#   extensions. Live count was then 389.
+#   isaac#248 root cause (runtime extension enable under AppLauncher):
+#   adds 8. test_sensor_setup.py (6): isaac_devkit.sensors enables Kit
+#   extensions through the omni.kit.app extension manager with
+#   isaacsim.core.utils unimportable (enable / skip-if-enabled / ordering /
+#   the setup_camera bridge entry / failure raises) plus a static scan that
+#   isaac_devkit never imports isaacsim.core.utils. test_isaac_driver.py
+#   (2): run() prints a setup() exception's traceback before close() (whose
+#   _exit(0) used to swallow it), and a clean run prints none. Pure -- fake
+#   omni.kit.app / isaaclab.app modules. Live count is now 397 -- the
+#   enforced floor.
+HOSTED_UNIT_BASELINE = 397
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
