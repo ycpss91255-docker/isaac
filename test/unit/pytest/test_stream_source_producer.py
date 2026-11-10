@@ -221,50 +221,113 @@ def test_streaming_experience_defines_streamtype():
 # rather than a quiet edit.
 
 _PUBLISH_WF = _REPO_ROOT / ".github" / "workflows" / "publish-stream-source.yaml"
+_PUBLISH_SCRIPT = _REPO_ROOT / "script" / "ci" / "publish_stream_source.sh"
+# Every self-hosted job in the org goes through this one reusable workflow
+# (the runner group is locked to it); it targets the self-hosted GPU pool.
+_GPU_REUSABLE = (
+    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main"
+)
+
+
+def _publish_workflow():
+    import yaml
+    return yaml.safe_load(_PUBLISH_WF.read_text(encoding="utf-8"))
 
 
 def _publish_job():
-    import yaml
-    return yaml.safe_load(_PUBLISH_WF.read_text(encoding="utf-8"))["jobs"]["publish"]
+    return _publish_workflow()["jobs"]["publish"]
+
+
+def _publish_commands():
+    """The publish script's command lines: no comments, no blank lines."""
+    lines = _PUBLISH_SCRIPT.read_text(encoding="utf-8").splitlines()
+    return [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
 
 
 def test_publish_runs_where_kit_can_boot():
-    runs_on = _publish_job()["runs-on"]
-    assert "self-hosted" in runs_on and "gpu" in runs_on, (
-        "the publish job must run where Kit can actually boot; on a hosted "
-        "runner nothing can prove the image streams (isaac#252)"
+    job = _publish_job()
+    assert job.get("uses") == _GPU_REUSABLE, (
+        "the publish job must run where Kit can actually boot -- the org GPU "
+        "reusable workflow; on a hosted runner nothing can prove the image "
+        "streams (isaac#252)"
     )
+    assert "runs-on" not in job, "no direct self-hosted target; go through the reusable workflow"
+    labels = (job.get("with") or {}).get("runner-labels")
+    assert labels is None or "gpu" in labels, "an override must keep the gpu label"
+    assert job["with"]["run-script"].endswith("script/ci/publish_stream_source.sh")
+    assert job["permissions"] == {"contents": "read", "packages": "write"}
+    assert job["with"]["registry"] == "ghcr.io"
+    assert job["with"]["setup-buildx"] is True
 
 
 def test_the_build_step_does_not_push():
-    for step in _publish_job()["steps"]:
-        with_ = step.get("with") or {}
-        if "build-push-action" in str(step.get("uses", "")):
-            assert with_.get("push") is not True, (
-                "the build step must not push -- nothing may leave the runner "
-                "before it has been proven to stream"
-            )
+    builds = [c for c in _publish_commands() if c.startswith("docker buildx build")]
+    assert len(builds) == 1, f"expected one buildx build, got {builds}"
+    text = _PUBLISH_SCRIPT.read_text(encoding="utf-8")
+    build_block = text[text.index("docker buildx build"):]
+    build_block = build_block[: build_block.index("endgroup")]
+    assert "--push" not in build_block, (
+        "the build step must not push -- nothing may leave the runner "
+        "before it has been proven to stream"
+    )
+    assert "--load" in build_block, "the smoke must run the image that would be pushed"
 
 
 def test_the_push_stands_behind_the_streaming_proof():
-    steps = _publish_job()["steps"]
-    names = [str(s.get("name", "")) for s in steps]
-    runs = [str(s.get("run", "")) for s in steps]
+    cmds = _publish_commands()
+    assert "set -euo pipefail" in cmds, "a failed proof must stop the script"
 
-    smoke = next(
-        (i for i, r in enumerate(runs) if "producer_smoke.sh" in r), None
-    )
+    smoke = next((i for i, c in enumerate(cmds) if "producer_smoke.sh" in c), None)
     assert smoke is not None, "the publish path must run script/ci/producer_smoke.sh"
-
-    push = next(
-        (i for i, r in enumerate(runs) if "docker push" in r), None
-    )
-    assert push is not None, f"no push step found among {names}"
+    push = next((i for i, c in enumerate(cmds) if c.startswith("docker push")), None)
+    assert push is not None, f"no push found among {cmds}"
     assert smoke < push, "the streaming proof must come BEFORE the push"
 
     # A gate with a way out gets used on the day it matters most.
-    assert steps[smoke].get("continue-on-error") is not True
-    assert not steps[smoke].get("if"), (
-        "the proof must be unconditional -- a skipped step still lets the "
-        "push run"
+    line = cmds[smoke]
+    assert line.startswith('timeout "${SMOKE_TIMEOUT}" '), (
+        "the smoke keeps its 30-minute bound (the old step timeout)"
     )
+    assert "||" not in line and not line.startswith("if"), (
+        "the proof must be unconditional -- an ignored failure still lets "
+        "the push run"
+    )
+    assert 'SMOKE_TIMEOUT="${PUBLISH_SMOKE_TIMEOUT:-30m}"' in _PUBLISH_SCRIPT.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_dispatch_tag_is_validated_before_the_gpu_host():
+    wf = _publish_workflow()
+    assert "tag" in wf[True]["workflow_dispatch"]["inputs"]  # `on:` parses as True
+    job = _publish_job()
+    assert job["needs"] == ["validate"]
+    # script-env makes each line of an interpolated value its own variable, so
+    # the raw input must never reach it -- only the validated output.
+    import yaml
+    assert "inputs.tag" not in yaml.safe_dump(job), (
+        "the publish job must read needs.validate.outputs.tag, not inputs.tag"
+    )
+    assert job["with"]["script-env"].strip() == "IMAGE_TAG=${{ needs.validate.outputs.tag }}"
+    validate = wf["jobs"]["validate"]
+    assert validate["runs-on"] == "ubuntu-latest"
+    run = validate["steps"][0]["run"]
+    assert "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$" in run and "exit 1" in run
+
+
+def test_the_publish_script_refuses_a_bad_tag_before_docker(tmp_path):
+    # A stub docker that records any call: a refused tag must reach none.
+    calls = tmp_path / "docker-calls"
+    stub = tmp_path / "docker"
+    stub.write_text(f'#!/bin/sh\necho "$@" >> "{calls}"\n')
+    stub.chmod(0o755)
+    import os
+    for bad in ("", "-x", "0.0.3\nPATH=/tmp", "a" * 129, "0.0.3 extra", "x:y"):
+        env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}",
+                   IMAGE_TAG=bad, GITHUB_SHA="0" * 40)
+        result = subprocess.run(
+            ["bash", str(_PUBLISH_SCRIPT)], env=env, capture_output=True, text=True
+        )
+        assert result.returncode == 2, (bad, result.stderr)
+        assert "IMAGE_TAG must be a docker tag" in result.stderr
+    assert not calls.exists(), calls.read_text()
