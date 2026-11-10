@@ -121,6 +121,12 @@ def test_camera_custom_yaml_publishes_frame_headless(tmp_path):
     # CUDA/Vulkan init markers in the Kit log (Info-level boot lines).
     # The path contains spaces ("Kit/Isaac-Sim Python/..."), so match to
     # end of line rather than \S+.
+    #
+    # The log directory name depends on the Kit experience: "Isaac-Sim
+    # Python/6.2" with the default BOOT_EXTENSIONS, "IsaacLab/3.0" with
+    # the Isaac Lab headless-rendering experience (BOOT_EXTENSIONS = ()).
+    # Both paths exist when the CI cache dirs are writable (gpu_job_lib.sh
+    # gpu_job_cache_dirs pre-creates isaac-sim/kit/logs/).
     kit_log = re.search(r"\[KIT LOG\] path=(.+)", result.stdout)
     assert kit_log, "Runner did not announce the Kit log path."
     log_text = Path(kit_log.group(1).strip()).read_text(
