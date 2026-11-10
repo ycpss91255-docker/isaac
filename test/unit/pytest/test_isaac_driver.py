@@ -322,3 +322,80 @@ class TestLifecycleOrderSpy:
         # construction (isaac#248) but must restore sys.argv afterwards so
         # nothing else parsing argv sees the transient flags.
         assert sys.argv == argv_before
+
+    def test_in_flight_exception_reported_before_close(
+        self, monkeypatch, capsys
+    ):
+        # SimulationApp.close() ends in _exit(0), so an exception raised in
+        # setup()/main() never reaches the caller (isaac#248: a
+        # ModuleNotFoundError looked like a silent Kit shutdown for two
+        # releases). run() must print the traceback BEFORE close().
+        calls = []
+        pkg, app_mod = self._fake_isaaclab_app(calls)
+        stderr_at_close = []
+
+        real_close = app_mod.AppLauncher
+
+        class _CapturingLauncher(real_close):
+            def __init__(self, args):
+                super().__init__(args)
+                inner_close = self.app.close
+
+                def _close():
+                    stderr_at_close.append(capsys.readouterr().err)
+                    inner_close()
+
+                self.app.close = _close
+
+        app_mod.AppLauncher = _CapturingLauncher
+        monkeypatch.setitem(sys.modules, "isaaclab", pkg)
+        monkeypatch.setitem(sys.modules, "isaaclab.app", app_mod)
+        monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
+        monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
+
+        class _FailingDriver(id_mod.IsaacDriver):
+            USD = "model/usd/robot/foo/foo.usd"
+
+            def _open_stage(self):
+                return object()
+
+            def _ensure_scene_defaults(self, stage):
+                pass
+
+            def _play_timeline(self):
+                pass
+
+            def setup(self, stage):
+                raise ModuleNotFoundError("No module named 'fake_missing_mod'")
+
+        with pytest.raises(ModuleNotFoundError):
+            _FailingDriver().run()
+
+        assert calls[-1] == "close"
+        assert len(stderr_at_close) == 1
+        err = stderr_at_close[0]
+        assert "Traceback (most recent call last)" in err
+        assert "fake_missing_mod" in err
+
+    def test_clean_run_prints_no_traceback(self, monkeypatch, capsys):
+        calls = []
+        pkg, app_mod = self._fake_isaaclab_app(calls)
+        monkeypatch.setitem(sys.modules, "isaaclab", pkg)
+        monkeypatch.setitem(sys.modules, "isaaclab.app", app_mod)
+        monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
+        monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
+
+        class _OkDriver(id_mod.IsaacDriver):
+            USD = "model/usd/robot/foo/foo.usd"
+
+            def _open_stage(self):
+                return object()
+
+            def _ensure_scene_defaults(self, stage):
+                pass
+
+            def _play_timeline(self):
+                pass
+
+        _OkDriver().run()
+        assert "Traceback" not in capsys.readouterr().err
