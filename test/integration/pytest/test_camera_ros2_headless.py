@@ -125,19 +125,15 @@ def test_camera_custom_yaml_publishes_frame_headless(tmp_path):
     # The log directory name depends on the Kit experience: "Isaac-Sim
     # Python/6.2" with the default BOOT_EXTENSIONS, "IsaacLab/3.0" with
     # the Isaac Lab headless-rendering experience (BOOT_EXTENSIONS = ()).
-    # Kit's close() calls _exit(0), which may not flush carb's log
-    # buffers; the file can be missing by the time the parent reads it.
-    # Treat a missing file as non-fatal since CUDA is already verified
-    # above via the [CUDA OK] driver-API probe.
+    # Both paths exist when the CI cache dirs are writable (gpu_job_lib.sh
+    # gpu_job_cache_dirs pre-creates isaac-sim/kit/logs/).
     kit_log = re.search(r"\[KIT LOG\] path=(.+)", result.stdout)
     assert kit_log, "Runner did not announce the Kit log path."
-    kit_log_path = Path(kit_log.group(1).strip())
-    if kit_log_path.exists():
-        log_text = kit_log_path.read_text(
-            encoding="utf-8", errors="replace"
-        )
-        assert "vulkan" in log_text.lower(), "No Vulkan init marker in Kit log."
-        assert "cuda" in log_text.lower(), "No CUDA init marker in Kit log."
+    log_text = Path(kit_log.group(1).strip()).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    assert "vulkan" in log_text.lower(), "No Vulkan init marker in Kit log."
+    assert "cuda" in log_text.lower(), "No CUDA init marker in Kit log."
 
     # 2. Camera graph built via the custom.yaml path.
     assert "[CAMERA GRAPH OK]" in result.stdout, (
