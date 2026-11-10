@@ -164,7 +164,7 @@ The GPU job is skipped by the same-repo gate (`if: github.event.pull_request.hea
 
 ### Runner outage
 
-There is no bypass. The fix for a down runner is to make the runner reliable, not to skip tests. More runners are planned. Known failure mode: **RTX 5090 GPU drop-off (Xid 79 / "GPU fell off the bus")** caused by PCIe Gen5 signal integrity on certain motherboards; mitigation is BIOS PCIe Gen4 downshift. When the GPU CI job fails, check `nvidia-smi` / kernel `Xid` messages first -- a hardware drop-off is not a code bug.
+There is no bypass. The fix for a down runner is to make the runner reliable, not to skip tests. More runners are planned. Known failure mode: **RTX 5090 GPU drop-off (Xid 79 / "GPU fell off the bus")** -- the GPU falls off the PCIe bus and does not recover until the host is rebooted; re-running CI before the reboot is pointless. When the GPU CI job fails, check `nvidia-smi` and `journalctl -k | grep Xid` first -- a hardware drop-off is not a code bug.
 
 ### Cross-references added
 
