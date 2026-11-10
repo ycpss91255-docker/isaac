@@ -44,6 +44,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -123,8 +124,8 @@ def boot_extension_kit_args(extensions) -> list:
     Isaac Lab's ``AppLauncher`` forwards leftover ``sys.argv`` tokens to
     the underlying Kit process, so appending ``--enable <ext>`` pairs
     before constructing the launcher makes Kit enable those extensions
-    during boot. See ``IsaacDriver.BOOT_EXTENSIONS`` for why the ROS 2
-    bridge must load at boot under Isaac Sim 6.0.1 and 6.2.0 (isaac#248).
+    during boot. See ``IsaacDriver.BOOT_EXTENSIONS`` for what loads there
+    and why it is an optimisation, not a requirement (isaac#248).
 
     Pure (host-runnable): returns the flat argv list; the caller splices
     it into ``sys.argv``. Empty / falsy input yields ``[]`` (no-op).
@@ -204,23 +205,18 @@ class IsaacDriver:
     USD: str = ""
     SCENE: str = ""
 
-    # Extensions enabled at Kit BOOT (via ``--enable`` kit args) rather
-    # than at runtime. Isaac Sim 6.x regression (isaac#248; first seen on
-    # 6.0.1, re-checked and still present on 6.2.0 in isaac#295): calling
-    # ``isaacsim.core.utils.extensions.enable_extension("isaacsim.ros2.bridge")``
-    # AFTER boot, while running on the Isaac Lab ``AppLauncher``
-    # (``isaaclab.python.headless.rendering.kit`` experience, headless +
-    # ``enable_cameras``), makes Kit gracefully ``_exit(0)`` -- the bridge
-    # pulls in the replicator / render-experience extension chain, and
-    # re-starting that stack mid-run under this experience tears the app
-    # down (no Python traceback; a bare ``SimulationApp`` does NOT hit
-    # this, which is why the ExampleDriver's own ``SimulationApp`` run()
-    # and the plain sensor-setup runner never regressed). Enabling the
-    # same extensions during boot -- so ``setup_camera`` /
-    # ``setup_ros2_io``'s own ``enable_extension`` calls are no-ops -- is
-    # the supported path and does not close the app. The base driver is
-    # the ROS 2 sim driver (``init_rclpy`` + the ros_io contract), so the
-    # ROS 2 bridge belongs in its boot set. Subclasses may override.
+    # Extensions enabled at Kit BOOT (via ``--enable`` kit args). The base
+    # driver is the ROS 2 sim driver (``init_rclpy`` + the ros_io
+    # contract), so it loads the ROS 2 bridge up front; ``setup_camera`` /
+    # the sensor setups then find it enabled and skip their own enable.
+    # This is an optimisation, not a requirement: runtime enable through
+    # the ``omni.kit.app`` extension manager works under the Isaac Lab
+    # ``AppLauncher`` experience too. (isaac#248: the "runtime enable
+    # closes Kit" theory recorded here before was wrong -- the real failure
+    # was a ``ModuleNotFoundError`` on the deprecated
+    # ``isaacsim.core.utils``, which that experience does not load, hidden
+    # by ``close()`` in ``run()``'s ``finally``.) Subclasses may override,
+    # including with ``()``.
     BOOT_EXTENSIONS: tuple = ("isaacsim.core.nodes", "isaacsim.ros2.bridge")
 
     def __init__(self) -> None:
@@ -248,11 +244,10 @@ class IsaacDriver:
         )
         # Enable the boot-time extensions (ros2.bridge et al.) via Kit
         # ``--enable`` args, which AppLauncher forwards from leftover
-        # sys.argv to the Kit process it constructs. This must happen at
-        # boot, not at runtime, under Isaac Sim 6.x (isaac#248 -- see
-        # BOOT_EXTENSIONS). AppLauncher reads sys.argv only during
-        # construction, so restore it immediately afterwards to avoid
-        # leaking the flags to anything else parsing argv.
+        # sys.argv to the Kit process it constructs (see BOOT_EXTENSIONS).
+        # AppLauncher reads sys.argv only during construction, so restore
+        # it immediately afterwards to avoid leaking the flags to anything
+        # else parsing argv.
         _saved_argv = list(sys.argv)
         sys.argv += boot_extension_kit_args(self.BOOT_EXTENSIONS)
         try:
@@ -276,8 +271,13 @@ class IsaacDriver:
         finally:
             # SimulationApp.close() (via AppLauncher.app) forces process
             # _exit(0) on its way out and overrides any sys.exit(N)
-            # downstream. Subclasses that want to signal failure must do so
-            # before calling super().run() or via stdout markers.
+            # downstream, so an exception in flight here would never reach
+            # the caller. Print it first, or a setup()/main() failure exits
+            # rc 0 with no trace (isaac#248). Subclasses that want to signal
+            # failure must do so before calling super().run() or via stdout
+            # markers.
+            if sys.exc_info()[0] is not None:
+                traceback.print_exc()
             sys.stdout.flush()
             sys.stderr.flush()
             self._app.close()
