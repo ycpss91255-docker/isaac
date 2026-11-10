@@ -18,80 +18,73 @@ on:
         required: true
         default: '0.0.3'
 
-permissions:
-  contents: read
-  packages: write
+# Nothing by default; each job grants what it needs.
+permissions: {}
 
 jobs:
+  # The dispatch input is the one untrusted value in this workflow. It is
+  # validated here, on a hosted runner, before anything reaches the GPU host,
+  # and the publish job reads only this job's output -- never inputs.tag --
+  # because gpu-self-hosted.yml's script-env turns every line of an
+  # interpolated value into a variable of its own (a newline in the tag would
+  # add one).
+  validate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Validate the tag input
+        id: tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          # A docker tag: [A-Za-z0-9_] then up to 127 of [A-Za-z0-9_.-]. Same
+          # pattern script/ci/publish_stream_source.sh checks again.
+          if ! [[ "${TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::tag must be a docker tag ([A-Za-z0-9_][A-Za-z0-9_.-]{0,127}), got '${TAG}'"
+            exit 1
+          fi
+          printf 'tag=%s\n' "${TAG}" >> "${GITHUB_OUTPUT}"
+
   publish:
+    needs: [validate]
     # GPU runner, and the reason is isaac#252. This job used to say "Hosted
     # runner is fine ... No GPU needed -- Kit never boots at build time", and
     # that was exactly the defect: a workflow that never boots Kit cannot
     # discover that Kit will not stream. `:0.0.2` was built, pushed and
     # consumed before anyone learned it bound no port. The image is now proven
     # to stream on this runner BEFORE it is pushed, which needs a GPU.
-    runs-on: [self-hosted, gpu]
+    #
+    # The job runs through the org reusable workflow gpu-self-hosted.yml, which
+    # owns the self-hosted GPU runner labels, the fork-PR gate, the
+    # pre-checkout workspace reclaim, the checkout, Buildx and the GHCR login.
+    # Every self-hosted job in the org goes through that one workflow so the
+    # runner group can be locked to it. The build -> prove -> push steps live
+    # in script/ci/publish_stream_source.sh (guard:
+    # test/unit/pytest/test_stream_source_producer.py), which also bounds the
+    # smoke at 30 minutes, as the old step timeout did.
+    #
+    # The token is granted here, at the caller: a called workflow cannot widen
+    # it. The registry login uses it without exporting it to the script, so
+    # expose-github-token stays off.
+    permissions:
+      contents: read
+      packages: write
     # One Kit on the GPU at a time, and never cancel mid-teardown.
     concurrency:
       group: isaac-publish-stream-source
       cancel-in-progress: false
-    timeout-minutes: 90
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # Isaac Sim BASE_IMAGE is ~15 GB extracted; ubuntu-latest's ~14 GB free
-      # disk risks "no space left on device" during the BuildKit COPY of the
-      # base tree. Free the tool-cache first (mirrors main.yaml's
-      # free_disk_space, base#470).
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /usr/local/share/boost "${AGENT_TOOLSDIRECTORY}" || true
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # BUILD, do not push. Nothing leaves this runner until it has streamed.
-      - name: Build the producer image locally
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          target: producer
-          push: false
-          load: true
-          # Recorded in the image so the version table (and anyone holding the
-          # image) can answer "which Isaac Sim / which commit" without pulling.
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-          tags: ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
-
-      # THE GATE. Boots the image the way a consumer does and asserts it
-      # binds its signalling port and serves a client. No override, no
-      # continue-on-error: an image that cannot be proven to stream is
-      # precisely the image that must not be published (isaac#252).
-      - name: Prove the built image actually streams
-        timeout-minutes: 30
-        run: bash script/ci/producer_smoke.sh
-             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
-
-      - name: Upload producer log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: producer-smoke-log-${{ inputs.tag }}
-          path: .producer-smoke/
-          if-no-files-found: ignore
-
-      # Only now.
-      - name: Push the proven image
-        run: docker push
-             ghcr.io/ycpss91255-docker/isaac-stream-source:${{ inputs.tag }}
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main
+    with:
+      run-script: bash script/ci/publish_stream_source.sh
+      timeout-minutes: 90
+      registry: ghcr.io
+      setup-buildx: true
+      script-env: |
+        IMAGE_TAG=${{ needs.validate.outputs.tag }}
+      artifact-name: producer-smoke-log-${{ needs.validate.outputs.tag }}
+      artifact-path: .producer-smoke/
+      artifact-when: failure
+      artifact-if-no-files-found: ignore
