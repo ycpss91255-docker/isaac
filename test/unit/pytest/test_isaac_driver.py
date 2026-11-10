@@ -189,9 +189,8 @@ class TestConstructionWithoutKit:
 
 class TestBootExtensionKitArgs:
     """Pure helper building the Kit ``--enable`` argv for boot-time
-    extension loads (isaac#248: ros2.bridge must be enabled at boot, not
-    at runtime, under the Isaac Lab AppLauncher headless-rendering
-    experience on Isaac Sim 6.0.1).
+    extension loads (``IsaacDriver.BOOT_EXTENSIONS``). Boot-time enable is
+    an optimisation; runtime enable works too (isaac#248).
     """
 
     def test_single_extension(self):

@@ -234,6 +234,30 @@ def _fov_to_aperture(focal_mm, fov_deg):
 # -- Isaac Sim dispatchers (require container) --
 
 
+def _enable_extensions(*names):
+    """Enable Kit extensions through the ``omni.kit.app`` extension manager.
+
+    Deliberately NOT ``isaacsim.core.utils.extensions.enable_extension``:
+    that module is deprecated since Isaac Sim 6.0 (it lives in
+    ``extsDeprecated/``) and the Isaac Lab ``AppLauncher`` experience never
+    loads it, so importing it raises ``ModuleNotFoundError`` there
+    (isaac#248). Enabling at runtime through the extension manager works
+    under both the Isaac Lab experience and a bare ``SimulationApp``.
+
+    Already-enabled extensions are skipped. Raises ``RuntimeError`` when
+    Kit reports that an extension could not be enabled, so a missing
+    extension fails here rather than later as unknown OmniGraph node types.
+    """
+    import omni.kit.app
+
+    mgr = omni.kit.app.get_app().get_extension_manager()
+    for name in names:
+        if mgr.is_extension_enabled(name):
+            continue
+        if not mgr.set_extension_enabled_immediate(name, True):
+            raise RuntimeError(f"failed to enable Kit extension {name!r}")
+
+
 def _setup_camera_dispatch(cfg, stage):
     """Delegate to the camera framework below (ADR-0006)."""
     return setup_camera(cfg, stage)
@@ -258,10 +282,9 @@ def _setup_lidar(cfg, stage):
     mount_prim = stage.DefinePrim(mount_path, "Xform")
     _set_xform_pose(mount_prim, cfg["mount"]["pose"])
 
-    from isaacsim.core.utils.extensions import enable_extension
-    enable_extension("isaacsim.core.nodes")
-    enable_extension("isaacsim.ros2.bridge")
-    enable_extension("isaacsim.sensors.rtx")
+    _enable_extensions(
+        "isaacsim.core.nodes", "isaacsim.ros2.bridge", "isaacsim.sensors.rtx"
+    )
 
     import omni.kit.commands
     lidar_name = "lidar"
@@ -351,8 +374,7 @@ def _setup_imu(cfg, stage):
     mount_prim = stage.DefinePrim(mount_path, "Xform")
     _set_xform_pose(mount_prim, cfg["mount"]["pose"])
 
-    from isaacsim.core.utils.extensions import enable_extension
-    enable_extension("isaacsim.ros2.bridge")
+    _enable_extensions("isaacsim.ros2.bridge")
 
     import omni.kit.commands
     frequency_hz = sensor.get("frequency_hz", 200)
@@ -410,36 +432,8 @@ def _setup_imu(cfg, stage):
 
 
 def _ensure_ros2_bridge_enabled():
-    """Enable ``isaacsim.ros2.bridge`` only if it is not already enabled.
-
-    Isaac Sim 6.x regression (isaac#248; 6.0.1 and 6.2.0): under the Isaac Lab
-    ``AppLauncher`` (``isaaclab.python.headless.rendering.kit`` experience,
-    headless + ``enable_cameras``), *touching the isaacsim extension API at
-    runtime* -- even ``import isaacsim.core.utils.extensions`` on its own,
-    before any ``enable_extension`` call -- tears the Kit process down with
-    a graceful ``_exit(0)`` (no Python traceback). It re-runs the
-    replicator / render-experience startup mid-run and closes the app. A
-    bare ``SimulationApp`` does not hit this; the base ``IsaacDriver``
-    (AppLauncher) does.
-
-    So the fast path here must NOT import that module at all. The lighter
-    ``omni.kit.app`` extension-manager query (``is_extension_enabled``) is
-    safe under the same experience, and the driver enables the bridge at
-    BOOT (``IsaacDriver.BOOT_EXTENSIONS``) -- so the AppLauncher path takes
-    the early return and never touches the fatal import. Callers on a bare
-    ``SimulationApp`` (the sensor-setup runner, the ExampleDriver) reach
-    the import + ``enable_extension`` and enable the bridge the first time,
-    which is safe there.
-    """
-    import omni.kit.app
-
-    mgr = omni.kit.app.get_app().get_extension_manager()
-    if mgr.is_extension_enabled("isaacsim.ros2.bridge"):
-        return
-
-    from isaacsim.core.utils.extensions import enable_extension
-
-    enable_extension("isaacsim.ros2.bridge")
+    """Enable ``isaacsim.ros2.bridge`` if it is not already enabled."""
+    _enable_extensions("isaacsim.ros2.bridge")
 
 
 def setup_camera(cfg, stage):
