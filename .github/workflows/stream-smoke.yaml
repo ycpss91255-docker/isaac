@@ -24,80 +24,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Runs through the org reusable workflow gpu-self-hosted.yml, which owns the
+  # runner labels, the fork-PR gate, the pre-checkout workspace reclaim and
+  # the checkout (schedule / workflow_dispatch are non-PR events, so the gate
+  # always passes here). The step logic lives in script/ci/stream_smoke_job.sh
+  # (guard: test/bats/smoke/gpu_job_scripts_spec.bats).
+  #
+  # The kit log used to be uploaded as the `stream-smoke-kit-log` artifact on
+  # failure. The reusable workflow runs one script step and has no upload step
+  # after it, so the script prints the full kit log in a collapsed group of
+  # the job log instead.
   stream-smoke:
-    runs-on: [self-hosted, gpu]
-    # Boot budget (SMOKE_TIMEOUT 600s) + client-connect budget
-    # (SMOKE_CONNECT_TIMEOUT 120s) + dwell (SMOKE_DWELL 30s) + build/teardown.
-    timeout-minutes: 30
-    steps:
-      # Pre-checkout self-heal: a prior GPU run can leave root-owned residue
-      # in the bind-mounted workspace that breaks the non-root runner's
-      # checkout clean step. Mirror python-tests (main.yaml). Refs
-      # ycpss91255-docker/github_runner#77.
-      - name: Pre-checkout cleanup (clear stale root-owned residue)
-        run: |
-          docker run --rm -v "${GITHUB_WORKSPACE}":/w -w /w busybox:1 sh -c '
-            find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
-            rm -rf isaac-sim 2>/dev/null
-            true'
-
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # base detect_ws_path mis-detects the self-CI _work/<repo>/<repo>
-      # layout; pin WS_PATH to the checkout root in the derived cache after
-      # apply so the compose mounts resolve. Same fix as python-tests; base
-      # follow-up base#586.
-      - name: Generate .env + compose.yaml (pin WS_PATH)
-        run: |
-          ./script/setup.sh apply
-          sed -i "s|^WS_PATH=.*|WS_PATH=${GITHUB_WORKSPACE}|" .env.generated
-
-      # Shared image name `isaac` is kept on purpose (see main.yaml); the
-      # smoke pins its own PROJECT_NAME, so only the build opts out of the
-      # pre-build shared-identity guard (script/checkout_identity.sh).
-      - name: Build stream stage (cached if unchanged)
-        env:
-          ISAAC_ALLOW_SHARED_IDENTITY: "1"
-        run: ./script/build.sh -t stream
-
-      # The stream compose bind-mounts ${WS_PATH}/isaac-sim/* caches; with
-      # WS_PATH pinned to the checkout root they do not pre-exist, so the
-      # daemon (root) would auto-create them unwritable by the non-root
-      # container user. Create the leaf dirs as the runner user first.
-      - name: Pre-create Isaac Sim cache mount dirs (writable)
-        run: |
-          mkdir -p \
-            isaac-sim/kit/cache isaac-sim/kit/data isaac-sim/kit/logs \
-            isaac-sim/ov/cache isaac-sim/ov/data isaac-sim/ov/logs \
-            isaac-sim/pip isaac-sim/nvidia/glcache \
-            isaac-sim/nvidia/computecache isaac-sim/documents
-
-      # Boots the stream stage + launches Isaac + waits for the streaming
-      # server + attaches a client + holds the connection for the dwell;
-      # tears down (docker rm -f) on every exit via its own trap.
-      - name: Stream smoke (Isaac boots + a client streams + survives dwell)
-        env:
-          # Per-run-unique compose project (owv#55): the smoke's project-
-          # scoped teardown then cannot reap a co-hosted manual stream stack
-          # on this shared GPU host. base v0.42.0 removed --instance (base#666);
-          # the seam is a distinct PROJECT_NAME the script pins in
-          # .env.generated. base self-test.yaml convention -- run_id +
-          # run_attempt (stable across a job's steps, unique per re-run).
-          SMOKE_PROJECT: isaac-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-          # Every SMOKE_PROJECT above shares this prefix, and the concurrency
-          # group keeps a single smoke live, so any OTHER project under it is
-          # a previous run whose teardown never ran (cancelled / SIGKILLed
-          # job). The script removes those before bring-up so a leftover Kit
-          # cannot hold the signaling port or the stream container name
-          # (isaac#291). Developer projects never carry this prefix.
-          SMOKE_REAP_PROJECT_PREFIX: isaac-smoke-
-        run: bash script/ci/stream_smoke.sh
-
-      - name: Upload kit log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stream-smoke-kit-log
-          path: isaac-sim/kit/logs/stream-smoke.log
-          if-no-files-found: ignore
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main
+    with:
+      run-script: ./script/ci/stream_smoke_job.sh
+      # Boot budget (SMOKE_TIMEOUT 600s) + client-connect budget
+      # (SMOKE_CONNECT_TIMEOUT 120s) + dwell (SMOKE_DWELL 30s) + build/teardown.
+      timeout-minutes: 30
