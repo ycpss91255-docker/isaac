@@ -1,0 +1,17 @@
+# Dependabot: automated version-bump PRs for GitHub Actions references.
+#
+# Covers both pinned actions (actions/checkout@v6, docker/login-action@v4,
+# etc.) and pinned reusable workflows (gpu-self-hosted.yml@v0.2.0,
+# build-worker.yaml@v0.42.0, release-worker.yaml@v0.42.0).
+#
+# The base subtree version (.base/.version vs the latest base release) is
+# tracked by base-version-monitor.yaml, NOT by dependabot -- they are
+# complementary: dependabot handles workflow/action refs, the monitor
+# handles the subtree pin.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
