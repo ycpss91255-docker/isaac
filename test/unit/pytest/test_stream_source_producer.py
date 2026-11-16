@@ -225,7 +225,7 @@ _PUBLISH_SCRIPT = _REPO_ROOT / "script" / "ci" / "publish_stream_source.sh"
 # Every self-hosted job in the org goes through this one reusable workflow
 # (the runner group is locked to it); it targets the self-hosted GPU pool.
 _GPU_REUSABLE = (
-    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main"
+    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.3.0"
 )
 
 
@@ -250,6 +250,11 @@ def test_publish_runs_where_kit_can_boot():
         "the publish job must run where Kit can actually boot -- the org GPU "
         "reusable workflow; on a hosted runner nothing can prove the image "
         "streams (isaac#252)"
+    )
+    ref = (job.get("uses") or "").rsplit("@", 1)[-1]
+    assert ref.startswith("v") and ref != "v", (
+        f"gpu-self-hosted.yml must be pinned to a release tag (got @{ref}); "
+        "@main breaks on upstream push (run 42776185240)"
     )
     assert "runs-on" not in job, "no direct self-hosted target; go through the reusable workflow"
     labels = (job.get("with") or {}).get("runner-labels")

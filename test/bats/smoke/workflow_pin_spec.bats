@@ -27,7 +27,7 @@ setup() {
     echo "Found unpinned gpu-self-hosted.yml@main references:"
     echo "${hits}"
     echo ""
-    echo "Pin to a release tag (e.g. @v0.2.0) instead."
+    echo "Pin to a release tag (e.g. @v0.3.0) instead."
     return 1
   fi
 }
