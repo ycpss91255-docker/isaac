@@ -1,6 +1,6 @@
 # TEST.md
 
-**138 tests** total.
+**145 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -220,6 +220,27 @@ Behavioral guard for `script/checkout_identity.sh` and the pre build/run/stop ho
 | `guard: ISAAC_ALLOW_SHARED_IDENTITY=1 bypasses with a warning` | The explicit opt-out passes and prints a `WARN`. |
 | `guard: no .env.generated yet -> nothing to check, passes` | No resolved identity means nothing to refuse. |
 | `pre hooks: build/run/stop refuse a shared checkout and pass an isolated one` | The real baked hooks exit non-zero on the shared identity and zero on an isolated one. |
+
+## test/bats/smoke/gpu_job_scripts_spec.bats (6)
+
+Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration_job.sh`, `script/ci/stream_smoke_job.sh`). Both jobs run through the org reusable workflow `gpu-self-hosted.yml`, which owns the runner, the fork-PR gate, the pre-checkout workspace reclaim and the checkout, and then runs one repo script. This spec pins what those steps do: the order, the `WS_PATH` pin, which env reaches which command, the writable cache dirs, and that a failing step fails the job. Hermetic -- stub `setup.sh` / `build.sh` / `assert_pytest_baseline.sh`, no docker or GPU.
+
+| Test | Description |
+|------|-------------|
+| `gpu integration job: apply, pin WS_PATH, build test, caches, gpu baseline -- in order` | The five steps fire in the expected order with the expected env. |
+| `gpu integration job: works from any cwd (resolves the repo root itself)` | Invoked from `/`, the script resolves its own repo root. |
+| `gpu integration job: a failed build fails the job before the GPU suite` | A build failure (`BUILD_RC=3`) exits non-zero and does not reach the baseline step. |
+| `stream smoke job: apply, pin WS_PATH, build stream, caches, smoke -- in order` | The five steps fire in the expected order with the expected env. |
+| `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
+| `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
+
+## test/bats/smoke/workflow_pin_spec.bats (1)
+
+Guard: every reusable-workflow reference to the org's `gpu-self-hosted.yml` must be pinned to a release tag, never `@main`. When `.github`'s main branch is broken, every isaac push/PR that reaches `gpu-integration` or `stream-smoke` fails with "workflow file issue" and 0 jobs (run 42776185240, 2026-11-10). The base `build-worker.yaml` and `release-worker.yaml` are already pinned (e.g. `@v0.42.0`); this spec covers `gpu-self-hosted.yml`. Hermetic -- greps `.github/workflows/` files, no docker or network.
+
+| Test | Description |
+|------|-------------|
+| `no workflow references gpu-self-hosted.yml@main` | Greps every workflow YAML under `.github/workflows/` and fails if any references `gpu-self-hosted.yml@main`. |
 
 ## test/unit/pytest/ — hosted unit (pytest, not in the bats count above)
 
