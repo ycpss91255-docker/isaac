@@ -35,7 +35,7 @@ jobs:
   # after it, so the script prints the full kit log in a collapsed group of
   # the job log instead.
   stream-smoke:
-    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@main
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.2.0
     with:
       run-script: ./script/ci/stream_smoke_job.sh
       # Boot budget (SMOKE_TIMEOUT 600s) + client-connect budget
