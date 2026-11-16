@@ -142,3 +142,31 @@ Research's two workflow files arrived under `src/.github_research_legacy/` via t
 - **ycpss91255-docker/isaac#78**: research/isaac merge -- the trigger for this Update
 - **ycpss91255-docker/isaac#85**: the follow-up issue that executes the workflow fold + un-defers python-tests described above
 - **ycpss91255-docker/ros1_bridge#136**: parallel org-axis realignment (relocation in the other direction)
+
+## Update (2026-11-10) -- merge policy for required checks
+
+Branch protection on `main` now requires two status checks before merge:
+
+| Required check | Runner | What it covers |
+|---|---|---|
+| `call-docker-build / docker-build` | GitHub-hosted | Dockerfile build + bats smoke specs |
+| `gpu-integration / gpu` | Self-hosted (GPU) | Python GPU integration tests inside `devel-test` |
+
+`strict` mode is enabled: a PR must be up to date with `main` before merge. This means the ~13 min GPU suite re-runs after every rebase or merge-update, which is accepted as the cost of correctness.
+
+### Why GPU integration is a required check
+
+If the GPU suite fails, `main` is not correct. A broken GPU test means broken code, not optional signal. The GPU job was previously informational (`gpu-integration` was not listed in required checks); it is now a hard gate (#61, #62).
+
+### Fork PRs
+
+The GPU job is skipped by the same-repo gate (`if: github.event.pull_request.head.repo.full_name == github.repository || ...`) because the self-hosted runner is root-equivalent and must not run untrusted code. GitHub counts a conditionally skipped required check as passing, so a fork PR is not blocked from merging by the GPU gate. Policy: maintainers review fork PRs by hand; no extra mechanism for now.
+
+### Runner outage
+
+There is no bypass. The fix for a down runner is to make the runner reliable, not to skip tests. More runners are planned. Known failure mode: **RTX 5090 GPU drop-off (Xid 79 / "GPU fell off the bus")** -- the GPU falls off the PCIe bus and does not recover until the host is rebooted; re-running CI before the reboot is pointless. When the GPU CI job fails, check `nvidia-smi` and `journalctl -k | grep Xid` first -- a hardware drop-off is not a code bug.
+
+### Cross-references added
+
+- **ycpss91255-docker/isaac#61**: GPU CI implementation issue (python-tests job)
+- **ycpss91255-docker/isaac#62**: ADR-0011 adoption coordination issue
