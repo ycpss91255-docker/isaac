@@ -208,9 +208,16 @@
 #   isaac_devkit never imports isaacsim.core.utils. test_isaac_driver.py
 #   (2): run() prints a setup() exception's traceback before close() (whose
 #   _exit(0) used to swallow it), and a clean run prints none. Pure -- fake
-#   omni.kit.app / isaaclab.app modules. Live count is now 397 -- the
-#   enforced floor.
-HOSTED_UNIT_BASELINE = 397
+#   omni.kit.app / isaaclab.app modules. Live count is now 397.
+#
+#   The publish job moving onto the org GPU reusable workflow
+#   (gpu-self-hosted.yml) adds 2 (test_stream_source_producer.py 16 -> 18):
+#   the dispatch tag is validated on a hosted job and only the validated
+#   value reaches script-env, and publish_stream_source.sh refuses a bad
+#   IMAGE_TAG before any docker call. The three publish-path tests are
+#   rewritten in place to pin build -> timeout 30m smoke -> push inside the
+#   script. Live count is now 399 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 399
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
