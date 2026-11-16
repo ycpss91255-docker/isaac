@@ -1,13 +1,14 @@
 """L1 Model Pipeline integration test (ADR-0018 decision 6).
 
 End-to-end coverage for ``isaac_devkit.model_import``: invoke the CLI as
-a subprocess against the openbase URDF (an existing minimal-link robot
-already tracked in this repo), then verify the resulting USD is a SINGLE
-Isaac Lab instanceable USD with the expected prim hierarchy. The old
-multi-file "Asset Structure 3.0" layout (root + geometry + material +
-textures + sublayer chain + material-layer-survives-reimport) is dropped
-(ADR-0018: model_import emits one instanceable USD; material color is a
-spawn-time cfg param, not a USD variant layer).
+a subprocess against a minimal single-link URDF fixture (copied from the
+openbase model, which now lives in ycpss91255-docker/robot_model), then
+verify the resulting USD is a SINGLE Isaac Lab instanceable USD with the
+expected prim hierarchy. The old multi-file "Asset Structure 3.0" layout
+(root + geometry + material + textures + sublayer chain +
+material-layer-survives-reimport) is dropped (ADR-0018: model_import emits
+one instanceable USD; material color is a spawn-time cfg param, not a USD
+variant layer).
 
 Runtime requirement: this test must run inside the Isaac Sim / Isaac Lab
 devel-test container (``/isaac-sim/python.sh -m pytest``). The CLI spawns
@@ -25,6 +26,12 @@ Why subprocess per import: ``isaacsim.SimulationApp`` is a process-global
 singleton -- creating it twice in one Python process raises. Each CLI
 invocation needs a fresh process; pytest reuses one process for the whole
 module, so the test shells out per invocation.
+
+Fixture choice: test/fixtures/urdf/openbase_minimal/ is used instead of the
+existing concave_ushape fixture because (a) concave_ushape is purpose-built
+for the collider_type contrast test (#167) and coupling unrelated tests to
+one fixture is fragile, and (b) the openbase_minimal fixture preserves the
+robot name ``open_base`` so the prim-hierarchy assertion stays stable.
 """
 
 import os
@@ -34,7 +41,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-OPENBASE_URDF = REPO_ROOT / "src" / "model" / "urdf" / "robot" / "openbase" / "openbase_minimal.urdf"
+OPENBASE_URDF = REPO_ROOT / "test" / "fixtures" / "urdf" / "openbase_minimal" / "openbase_minimal.urdf"
 FRAMEWORK_DIR = REPO_ROOT / "framework"
 SUMMARY_RUNNER = Path(__file__).parent / "_prim_summary_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"
