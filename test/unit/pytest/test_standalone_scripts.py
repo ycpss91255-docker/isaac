@@ -92,14 +92,11 @@ def test_kit_config_follows_isaac_livestream():
         helper.kit_config("9")
 
 
-def test_openbase_usd_path_is_repo_relative_and_exists():
+def test_openbase_usd_path_raises_when_models_are_absent():
+    """openbase_usd_path raises FileNotFoundError pointing to robot_model repo."""
     helper = _load_helper()
-    usd = helper.openbase_usd_path()
-    assert usd == (
-        _REPO_ROOT / "src" / "model" / "usd" / "robot" / "openbase"
-        / "openbase.usda"
-    )
-    assert usd.is_file()
+    with pytest.raises(FileNotFoundError, match="robot_model"):
+        helper.openbase_usd_path()
 
 
 def test_periodic_timer_fires_once_per_period_regardless_of_tick_rate():
