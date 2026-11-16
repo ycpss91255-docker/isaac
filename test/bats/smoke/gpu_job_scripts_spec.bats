@@ -124,6 +124,35 @@ teardown() {
   [[ "${output}" == *"kit-log-line-from-the-failed-run"* ]]
 }
 
+@test "gpu_job_cache_dirs makes the workspace world-writable (rootless Docker)" {
+  # gpu_job_cache_dirs is sourced from gpu_job_lib.sh.  After it runs, every
+  # file and directory under GITHUB_WORKSPACE must be accessible by any uid
+  # (chmod -R a+rwX), so a container's non-root user can write to the mounted
+  # workspace on a rootless Docker daemon where the runner uid maps to a
+  # subuid.  On rootful daemons the chmod is harmless.
+  #
+  # Create a file owned by the current user with restricted permissions to
+  # prove the chmod widens them.
+  mkdir -p "${FAKE}/isaac-sim/kit/cache"
+  chmod 700 "${FAKE}/isaac-sim/kit/cache"
+  touch "${FAKE}/some-repo-file"
+  chmod 600 "${FAKE}/some-repo-file"
+
+  run bash "${FAKE}/script/ci/gpu_integration_job.sh"
+  [ "${status}" -eq 0 ]
+
+  # Directories must have the 'other' execute+read+write bits set.
+  local dir_perms
+  dir_perms=$(stat -c '%a' "${FAKE}/isaac-sim/kit/cache")
+  [[ "${dir_perms}" == *7 ]]
+
+  # Regular files must have the 'other' read+write bits set (X does not set
+  # execute on regular files that lacked it).
+  local file_perms
+  file_perms=$(stat -c '%a' "${FAKE}/some-repo-file")
+  [[ "${file_perms}" == *6 ]]
+}
+
 @test "stream smoke job: a failed smoke with no kit log still fails with the smoke's status" {
   cat > "${FAKE}/script/ci/stream_smoke.sh" <<'STUB'
 #!/usr/bin/env bash

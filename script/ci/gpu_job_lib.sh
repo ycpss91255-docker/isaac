@@ -55,5 +55,13 @@ gpu_job_cache_dirs() {
     isaac-sim/ov/cache isaac-sim/ov/data isaac-sim/ov/logs \
     isaac-sim/pip isaac-sim/nvidia/glcache \
     isaac-sim/nvidia/computecache isaac-sim/documents
+
+  # Rootless Docker: the container's non-root user maps to a subuid on the
+  # host, so files owned by the runner are not writable inside the container.
+  # chmod a+rwX makes the workspace (repo root, cache dirs, test-report dir)
+  # accessible for any uid.  The runner user keeps ownership, so host-side
+  # steps (setup.sh apply, git) still work.  Harmless on a rootful daemon.
+  # See ycpss91255-docker/.github#38, isaac#314.
+  chmod -R a+rwX "${GITHUB_WORKSPACE:-.}"
   gpu_job_endgroup
 }
