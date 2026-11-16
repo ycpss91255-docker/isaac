@@ -1,6 +1,6 @@
 # TEST.md
 
-**145 tests** total.
+**146 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -221,7 +221,7 @@ Behavioral guard for `script/checkout_identity.sh` and the pre build/run/stop ho
 | `guard: no .env.generated yet -> nothing to check, passes` | No resolved identity means nothing to refuse. |
 | `pre hooks: build/run/stop refuse a shared checkout and pass an isolated one` | The real baked hooks exit non-zero on the shared identity and zero on an isolated one. |
 
-## test/bats/smoke/gpu_job_scripts_spec.bats (6)
+## test/bats/smoke/gpu_job_scripts_spec.bats (7)
 
 Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration_job.sh`, `script/ci/stream_smoke_job.sh`). Both jobs run through the org reusable workflow `gpu-self-hosted.yml`, which owns the runner, the fork-PR gate, the pre-checkout workspace reclaim and the checkout, and then runs one repo script. This spec pins what those steps do: the order, the `WS_PATH` pin, which env reaches which command, the writable cache dirs, and that a failing step fails the job. Hermetic -- stub `setup.sh` / `build.sh` / `assert_pytest_baseline.sh`, no docker or GPU.
 
@@ -231,6 +231,7 @@ Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration
 | `gpu integration job: works from any cwd (resolves the repo root itself)` | Invoked from `/`, the script resolves its own repo root. |
 | `gpu integration job: a failed build fails the job before the GPU suite` | A build failure (`BUILD_RC=3`) exits non-zero and does not reach the baseline step. |
 | `stream smoke job: apply, pin WS_PATH, build stream, caches, smoke -- in order` | The five steps fire in the expected order with the expected env. |
+| `gpu_job_cache_dirs makes the workspace world-writable (rootless Docker)` | Creates a restricted-permission file and directory, runs the integration job, and asserts both are widened to include other-read-write (and execute for directories) by the `chmod -R a+rwX` at the end of `gpu_job_cache_dirs`. On a rootless Docker daemon the container's non-root user maps to a host subuid, so the mounted workspace must be world-writable. |
 | `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
 | `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
 
