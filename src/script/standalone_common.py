@@ -36,8 +36,21 @@ SRC_DIR = _SCRIPT_DIR.parent
 
 
 def openbase_usd_path() -> Path:
-    """Return the committed OpenBase USD, resolved from this checkout."""
-    return SRC_DIR / "model" / "usd" / "robot" / "openbase" / "openbase.usda"
+    """Return the committed OpenBase USD, resolved from this checkout.
+
+    Raises:
+        FileNotFoundError: when the USD file is absent. The production
+            models now live in ``ycpss91255-docker/robot_model``.
+    """
+    p = SRC_DIR / "model" / "usd" / "robot" / "openbase" / "openbase.usda"
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"OpenBase USD not found at {p}. "
+            "Robot models have moved to the robot_model repository "
+            "(ycpss91255-docker/robot_model). Clone it and regenerate the "
+            "USD from URDF, or copy the USD into this path."
+        )
+    return p
 
 
 def kit_config(livestream_env: Optional[str]) -> Dict[str, Any]:
