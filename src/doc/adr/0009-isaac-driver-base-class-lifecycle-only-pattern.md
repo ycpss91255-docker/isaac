@@ -56,7 +56,7 @@ Isaac Sim 5.1 的 3-way signal handler 衝突（Kit handler + driver handler + r
 - **ycpss91255-docker/isaac#28**: Docker stage 整合（headless / headless-stream），`ISAAC_LIVESTREAM` env var 來源
 - **ycpss91255/isaac#23**: 實作 issue
 - **ADR-0007**: custom streaming Kit experience（`isaacsim.exp.base.python.streaming.kit`），由 `create_sim_app()` 在 `ISAAC_LIVESTREAM=2` 時自動選用
-- **ADR-0008**: L2/L3 physics level vocabulary — `cmd_vel_planar_standalone_l2.py` 是首個 L2 driver，將由 `IsaacDriver` 重構
+- **[ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md)**: L2/L3 physics level vocabulary — `cmd_vel_planar_standalone_l2.py` 是首個 L2 driver，將由 `IsaacDriver` 重構
 
 ## Editorial note (2026-06-11)
 

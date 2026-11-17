@@ -217,7 +217,13 @@
 #   IMAGE_TAG before any docker call. The three publish-path tests are
 #   rewritten in place to pin build -> timeout 30m smoke -> push inside the
 #   script. Live count is now 399 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 399
+#
+#   Physics-experiment extraction (isaac#309): test_render_settings.py
+#   (13 tests) moved to ycpss91255-docker/isaac_physics_test with
+#   viz_render.py and the experiment drivers.  _capture_noise_runner.py
+#   inlines the converged-render recipe it imported from viz_render.
+#   Baseline floor adjusts 399 -> 386.
+HOSTED_UNIT_BASELINE = 386
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
