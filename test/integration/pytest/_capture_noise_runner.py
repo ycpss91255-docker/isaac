@@ -8,8 +8,9 @@ and captures the SAME static scene twice through the SAME render product:
   1. as replicator creates it -- the Isaac Sim 6.0 default RealTimePathTracing,
      one path-traced sample per pixel denoised by NGX (available since
      isaac#285);
-  2. after ``viz_render.apply_converged_render_settings`` authors the
-     converged-still recipe on the RenderProduct prim.
+  2. after ``apply_converged_render_settings`` (inlined from the former
+     ``viz_render`` module) authors the converged-still recipe on the
+     RenderProduct prim.
 
 Prints one ``[CAPTURE NOISE]`` marker line per capture. The noise metric is the
 mean absolute difference between horizontally neighbouring pixels: sampling
@@ -22,9 +23,81 @@ import sys
 import traceback
 from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parents[3] / "src" / "script"
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+# ---------------------------------------------------------------------------
+# Converged-still render recipe (inlined from the former viz_render.py,
+# which moved to ycpss91255-docker/isaac_physics_test with the experiment
+# drivers).  Only the subset _capture_noise_runner actually calls is kept.
+# ---------------------------------------------------------------------------
+_CONVERGED_RENDER_MODE = "PathTracing"
+_DEFAULT_SAMPLES_PER_PIXEL = 512
+CONVERGE_RENDER_TICKS = 16
+
+_RENDER_VAR_SDF_TYPE_NAMES = {
+    "omni:rtx:rendermode": "String",
+    "omni:rtx:pt:samplesPerPixel": "Int",
+    "omni:rtx:pt:clampSpp": "Int",
+}
+
+
+def _converged_still_render_vars(samples_per_pixel=_DEFAULT_SAMPLES_PER_PIXEL):
+    """RenderProduct-prim attributes that make a still converge (isaac#266)."""
+    budget = int(samples_per_pixel)
+    if budget < 1:
+        raise ValueError(
+            f"samples_per_pixel must be >= 1, got {samples_per_pixel!r}"
+        )
+    return {
+        "omni:rtx:rendermode": _CONVERGED_RENDER_MODE,
+        "omni:rtx:pt:samplesPerPixel": budget,
+        "omni:rtx:pt:clampSpp": budget,
+    }
+
+
+def apply_converged_render_settings(render_product_path, stage=None,
+                                    samples_per_pixel=_DEFAULT_SAMPLES_PER_PIXEL):
+    """Author the converged-still recipe on one render product's prim."""
+    if stage is None:
+        import omni.usd
+        stage = omni.usd.get_context().get_stage()
+
+    path = str(render_product_path)
+    prim = stage.GetPrimAtPath(path)
+    if not prim or not prim.IsValid():
+        raise ValueError(f"no RenderProduct prim at {path!r}")
+
+    applied = _converged_still_render_vars(samples_per_pixel)
+    for name, value in applied.items():
+        attr = prim.GetAttribute(name)
+        if not attr:
+            from pxr import Sdf
+            attr = prim.CreateAttribute(
+                name,
+                getattr(Sdf.ValueTypeNames, _RENDER_VAR_SDF_TYPE_NAMES[name]),
+            )
+        attr.Set(value)
+    return applied
+
+
+def _look_at(eye, target, up=(0.0, 0.0, 1.0)):
+    """Row-major 4x4 (flat 16) camera-to-world for a USD camera."""
+    import math
+
+    def sub(a, b):
+        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0])
+
+    def norm(a):
+        n = math.sqrt(sum(c * c for c in a))
+        return tuple(c / n for c in a) if n else a
+
+    z = norm(sub(eye, target))
+    x = norm(cross(up, z))
+    y = cross(z, x)
+    return [x[0], x[1], x[2], 0.0, y[0], y[1], y[2], 0.0,
+            z[0], z[1], z[2], 0.0, eye[0], eye[1], eye[2], 1.0]
 
 
 def _room(stage):
@@ -69,7 +142,6 @@ def _room(stage):
 
 
 def _camera(stage, path, eye, target):
-    import viz_render as vr
     from pxr import Gf, UsdGeom
 
     cam = UsdGeom.Camera.Define(stage, path)
@@ -77,7 +149,7 @@ def _camera(stage, path, eye, target):
     cam.CreateClippingRangeAttr(Gf.Vec2f(0.05, 1000.0))
     xform = UsdGeom.Xformable(cam.GetPrim())
     xform.ClearXformOpOrder()
-    xform.AddTransformOp().Set(Gf.Matrix4d(*vr.look_at(eye, target)))
+    xform.AddTransformOp().Set(Gf.Matrix4d(*_look_at(eye, target)))
     return path
 
 
@@ -107,7 +179,6 @@ def main():
         import omni.replicator.core as rep
         import omni.timeline
         import omni.usd
-        import viz_render as vr
 
         ctx = omni.usd.get_context()
         ctx.new_stage()
@@ -130,7 +201,7 @@ def main():
         prim = stage.GetPrimAtPath(rp_path)
 
         def report(label):
-            for _ in range(vr.CONVERGE_RENDER_TICKS * 2):
+            for _ in range(CONVERGE_RENDER_TICKS * 2):
                 app.update()
             metrics = _metrics(annot.get_data())
             assert metrics is not None, f"empty annotator data for {label}"
@@ -143,7 +214,7 @@ def main():
             )
 
         report("default")
-        vr.apply_converged_render_settings(rp_path, stage=stage)
+        apply_converged_render_settings(rp_path, stage=stage)
         report("converged")
 
     except Exception:  # noqa: BLE001

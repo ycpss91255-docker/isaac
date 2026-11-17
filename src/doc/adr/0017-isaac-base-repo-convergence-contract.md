@@ -288,7 +288,7 @@ replacement and the de-application of the original file — one cut. Camera-bot 
 `front_camera` catalog entry plus the placement block in section 5 fully replace what a
 `config/camera/<type>.yaml` file used to say.
 
-### From ADR-0008 (L2/L3 physics-level vocabulary and coexistence rules)
+### From [ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (L2/L3 physics-level vocabulary and coexistence rules)
 
 The vocabulary and the PhysX ground rules are generic Isaac/PhysX facts and remain in force
 for any robot built on this base:
@@ -336,20 +336,20 @@ four layers: URDF in `src/isaac/sim/model/` -> `import_urdf` -> placement in `ro
 ## Per-ADR disposition table
 
 Disposition of all 16 existing ADRs. "Migrate" rows were planned to move physically in #136;
-however the `isaac-forklift` repo creation is deferred per #129, so ADR-0001 / 0003 / 0004
-remain in this repo for now. Their proposed numbers in `isaac-forklift` are reserved here in
-migration order and finalized by #136 when it proceeds.
+however the `isaac-forklift` repo creation is deferred per #129. ADR-0003 / 0004 / 0008 / 0021
+have been extracted to `ycpss91255-docker/isaac_physics_test` (isaac#309). ADR-0001 remains in
+this repo (it predates the physics experiments and applies to the base chassis model).
 
 | ADR | Title (short) | Disposition | Destination | New number |
 |---|---|---|---|---|
 | 0001 | Chassis SE(2) slide | migrate | `isaac-forklift` (#136) | forklift ADR-0001 |
 | 0002 | cmd_vel teleop via in-kit Script Editor | kept | base (historical; entrypoint already superseded in place by ADR-0005) | — |
-| 0003 | Two-track simulation strategy | migrate | `isaac-forklift` (#136) | forklift ADR-0002 |
-| 0004 | Model A-hybrid block model | migrate | `isaac-forklift` (#136) | forklift ADR-0003 |
+| 0003 | Two-track simulation strategy | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0003-two-track-simulation-strategy.md) (isaac#309) | `isaac_physics_test` | — |
+| 0004 | Model A-hybrid block model | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0004-model-a-hybrid-forklift-block-model.md) (isaac#309) | `isaac_physics_test` | — |
 | 0005 | Standalone-with-livestream entrypoint | kept (light editorial de-application) | base | — |
 | 0006 | Per-sensor-type YAML config | **supersede** (this ADR section 5 + restatement above; stub header added) | file migrates with #136 | forklift ADR-0004 |
 | 0007 | Custom streaming Kit experience | kept (light editorial de-application) | base | — |
-| 0008 | L2/L3 physics vocabulary | **supersede** (restated generically above; stub header added) | file migrates with #136 | forklift ADR-0005 |
+| 0008 | L2/L3 physics vocabulary | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (isaac#309); generic restatement above still applies | `isaac_physics_test` | — |
 | 0009 | IsaacDriver lifecycle-only pattern | kept (light editorial de-application; `USD` class attr replaced by `SCENE` per section 9) | base | — |
 | 0010 | 4-layer Isaac Dev Kit | **supersede** (restated as the module set above; stub header added) | file migrates with #136 | forklift ADR-0006 |
 | 0011 | CI hosted/self-hosted split | kept (already revised inline by ADR-0012 + its own 2026-06-02 update) | base | — |
@@ -437,7 +437,7 @@ in force. Summary of what changes here:
   `UrdfConverterCfg` (lazy-cached offline conversion; the `PrimSummary` L1 diff=0 contract is
   retained as a test on the Isaac-Lab-produced USD, with `parse_urdf_expected` recalibrated
   once). `materials` slims to the structurally-distinct-variant case only (color becomes a
-  material-cfg parameter — see ADR-0008 amendment). `sensors` / `ros_io` are **unchanged** (the
+  material-cfg parameter — see [ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) amendment). `sensors` / `ros_io` are **unchanged** (the
   OmniGraph ROS 2 bridge is the recommended outlet in Isaac Lab too, and is decoupled from
   spawning).
 - **Section 9 (API contract) — two edits.** The driver lifecycle's first line changes from

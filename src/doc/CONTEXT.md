@@ -25,7 +25,7 @@ C-Phase 用於 Sim2Real gap 量化的 SIM 模型實作 — 完整 mecanum URDF +
 _Avoid_: real model、full model、Model 2
 
 **L2 (Kinematic)**:
-USD prim 走 kinematic rigid body。命令即位置（無 force lag）,但**會產生 collision contact**——會推開 dynamic body、會被 contact query 偵測到。「ideal actuator + 真實接觸」的 canonical 組合,PhysX 官方列為 moving platforms / character controllers 的標準工具。Forklift_blocky 預設 5 cube 都在此階（ADR-0004）。
+USD prim 走 kinematic rigid body。命令即位置（無 force lag）,但**會產生 collision contact**——會推開 dynamic body、會被 contact query 偵測到。「ideal actuator + 真實接觸」的 canonical 組合,PhysX 官方列為 moving platforms / character controllers 的標準工具。Forklift_blocky 預設 5 cube 都在此階（[ADR-0004](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0004-model-a-hybrid-forklift-block-model.md)）。
 _Avoid_: ideal physics（太籠統）、scripted body（隱沒 collision 屬性）
 
 **L3 (Dynamic + Joint)**:
@@ -61,7 +61,7 @@ grep 在所有 `*.usda` / `*.usd` layer 找不到此 Action Graph chain；`pxr.U
 - **Upper-Layer Algorithm** 與 **Motion-Control Simulation** 是兩個獨立 scope；當前 isaac_ws 只做前者
 - **Chassis SE(2) Slide** 是 **Upper-Layer Algorithm** 開發時用的代理模式
 - ~~**cmd_vel sink** 是 **Chassis SE(2) Slide** 的具體實現位置~~ _(deprecated — actual cmd_vel subscription is in Python driver, not Action Graph)_
-- **Model A** 是 **Chassis SE(2) Slide** 的 SIM 模型實作，**Model B** 是 **Motion-Control Simulation** 的 SIM 模型實作；兩軌並行不取代（C-Phase 為切換點，A/B-Phase 用 Model A，C-Phase 切 Model B 量化 sim-real gap）— 詳見 ADR-0003
+- **Model A** 是 **Chassis SE(2) Slide** 的 SIM 模型實作，**Model B** 是 **Motion-Control Simulation** 的 SIM 模型實作；兩軌並行不取代（C-Phase 為切換點，A/B-Phase 用 Model A，C-Phase 切 Model B 量化 sim-real gap）— 詳見 [ADR-0003](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0003-two-track-simulation-strategy.md)
 - **L2 / L3** 是 per-body 物理階段。Model A 家族的 USD 預設 chassis 與 mast 系統都 L2；升任何 body 到 L3 即跨入 **Motion-Control Simulation** 範疇,屬 Model B 軌
 - **Isaac Dev Kit** 的 4 層服務 Model A 和 Model B 兩軌 — 不同軌的差異在 **Scene YAML** 指向的 robot USD variant 和 driver subclass，框架本身不變
 - **Robot** 與 **Environment Object** 的分類標準是「能否主動移動」，不是有沒有 joint（**Environment Object** 可以有 passive joint，如 push-back 滑軌）
