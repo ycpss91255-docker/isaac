@@ -244,7 +244,10 @@
 #   type is Path, offline empty-cache raises RuntimeError naming the asset,
 #   and unknown asset name raises KeyError.  Pure -- mocked HTTP, filesystem
 #   only.  Live count is now 442 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 442
+#
+#   package:// URI resolution (isaac#334 part 2): adds 4 hosted tests.
+#   Live count is now 446 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 446
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
