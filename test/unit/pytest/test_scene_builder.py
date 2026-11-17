@@ -229,6 +229,67 @@ class TestModelPathSearch:
         assert str(root_b) in str(exc_info.value)
 
 
+class TestPackageUriResolve:
+    """package:// URIs resolved by scanning package.xml under MODEL_PATH."""
+
+    @staticmethod
+    def _make_pkg(root, pkg_name, model_rel="urdf/robot.usd"):
+        """Create a minimal ROS package with a model file under *root*."""
+        pkg_dir = root / pkg_name
+        model = pkg_dir / model_rel
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_text("#usda 1.0")
+        (pkg_dir / "package.xml").write_text(
+            f"<package><name>{pkg_name}</name></package>"
+        )
+        return pkg_dir
+
+    def test_package_uri_resolved_from_model_path(self, tmp_path, monkeypatch):
+        """package://pkg/rel resolves to <root>/pkg/rel."""
+        root = tmp_path / "models"
+        self._make_pkg(root, "my_robot", "urdf/robot.usd")
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        resolved = scene_builder.resolve_model_path(
+            "package://my_robot/urdf/robot.usd", tmp_path
+        )
+        assert resolved == root / "my_robot" / "urdf" / "robot.usd"
+
+    def test_package_uri_requires_package_xml(self, tmp_path, monkeypatch):
+        """A directory without package.xml is not treated as a package."""
+        root = tmp_path / "models"
+        pkg_dir = root / "fake_pkg"
+        (pkg_dir / "urdf").mkdir(parents=True)
+        (pkg_dir / "urdf" / "robot.usd").write_text("#usda 1.0")
+        # No package.xml!
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        with pytest.raises(FileNotFoundError):
+            scene_builder.resolve_model_path(
+                "package://fake_pkg/urdf/robot.usd", tmp_path
+            )
+
+    def test_package_uri_searches_multiple_roots(self, tmp_path, monkeypatch):
+        """package:// scans each MODEL_PATH root in order."""
+        root_a = tmp_path / "a"
+        root_a.mkdir()
+        root_b = tmp_path / "b"
+        self._make_pkg(root_b, "bot_desc", "meshes/bot.usd")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path(
+            "package://bot_desc/meshes/bot.usd", tmp_path
+        )
+        assert resolved == root_b / "bot_desc" / "meshes" / "bot.usd"
+
+    def test_package_uri_error_names_package(self, tmp_path, monkeypatch):
+        """The error for an unresolved package:// URI names the package."""
+        root = tmp_path / "models"
+        root.mkdir()
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        with pytest.raises(FileNotFoundError, match="no_such_pkg"):
+            scene_builder.resolve_model_path(
+                "package://no_such_pkg/model.usd", tmp_path
+            )
+
+
 class TestGenerateInstances:
     def test_single_instance(self):
         entry = {
