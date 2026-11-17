@@ -101,9 +101,9 @@ Maintainer PRs use `gh pr merge --auto --squash` (after `unit-test` + `lint` + `
 ## Cross-references
 
 - **ADR-0012**: Research org split + dual org-level runners -- supersedes the runner topology (§Self-hosted) and the user-account tax item (§Consequences) of this ADR
-- **ADR-0006**: Per-sensor-type YAML camera config -- the kind of code these tests verify
+- **ADR-0006** (in isaac_physics_test): Per-sensor-type YAML camera config -- the kind of code these tests verify
 - **ADR-0009**: IsaacDriver base class lifecycle pattern -- target of future integration tests
-- **ADR-0010**: Isaac Dev Kit 4-layer standardized development environment -- introduces the tests that drove this decision
+- **ADR-0010** (in isaac_physics_test): Isaac Dev Kit 4-layer standardized development environment -- introduces the tests that drove this decision
 - **ycpss91255-docker/isaac#59**: `pytest + pyyaml + pytest-cov` added to `devel-test` Dockerfile stage -- prerequisite for running pytest in container
 - **ycpss91255-docker/base** existing reusable workflow pattern (`build-worker.yaml`, `release-worker.yaml`) -- template for future reusable extraction
 
