@@ -243,8 +243,8 @@
 #   not empty), cache-hit skips download, cache-miss calls download, return
 #   type is Path, offline empty-cache raises RuntimeError naming the asset,
 #   and unknown asset name raises KeyError.  Pure -- mocked HTTP, filesystem
-#   only.  Live count is now 437 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 437
+#   only.  Live count is now 442 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 442
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
