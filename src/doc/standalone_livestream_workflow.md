@@ -2,7 +2,7 @@
 
 > 跑 driver script 的日常流程。`SimulationApp({"headless": True, "livestream": 2})` 從 host CLI 起 Kit + 開 WebRTC livestream;瀏覽器隨開隨關,不影響 sim;Ctrl-C 乾淨退場。
 >
-> Driver 走這條的代表:`script/forklift_blocky_driver_wip.py`(Model A-hybrid demo)+ `script/standalone_livestream_smoke.py`(最小 sanity check)。
+> Driver 走這條的代表:`script/standalone_livestream_smoke.py`(最小 sanity check);完整 forklift demo driver 已搬到 isaac_physics_test(#309)。
 >
 > 為什麼選這條 vs 過去的 in-kit Script Editor:見 `adr/0005-standalone-with-livestream-as-default-dev-entrypoint.md`。
 > 過去 in-kit Script Editor 日常 SOP 留在 `cmd_vel_inkit_teleop.md` 當歷史參考(已標 legacy)。
@@ -46,10 +46,10 @@ just docker exec -t stream /isaac-sim/python.sh \
 ```bash
 cd isaac_ws/src/docker
 just docker exec -t stream /isaac-sim/python.sh \
-    /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
+    /home/yunchien/work/src/script/<your_driver>.py
 ```
 
-- Kit 起動約 5–10 秒(看到 `[forklift-Ah] stage opened` 表示 USD 載完)。
+- Kit 起動約 5–10 秒(看到 `<your_driver> 的 stage opened log` 表示 USD 載完)。
 - 之後 driver 進入 spin loop,每 tick 寫一次 `sim_app.update()`,印 demo cycle 進度。
 - 要看畫面:**Isaac Sim WebRTC Streaming Client**(桌面 app)連 `127.0.0.1`。連線 / 關閉 / 重連都不影響 driver。瀏覽器無法直接看,必須用官方 client。
 - 要結束:該 terminal `Ctrl-C` 一下。Driver 攔 SIGINT,印 `signal received — requesting clean exit`,接 `Simulation App Shutting Down`,exit 0。
@@ -58,7 +58,7 @@ just docker exec -t stream /isaac-sim/python.sh \
 
 ```bash
 nohup just docker exec -t stream /isaac-sim/python.sh \
-    /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
+    /home/yunchien/work/src/script/<your_driver>.py \
     > /tmp/forklift.out 2>&1 &
 echo $! > /tmp/forklift.pid
 ```
@@ -69,7 +69,7 @@ echo $! > /tmp/forklift.pid
 
 ```bash
 timeout 75 just docker exec -t stream /isaac-sim/python.sh \
-    /home/yunchien/work/src/script/forklift_blocky_driver_wip.py
+    /home/yunchien/work/src/script/<your_driver>.py
 ```
 
 `timeout` 到時送 SIGTERM,driver 同樣攔到 → 乾淨退場。exit code 124(timeout)或 143(SIGTERM)都算 "timeout 結束",不代表 fail。
@@ -216,4 +216,4 @@ else:
 - `cmd_vel_inkit_teleop.md` — 舊 in-kit 日常 SOP(legacy)
 - `action_graph_setup.md` — 更早期 Action Graph 一次性 GUI SOP(deprecated)
 - `script/standalone_livestream_smoke.py` — 最小 sanity driver(`SimulationApp + livestream:2` 開合 / 30s spin / exit 0)
-- `script/forklift_blocky_driver_wip.py` — Model A-hybrid 完整 demo(51s pickup cycle)
+- forklift Model A-hybrid 完整 demo(51s pickup cycle)— 已搬到 isaac_physics_test(#309)
