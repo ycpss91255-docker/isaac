@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Removed
+- **Physics experiments and forklift content extracted to ycpss91255-docker/isaac_physics_test (isaac#309).** 15 experiment drivers (`src/script/exp_*.py`), `forklift_blocky_driver_wip.py`, `poc59_articulation_bypass_wip.py`, `viz_render.py`, `repro_artic_kinematic_loopjoint_sigsegv.py`, `velocity_test.py`, 4 ADRs (0003/0004/0008/0021), `doc/experiments/REPRODUCE.md`, `test/gen_review_pdf.py`, L2 integration tests, pallet/collision verify scripts, and all experiment result JSON/log/PNG files moved to the new public repo. `standalone_common.py` retained (a copy lives in the new repo). Hosted-unit baseline adjusted 399 -> 386 (the 13 `test_render_settings.py` tests moved with `viz_render.py`). `_capture_noise_runner.py` inlines the converged-render recipe it previously imported from `viz_render`. GPU-integration baseline unchanged (35). ADR cross-references in remaining ADRs updated to point to the new repo.
+
 ### Added
 - **CI merge policy documented in ADR-0011 (isaac#61, isaac#62).** Branch protection on `main` now requires `call-docker-build / docker-build` (hosted) and `gpu-integration / gpu` (self-hosted GPU) to pass before merge, with `strict` mode enabled (PR must be up to date with `main`). GPU integration is a hard gate: a broken GPU test means broken code. Fork PRs see the GPU job skipped by the same-repo security gate; maintainers review them by hand. Runner outage has no bypass -- the fix is runner reliability (reboot on Xid 79), not skipping tests.
 

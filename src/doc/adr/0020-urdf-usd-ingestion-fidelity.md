@@ -188,7 +188,7 @@ dynamic, so a raw mesh collider is out. Three legal routes for a concave collide
 3. **SDF mesh** -- a signed-distance-field grid; GPU collision pipeline only.
 
 **Decision: box-union for the rectilinear parts.** NOT because decomposition "cannot" do it. It
-demonstrably can, on synthetic *and* on real concave geometry (`test/verify_decomp_pocket.py`; and
+demonstrably can, on synthetic *and* on real concave geometry ([`verify_decomp_pocket.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_decomp_pocket.py); and
 the vendor-asset measurements below, where decomposition reproduced a real pallet faithfully --
 open through both real tine tunnels, solid at the real centre block). The case for box-union rests
 on determinism and on where the decision lives, not on decomposition being inaccurate:
@@ -233,19 +233,19 @@ own shipped assets and against our own import path, rather than against syntheti
 drivers, logs committed beside them:
 
 - *The approximation is the deciding factor, not mesh quality or our importer.*
-  `test/verify_real_asset_collision.py` inventories vendor props over direct HTTPS
-  (`test/.verify-real-asset-collision.json`). NVIDIA ships the same kind of pallet in three
+  [`verify_real_asset_collision.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_real_asset_collision.py) inventories vendor props over direct HTTPS
+  (result JSON now in `isaac_physics_test`). NVIDIA ships the same kind of pallet in three
   different collision states: `Props/Pallet/pallet.usd` is `boundingCube`, `o3dyn_pallet.usd` is
   `convexDecomposition`, `pallet_holder.usd` has no collision authored at all. So
   `convexDecomposition` is what the vendor itself uses for a concave pallet.
-- *What each approximation does to the entry face.* `test/verify_pallet_entry_map.py` raycasts a
+- *What each approximation does to the entry face.* [`verify_pallet_entry_map.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_pallet_entry_map.py) raycasts a
   (y,z) grid across the pallet's entry face and prints an occupancy map
-  (`test/.pallet-entry-map*.json`): `boundingCube` 0 open cells of 221, `convexHull` 13 (an edge
+  (result JSON now in `isaac_physics_test`): `boundingCube` 0 open cells of 221, `convexHull` 13 (an edge
   sliver only), `convexDecomposition` 68 forming two through tunnels. This is also how the tunnels
   were located -- an earlier insertion attempt aimed at y = +/-0.26 and hit solid everywhere.
-- *A fork actually entering.* `test/verify_real_pallet_insertion.py` drives a 1-DOF prismatic tine
+- *A fork actually entering.* [`verify_real_pallet_insertion.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_real_pallet_insertion.py) drives a 1-DOF prismatic tine
   into the same pallet with the approximation overridden per lane
-  (`test/.verify-real-pallet-insertion.json`): free control 2.628 m at all three offsets;
+  (result JSON now in `isaac_physics_test`): free control 2.628 m at all three offsets;
   `boundingCube` and `convexHull` blocked at all three (~0 m); `convexDecomposition` 2.628 m at
   y = -0.15 and +0.15 and correctly **blocked** at 0.005 m at y = 0. That last cell is the point:
   decomposition is not "letting everything through", it is open where the pallet is open and solid

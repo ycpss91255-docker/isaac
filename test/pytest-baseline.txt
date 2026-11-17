@@ -230,7 +230,13 @@
 #   (load_config, get_category, validate_camera), setup_sensors stub, ros:
 #   optional via backcompat, _enable_extensions unchanged.
 #   Live count is now 440 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 440
+#
+#   Physics-experiment extraction (isaac#309): test_render_settings.py
+#   (13 tests) moved to ycpss91255-docker/isaac_physics_test with
+#   viz_render.py and the experiment drivers.  _capture_noise_runner.py
+#   inlines the converged-render recipe it imported from viz_render.
+#   Baseline floor adjusts 440 -> 427 (live 441 -> 428).
+HOSTED_UNIT_BASELINE = 427
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

@@ -16,7 +16,7 @@
 - `/joint_states` 在 isaac_ws 內無意義，下游應用層不該依賴
 - camera mount TF 鏈仍正確（跟著 base_link 移動），mask → 3D 投影鏈完整可驗
 - 若未來要在 SIM 內驗 VSLAM / wheel odometry / 輪胎打滑情境，需切換至 (b)，會涉及 URDF 重 import + graph 重建
-- 後續 ADR-0003 將 (a)/(b) 切換正式化為 **Model A / Model B 兩軌策略**：A/B-Phase 用 Model A (本 ADR 範圍)，C-Phase 切 Model B 量化 sim-real gap。兩軌並行不取代
+- 後續 [ADR-0003](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0003-two-track-simulation-strategy.md) 將 (a)/(b) 切換正式化為 **Model A / Model B 兩軌策略**：A/B-Phase 用 Model A (本 ADR 範圍)，C-Phase 切 Model B 量化 sim-real gap。兩軌並行不取代
 
 ## Update (2026-05-19) — PoC #59 結果：Model A 不可在 full articulation USD 上偷渡
 
@@ -34,7 +34,7 @@ PoC #59 在 `openbase_free.usda`（完整 32-link articulation USD，本 ADR 中
 **Implication**：
 - **Model A 路徑（無論 velocity 或 pose）只能在 (a) 簡化 USD（單一 base_link，無 articulation）上乾淨運作**，不能套在 (b) full articulation USD 上
 - 任何嘗試在 full articulation USD 上跑 Model A 都需要某種 USD 手術（remove ArticulationRootAPI / reparent wheels / 拔 root_joint），代價超出 Model A 的「乾淨無 motion control noise」初衷
-- 此 finding 直接餵給 ADR-0003：兩軌不只 USD 維護考量，**dc.velocity / pose-write 路徑與 articulation USD 物理上不相容**，是技術硬性 ground truth，而非可選 trade-off
+- 此 finding 直接餵給 [ADR-0003](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0003-two-track-simulation-strategy.md)：兩軌不只 USD 維護考量，**dc.velocity / pose-write 路徑與 articulation USD 物理上不相容**，是技術硬性 ground truth，而非可選 trade-off
 
 ## Update (2026-05-20) — Model A 細分為 A-pure / A-hybrid
 
@@ -43,8 +43,8 @@ PoC #59 在 `openbase_free.usda`（完整 32-link articulation USD，本 ADR 中
 | 子型 | Forklift cube | 環境 | 用途 |
 |---|---|---|---|
 | **A-pure** | Xform-only(無 collision / 物理) | Xform-only | 純動畫,fork 穿過物件。範圍狹隘,實務不採用 |
-| **A-hybrid**(標準採用) | kinematic RigidBody + Collision | dynamic RigidBody(pallet / 障礙物) | 演算法驗證 + 環境互動。詳見 ADR-0004 |
+| **A-hybrid**(標準採用) | kinematic RigidBody + Collision | dynamic RigidBody(pallet / 障礙物) | 演算法驗證 + 環境互動。詳見 [ADR-0004](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0004-model-a-hybrid-forklift-block-model.md) |
 
 「Model A」在後續 ADR / PR / 文件預設指 **A-hybrid**。A-pure 純粹概念存底,可作為 fallback 或極簡 demo。
 
-Forklift_blocky 是 A-hybrid 首個具體實作 — 5 cube kinematic + scripted pickup state machine + dynamic pallet 環境物理。完整設計決策見 ADR-0004。
+Forklift_blocky 是 A-hybrid 首個具體實作 — 5 cube kinematic + scripted pickup state machine + dynamic pallet 環境物理。完整設計決策見 [ADR-0004](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0004-model-a-hybrid-forklift-block-model.md)。
