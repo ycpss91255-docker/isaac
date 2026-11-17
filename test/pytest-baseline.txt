@@ -236,7 +236,7 @@
 #   viz_render.py and the experiment drivers.  _capture_noise_runner.py
 #   inlines the converged-render recipe it imported from viz_render.
 #   Baseline floor adjusts 440 -> 427 (live 441 -> 428).
-HOSTED_UNIT_BASELINE = 427
+HOSTED_UNIT_BASELINE = 433
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

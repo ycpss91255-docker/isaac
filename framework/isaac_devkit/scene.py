@@ -24,6 +24,7 @@ Usage from an IsaacDriver subclass:
 """
 
 import math
+import os
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -85,30 +86,60 @@ def _validate_scene(scene, source):
             raise ValueError(f"{source}: objects[{i}] needs 'pose'")
 
 
-def resolve_model_path(model_rel, repo_root):
-    """Resolve a repo-relative model path to absolute.
+def _model_search_roots(repo_root):
+    """Return the list of directories to search for relative model paths.
 
-    model_rel is normally relative to ``model/usd/`` (e.g.
-    "robot/openbase/openbase.usd"). As a transition shim it also accepts a
-    value that already carries the ``model/usd/`` segment (the example
-    scene's robot entry uses "model/usd/robot/camera_bot/camera_bot.usd"
-    while its object entry uses the bare "object/prop_cube/prop_cube.usda"
-    -- both resolve correctly under ``<repo_root>/model/usd/``). #154
-    normalizes the example scene to the bare convention when it rewrites
-    the example driver onto this adapter.
+    When the ``MODEL_PATH`` environment variable is set, its colon-separated
+    entries are searched in order. Otherwise, the legacy
+    ``<repo_root>/model/usd/`` directory is used as the sole search root so
+    that existing callers continue to work without any configuration.
+    """
+    env = os.environ.get("MODEL_PATH", "")
+    if env:
+        return [Path(p) for p in env.split(":") if p]
+    return [Path(repo_root) / "model" / "usd"]
+
+
+def resolve_model_path(model_rel, repo_root):
+    """Resolve a model path to absolute using the MODEL_PATH search roots.
+
+    If *model_rel* is an absolute path that exists, it is returned as-is.
+    Otherwise, every directory in the search roots (from ``MODEL_PATH``, or
+    ``<repo_root>/model/usd/`` as fallback) is tried in order and the first
+    hit is returned.
+
+    As a transition shim the function also accepts a value that already
+    carries the ``model/usd/`` segment; it strips the prefix before
+    searching so that the same relative tail is looked up everywhere.
+
+    Raises:
+        FileNotFoundError: with a message that lists every root searched.
     """
     model_rel = str(model_rel)
-    base = Path(repo_root)
-    if model_rel.startswith("model/usd/"):
-        resolved = base / model_rel
-    else:
-        resolved = base / "model" / "usd" / model_rel
-    if not resolved.exists():
-        raise FileNotFoundError(
-            f"model not found: {resolved} "
-            f"(from model_rel='{model_rel}', repo_root='{repo_root}')"
-        )
-    return resolved
+
+    # Absolute paths bypass the search entirely.
+    if os.path.isabs(model_rel):
+        p = Path(model_rel)
+        if p.exists():
+            return p
+        raise FileNotFoundError(f"model not found: {p}")
+
+    # Strip the legacy prefix so the search root can vary.
+    rel = model_rel
+    if rel.startswith("model/usd/"):
+        rel = rel[len("model/usd/"):]
+
+    roots = _model_search_roots(repo_root)
+    for root in roots:
+        candidate = root / rel
+        if candidate.exists():
+            return candidate
+
+    searched = ", ".join(str(r) for r in roots)
+    raise FileNotFoundError(
+        f"model not found: '{rel}' not in any search root "
+        f"(searched: {searched})"
+    )
 
 
 def generate_instances(entry):
