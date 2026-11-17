@@ -94,6 +94,8 @@ exclude_also = [
     "def _materialize_cfg\\(",
     # ros_io: Isaac-side OmniGraph attribute reader.
     "def _og_attr_reader\\(",
+    # default_driver: Kit-side fresh-stage creation.
+    "def _new_stage\\(",
     # driver: Kit lifecycle (run + Kit-touching internals).
     "def run\\(",
     "def init_rclpy\\(",
