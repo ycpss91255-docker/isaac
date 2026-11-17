@@ -10,7 +10,7 @@ This ADR adopts Isaac Lab as a **base tool** (alongside Isaac Sim itself) and re
 "put things into the scene" half of the framework onto Isaac Lab's spawners, while explicitly
 **preserving** the ROS-2-by-default bridge (`sensors` / `ros_io`) that is this base repo's
 differentiator. It supersedes the raw-`pxr` spawning decisions implied by ADR-0017 sections 3
-and 9, amends ADR-0009 (driver) and ADR-0008 (materials/variants), and reshapes the milestone
+and 9, amends ADR-0009 (driver) and [ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (materials/variants), and reshapes the milestone
 plan (the re-base lands **before** the `v1.0.0` tag). The grill record that produced it is in
 the convergence PRD (`doc/PRD-template-convergence.draft.md`).
 
@@ -145,11 +145,11 @@ The iron / green / blue 擋板 (and analogous) variants differ by **color**, whi
 domain-randomization image generation) via an Isaac Lab material cfg
 (`sim_utils.PreviewSurfaceCfg(diffuse_color=...)` or an MDL cfg with a color param), carried
 through the `spawn_overrides` passthrough. The USD **variant-set** machinery in `materials.py`
-is therefore **dropped for color-only variants**. ADR-0008's `<model>_<suffix>` variant naming
+is therefore **dropped for color-only variants**. [ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md)'s `<model>_<suffix>` variant naming
 is retained **only** for variants that are structurally distinct (different mesh / topology /
 texture file), which is verified against the actual assets at the forklift migration (#136); on
 current evidence (one texture, color-driven) the forklift variants are color-only. This amends
-ADR-0008 (the variant-set emphasis) and supersedes the "variant single owner" / "3b" thread in
+[ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (the variant-set emphasis) and supersedes the "variant single owner" / "3b" thread in
 ADR-0017 section 9 for the color case.
 
 ### 8. `driver`: adopt `AppLauncher` + `SimulationContext` now
@@ -182,7 +182,7 @@ later:
   "Isaac Lab re-base" milestone is inserted ahead of the forklift migration.
 - ADR-0017 sections 2 (base-tool-baked vs framework-mounted), 3 (module set responsibilities),
   and 9 (driver lifecycle first line + variant-owner note) are amended; ADR-0009 (AppLauncher +
-  SimulationContext) and ADR-0008 (variant-set scope) are amended. The PRD A2 / A6 / A7 /
+  SimulationContext) and [ADR-0008](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (variant-set scope) are amended. The PRD A2 / A6 / A7 /
   Compatibility Matrix / Implementation Decisions / Milestone plan / Risks are updated.
 - New, bounded cost: a one-time `parse_urdf_expected` recalibration (decision 6) and the
   `enable_cameras`+headless watch (decision 8). The L1 / L2 / L3 / L4 strong-assertion test

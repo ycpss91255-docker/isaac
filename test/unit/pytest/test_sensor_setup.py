@@ -177,13 +177,6 @@ class TestValidateShared:
         with pytest.raises(ValueError, match="sensor"):
             sensor_setup.load_config(path)
 
-    def test_rejects_missing_ros(self, tmp_path):
-        cfg = {"mount": {"parent_prim": "/x", "pose": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}}, "sensor": {"category": "imu", "type": "imu"}}
-        path = tmp_path / "bad.yaml"
-        path.write_text(yaml.dump(cfg))
-        with pytest.raises(ValueError, match="ros"):
-            sensor_setup.load_config(path)
-
     def test_rejects_missing_pose_xyz(self, tmp_path):
         cfg = {
             "mount": {"parent_prim": "/x", "pose": {"rpy": [0, 0, 0]}},

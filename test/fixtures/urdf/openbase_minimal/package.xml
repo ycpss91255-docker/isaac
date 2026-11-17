@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openbase_minimal</name>
+  <version>0.0.0</version>
+  <description>
+    Test fixture: single-link OpenBase URDF for GPU model-import tests.
+    Not a real ROS package -- the package.xml exists so the offline
+    package resolver (model_import._resolve_package_dir) can locate this
+    directory when resolving package://openbase_minimal/ URIs.
+  </description>
+  <license>Apache-2.0</license>
+</package>
