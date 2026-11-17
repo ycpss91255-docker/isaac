@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **`test_example_gpu_integration` runs on the official Jetbot asset instead of `example/sim/` camera_bot (isaac#325, first of the GPU-test migrations).** The test fetches the pinned Jetbot USD through `test/test_assets.py` and passes it to `_example_headless_runner.py` (`--robot-usd`); the runner builds its scene in memory and no longer imports `example/sim/example_driver.py`. The eight assertions keep their meaning (L1 prim/RigidBodyAPI/link+joint counts, L3 camera topic/frame_id/message, ros_io non-blocking None, `/cmd_vel` round-trip, L4 markers, SIGINT shutdown); only the scene-specific expectations change (`/World/Robot/chassis`, 3 links / 2 joints / root `/jetbot`, topic `/jetbot/camera/color/image_raw`). GPU-integration baseline unchanged (35). Not yet run on the GPU runner.
+
 ### Added
 - **MODEL_PATH search path for scene models (isaac#334 part 1).** `resolve_model_path` now searches directories listed in the `MODEL_PATH` environment variable (colon-separated, like `ROS_PACKAGE_PATH`) in order. Absolute paths bypass the search. Without `MODEL_PATH` the legacy `<repo_root>/model/usd/` root is used, so existing setups work unchanged. The error for a missing model lists every root that was searched.
 - **package:// URI resolution in scene models (isaac#334 part 2).** `resolve_model_path` now handles `package://<pkg>/<rel>` URIs by scanning each MODEL_PATH root for a `<pkg>/` directory carrying a `package.xml` (the same convention as the `--package-path` resolver from #267). The first root with both a valid package directory and the target file wins.
