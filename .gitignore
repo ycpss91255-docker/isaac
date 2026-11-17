@@ -56,3 +56,6 @@ viz/
 
 # stills the review PDF extracts from those videos (regenerable cache)
 test/.still_*.png
+
+# Official Isaac test assets downloaded at test time (test/test_assets.py, #324)
+.cache/test-assets/
