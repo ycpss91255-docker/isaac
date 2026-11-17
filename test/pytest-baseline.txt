@@ -216,8 +216,21 @@
 #   value reaches script-env, and publish_stream_source.sh refuses a bad
 #   IMAGE_TAG before any docker call. The three publish-path tests are
 #   rewritten in place to pin build -> timeout 30m smoke -> push inside the
-#   script. Live count is now 399 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 399
+#   script. Live count is now 399.
+#
+#   Three-layer sensor module split (ADR-0024): adds 41 hosted unit tests.
+#   test_sensor_prim.py (23): config loading, shared/per-category
+#   validation, ros: section optional (loads without ros:, validates ros:
+#   when present), host-pure helpers (fov_to_aperture, role_to_helper_type),
+#   get_category.
+#   test_sensor_ros.py (7): build_graph_topology (host-pure graph-spec
+#   builder with mocked pxr.Sdf), single/multi stream, overrides, topic and
+#   frame_id naming, module interface (setup_sensor_publish).
+#   test_sensors_dispatch.py (11): backward-compatible re-exports
+#   (load_config, get_category, validate_camera), setup_sensors stub, ros:
+#   optional via backcompat, _enable_extensions unchanged.
+#   Live count is now 440 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 440
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
