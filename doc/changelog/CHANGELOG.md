@@ -4,6 +4,7 @@
 
 ### Added
 - **MODEL_PATH search path for scene models (isaac#334 part 1).** `resolve_model_path` now searches directories listed in the `MODEL_PATH` environment variable (colon-separated, like `ROS_PACKAGE_PATH`) in order. Absolute paths bypass the search. Without `MODEL_PATH` the legacy `<repo_root>/model/usd/` root is used, so existing setups work unchanged. The error for a missing model lists every root that was searched.
+- **Cached fetch helper for official NVIDIA Isaac test assets (isaac#324).** `test/test_assets.py` downloads pinned assets from the public Omniverse content S3 bucket on first use and caches them locally. The first registered asset is the NVIDIA Jetbot USD (`Isaac/4.2/Isaac/Robots/Jetbot/jetbot.usd`, ~32 MB, SHA-256 pinned), a self-contained robot with a camera prim that covers what the bundled `example/sim/` camera_bot covers today. The cache directory defaults to `.cache/test-assets/` (gitignored) or `$ISAAC_TEST_ASSET_CACHE`. Hosted-unit baseline ratchets 433 -> 442 (+9 tests in `test_test_assets.py`).
 
 ### Removed
 - **`src/.github_research_legacy/` removed (isaac#329).** The directory held two inert workflow files from the research/isaac merge (#78). Their jobs were folded into `.github/workflows/main.yaml` long ago; the leftover directory is now deleted. ADR-0011 and the CHANGELOG history entry updated to reflect the removal.
