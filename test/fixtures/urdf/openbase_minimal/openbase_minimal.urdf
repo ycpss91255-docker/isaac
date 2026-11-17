@@ -5,7 +5,7 @@
 
   Copied from the production openbase_minimal.urdf (a base_link-only
   reduction of the full 33-link OpenBase articulation). The production
-  model now lives in ycpss91255-docker/robot_model; this fixture keeps
+  model now lives in ycpss91255-docker/sim_asset; this fixture keeps
   the GPU import test self-contained.
 
   Robot name "open_base" is preserved so the prim-hierarchy assertion
