@@ -1,14 +1,19 @@
-"""Example GPU automated integration test (isaac#132, M2 gate).
+"""Example GPU automated integration test (isaac#132, M2 gate; #325).
 
-Boots the #131 ``ExampleDriver`` headless inside the devel-test GPU
-container (no livestream -- bypasses IsaacSim#228) and makes the strong
-L1-L4 + ``/cmd_vel`` round-trip assertions the PRD lists (Testing &
-Acceptance Criteria) as committed test code:
+Boots a headless Isaac scene inside the devel-test GPU container (no
+livestream -- bypasses IsaacSim#228) and makes the strong L1-L4 +
+``/cmd_vel`` round-trip assertions the PRD lists (Testing & Acceptance
+Criteria) as committed test code.
 
-* L1 -- ``/World/Robot/base_link`` IsValid + RigidBodyAPI present +
-  link/joint counts (2 links / 2 joints / root ``/camera_bot``) on the
-  live committed-USD robot subtree, now spawned through the framework
-  Isaac Lab adapter (#154). The former URDF->USD diff==0 leg is RETIRED
+Scene source (#325): the official NVIDIA Jetbot USD fetched through the
+``test/test_assets.py`` helper (#341), NOT the bundled ``example/sim/``
+camera_bot, which is being removed. The assertions keep their meaning;
+only the scene (and so the expected prim paths / counts / topic) changed:
+
+* L1 -- ``/World/Robot/chassis`` IsValid + RigidBodyAPI present +
+  link/joint counts (3 links / 2 joints / root ``/jetbot``) on the live
+  Jetbot robot subtree, spawned through the framework Isaac Lab adapter
+  (#154). The former URDF->USD diff==0 leg is RETIRED
   (#154): the committed asset is a curated legacy-importer USD, so a fresh
   re-import diff is non-zero by construction; the "fresh import is
   structurally correct" contract lives in ``test_model_import.py`` (#150).
@@ -19,9 +24,9 @@ Acceptance Criteria) as committed test code:
   back through ``io.latest()`` within K ticks with matching content.
 * L4 -- ``[BOOT OK]`` / ``[EXIT CLEAN]`` markers present; an injected
   SIGINT runs ``shutdown()`` (``[SIGINT SHUTDOWN OK]``). The pure-side
-  lifecycle call ORDER spy lives in the hosted unit suite
-  (``test/unit/pytest/test_example_driver.py``) where Isaac is not
-  needed; this asserts the live driver honors the same SIGINT path.
+  lifecycle call ORDER spy lives in the hosted unit suite where Isaac
+  is not needed; this asserts the live runner honors the same SIGINT
+  path.
 
 The in-process ``/cmd_vel`` round-trip here publishes the Twist from an
 in-process rclpy node (no second container) to verify the OmniGraph
@@ -53,6 +58,13 @@ from pathlib import Path
 
 import pytest
 
+# ``test/`` hosts the shared asset helper (#341); make it importable.
+_TEST_DIR = Path(__file__).resolve().parents[2]
+if str(_TEST_DIR) not in sys.path:
+    sys.path.insert(0, str(_TEST_DIR))
+
+from test_assets import fetch_test_asset  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_example_headless_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"
@@ -69,32 +81,37 @@ SUBPROC_TIMEOUT_SEC = int(BOOT_BUDGET_SEC * 1.5)
 # GPU CI policy: retry at most once, logged.
 MAX_RETRIES = 1
 
-# robot.yaml name + custom.yaml ros: section -> expected L1 / L3 values.
-EXPECTED_BASE_LINK = "/World/Robot/base_link"
-EXPECTED_CAMERA_TOPIC = "/camera_bot/camera/color/image_raw"
-EXPECTED_CAMERA_FRAME_ID = "camera_bot_camera_color_optical_frame"
+# Scene dict in the runner + camera ``ros:`` section -> expected L1 / L3
+# values. The Jetbot chassis is its articulation body (no ``base_link``).
+EXPECTED_BASE_LINK = "/World/Robot/chassis"
+EXPECTED_CAMERA_TOPIC = "/jetbot/camera/color/image_raw"
+EXPECTED_CAMERA_FRAME_ID = "jetbot_camera_color_optical_frame"
 
-# camera_bot.urdf as the Isaac URDF importer actually produces it
-# (observed on the RTX 5090, isaac#132): the fixed camera_mount joint is
-# NOT collapsed (camera_link carries its own inertial/visual), and
-# fix_base=True adds a synthetic root_joint, so the imported robot has
-# two link Xforms (base_link, camera_link) and two PhysicsFixedJoints
-# (camera_mount + root_joint). This is the importer's real convention,
-# not the (looser) prediction of the pure parse_urdf_expected helper --
-# see the module docstring + the L1 finding in the PR body.
-EXPECTED_LINK_COUNT = 2
+# Jetbot USD structure (pxr inspection of the pinned asset, defaultPrim
+# /jetbot): three rigid-body Xform links directly under the root (chassis,
+# left_wheel, right_wheel) and two PhysicsRevoluteJoints (the wheel
+# joints). Counted by the same ``_summarize_prim_records`` rule the L1
+# runner uses (Xform children of the root / types containing "Joint").
+EXPECTED_LINK_COUNT = 3
 EXPECTED_JOINT_COUNT = 2
-EXPECTED_ROBOT_ROOT_PRIM_NAME = "/camera_bot"
+EXPECTED_ROBOT_ROOT_PRIM_NAME = "/jetbot"
 
 # Sent /cmd_vel content (must match _example_headless_runner.py).
 EXPECTED_VX = 0.42
 EXPECTED_WZ = 0.21
 
 
-def _run_once():
+def _run_once(robot_usd):
     """Run the headless example runner once; return CompletedProcess."""
     return subprocess.run(
-        [PYTHON_SH, str(RUNNER_SCRIPT), "--repo-root", str(REPO_ROOT)],
+        [
+            PYTHON_SH,
+            str(RUNNER_SCRIPT),
+            "--repo-root",
+            str(REPO_ROOT),
+            "--robot-usd",
+            str(robot_usd),
+        ],
         capture_output=True,
         text=True,
         timeout=SUBPROC_TIMEOUT_SEC,
@@ -111,7 +128,7 @@ def _boot_succeeded(result) -> bool:
     )
 
 
-def _run_with_retry():
+def _run_with_retry(robot_usd):
     """Run headless with retry <= 1, logging each attempt (GPU CI policy)."""
     result = None
     for attempt in range(MAX_RETRIES + 1):
@@ -121,7 +138,7 @@ def _run_with_retry():
             f"(timeout={SUBPROC_TIMEOUT_SEC}s)\n"
         )
         try:
-            result = _run_once()
+            result = _run_once(robot_usd)
         except subprocess.TimeoutExpired:
             sys.stderr.write(
                 f"[example-gpu-integration] attempt {attempt + 1} timed out "
@@ -156,8 +173,9 @@ def _dump(result) -> None:
 
 @pytest.fixture(scope="module")
 def example_run():
-    """Boot the example headless once (module-scoped, retry<=1)."""
-    result = _run_with_retry()
+    """Boot the Jetbot scene headless once (module-scoped, retry<=1)."""
+    robot_usd = fetch_test_asset("jetbot")
+    result = _run_with_retry(robot_usd)
     if not _boot_succeeded(result):
         _dump(result)
         pytest.fail(
@@ -209,7 +227,7 @@ def test_l1_base_link_valid_and_rigidbody(example_run):
 
 
 def test_l1_link_and_joint_counts(example_run):
-    """L1: live committed-USD link/joint counts match the importer truth."""
+    """L1: live Jetbot link/joint counts match the asset's structure."""
     out = example_run.stdout
     m = re.search(
         r"\[L1 COUNTS OK\] links=(\d+) joints=(\d+) root=(\S+)", out
@@ -232,7 +250,8 @@ def test_l1_link_and_joint_counts(example_run):
 # test_l1_urdf_to_usd_diff_zero RETIRED (#154, ADR-0018 decision 6).
 #
 # It re-imported camera_bot.urdf and asserted a byte/structure diff == 0
-# against the COMMITTED camera_bot.usd. The committed USD is a curated
+# against the COMMITTED camera_bot.usd (since replaced by the official
+# Jetbot asset, #325). The committed USD is a curated
 # legacy-importer asset (a defaultPrim was added in fb6f580 so the
 # UsdFileCfg reference resolves, but the asset was NOT regenerated by the
 # new Isaac Lab instanceable importer), so a fresh-import vs committed
@@ -242,7 +261,7 @@ def test_l1_link_and_joint_counts(example_run):
 # The "a fresh import is structurally correct" contract is already covered
 # by test_model_import.py (the openbase single-USD import, #150). The L1
 # structure of the live committed USD is still asserted here by
-# test_l1_link_and_joint_counts (2 links / 2 joints / root /camera_bot) and
+# test_l1_link_and_joint_counts (3 links / 2 joints / root /jetbot) and
 # test_l1_base_link_valid_and_rigidbody. The collected GPU baseline drops
 # by 1 (the retired test) -- a documented ratchet exception, recorded in
 # test/pytest-baseline.txt and the PR body.
@@ -311,7 +330,7 @@ def test_l4_injected_sigint_runs_shutdown(example_run):
     assert "[SIGINT SHUTDOWN OK]" in out, (
         "Injected SIGINT did not reach shutdown() (the live-driver leg of "
         "the lifecycle-order assertion; the pure-side ORDER spy is in "
-        "test/unit/pytest/test_example_driver.py)."
+        "hosted unit suite)."
     )
 
 
