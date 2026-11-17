@@ -62,7 +62,7 @@ ls /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/model/usd/robot/openbase/ope
 ./stop.sh
 ```
 
-> URDF 改 → 重跑此步覆寫 openbase.usda。**會 wipe** 任何手工加在 USD 內的 prim（lights / GroundPlane / Action Graph 等）— 不需要擔心，因為 `cmd_vel_planar_move.py` setup phase 會自己 re-create lights / GroundPlane / gravity disable / debug cube。
+> URDF 改 → 重跑此步覆寫 openbase.usda。**會 wipe** 任何手工加在 USD 內的 prim（lights / GroundPlane / Action Graph 等）— 不需要擔心，因為 isaac_physics_test 的 `cmd_vel_planar_move.py` setup phase 會自己 re-create lights / GroundPlane / gravity disable / debug cube。
 
 ### 3. fastdds.xml 設定檔存在
 
@@ -105,7 +105,7 @@ Server 欄填 `localhost`，Click **Connect**。首次連線編 shader 約 1-3 �
 WebRTC viewport 內：
 
 1. **Window → Script Editor**（沒開的話）
-2. **File → Open** → `/home/yunchien/work/src/script/cmd_vel_planar_move.py`
+2. **File → Open** → isaac_physics_test 的 `src/script/cmd_vel_planar_move.py`
 3. **Ctrl+Enter** 跑
 
 預期 Output：
@@ -229,9 +229,9 @@ cd /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/docker
 - `adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md` — 決策依據
 - `action_graph_setup.md` — 原規劃的 Action Graph baked into USD 路徑，grilling 後**棄用**，本 MD 取代
 - `ros2_pubsub_smoke.md` — M1 純 ROS 2 bridge 通訊驗證
-- `../script/cmd_vel_planar_move.py` — 本 MD 對應 script
-- `../script/move_openbase_planar.py` — hardcoded CMD 版（離線本地驗證 fallback）
-- `../script/move_openbase_planar_standalone.py` — standalone python.sh 版（no-ROS terminal-only 驗證）
+- isaac_physics_test `src/script/cmd_vel_planar_move.py` — 本 MD 對應 script
+- isaac_physics_test `src/script/move_openbase_planar.py` — hardcoded CMD 版（離線本地驗證 fallback）
+- isaac_physics_test `src/script/move_openbase_planar_standalone.py` — standalone python.sh 版（no-ROS terminal-only 驗證）
 
 ### 上游文件
 

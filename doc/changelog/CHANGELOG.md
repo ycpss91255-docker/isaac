@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Removed
+- **Planar-move scripts removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `cmd_vel_planar_move.py`, `cmd_vel_planar_standalone.py`, `cmd_vel_planar_standalone_l2.py`, `move_openbase_planar.py`, `move_openbase_planar_standalone.py`, their README rows, smoke cases and hosted guards. Hosted-unit baseline 427 -> 417.
 - **Physics experiments and forklift content extracted to ycpss91255-docker/isaac_physics_test (isaac#309).** 15 experiment drivers (`src/script/exp_*.py`), `forklift_blocky_driver_wip.py`, `poc59_articulation_bypass_wip.py`, `viz_render.py`, `repro_artic_kinematic_loopjoint_sigsegv.py`, `velocity_test.py`, 4 ADRs (0003/0004/0008/0021), `doc/experiments/REPRODUCE.md`, `test/gen_review_pdf.py`, L2 integration tests, pallet/collision verify scripts, and all experiment result JSON/log/PNG files moved to the new public repo. `standalone_common.py` retained (a copy lives in the new repo). Hosted-unit baseline adjusted 399 -> 386 (the 13 `test_render_settings.py` tests moved with `viz_render.py`). `_capture_noise_runner.py` inlines the converged-render recipe it previously imported from `viz_render`. GPU-integration baseline unchanged (35). ADR cross-references in remaining ADRs updated to point to the new repo.
 
 ### Added
