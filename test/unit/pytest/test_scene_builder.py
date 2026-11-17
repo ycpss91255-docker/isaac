@@ -173,6 +173,62 @@ class TestResolveModelPath:
             scene_builder.resolve_model_path("robot/nope/nope.usd", repo_root)
 
 
+class TestModelPathSearch:
+    """MODEL_PATH env var: colon-separated search roots for models."""
+
+    def test_model_path_search_order(self, tmp_path, monkeypatch):
+        """First matching root in MODEL_PATH wins."""
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        (root_a / "bot").mkdir(parents=True)
+        (root_a / "bot" / "bot.usd").write_text("#usda 1.0")
+        (root_b / "bot").mkdir(parents=True)
+        (root_b / "bot" / "bot.usd").write_text("#usda 1.0 (second)")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path("bot/bot.usd", tmp_path)
+        assert resolved == root_a / "bot" / "bot.usd"
+
+    def test_model_path_second_root_found(self, tmp_path, monkeypatch):
+        """Model in the second root is found when not in the first."""
+        root_a = tmp_path / "a"
+        root_a.mkdir()
+        root_b = tmp_path / "b"
+        (root_b / "bot").mkdir(parents=True)
+        (root_b / "bot" / "bot.usd").write_text("#usda 1.0")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path("bot/bot.usd", tmp_path)
+        assert resolved == root_b / "bot" / "bot.usd"
+
+    def test_model_path_absolute_bypasses_search(self, tmp_path, monkeypatch):
+        """An absolute model path is used as-is, ignoring MODEL_PATH."""
+        abs_model = tmp_path / "direct" / "my.usd"
+        abs_model.parent.mkdir(parents=True)
+        abs_model.write_text("#usda 1.0")
+        monkeypatch.setenv("MODEL_PATH", "/nonexistent")
+        resolved = scene_builder.resolve_model_path(str(abs_model), tmp_path)
+        assert resolved == abs_model
+
+    def test_model_path_fallback_to_repo_root(self, repo_root, monkeypatch):
+        """Without MODEL_PATH, resolve_model_path uses <repo_root>/model/usd/."""
+        monkeypatch.delenv("MODEL_PATH", raising=False)
+        resolved = scene_builder.resolve_model_path(
+            "robot/openbase/openbase.usd", repo_root
+        )
+        assert resolved.exists()
+        assert resolved.name == "openbase.usd"
+
+    def test_model_path_error_lists_all_roots(self, tmp_path, monkeypatch):
+        """The error for a missing model names every root that was searched."""
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        root_a.mkdir()
+        root_b.mkdir()
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        with pytest.raises(FileNotFoundError, match=str(root_a)) as exc_info:
+            scene_builder.resolve_model_path("no/such.usd", tmp_path)
+        assert str(root_b) in str(exc_info.value)
+
+
 class TestGenerateInstances:
     def test_single_instance(self):
         entry = {
