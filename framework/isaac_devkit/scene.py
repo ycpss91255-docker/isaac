@@ -19,7 +19,7 @@ changing the YAML schema or this adapter contract.
 Usage from an IsaacDriver subclass:
 
     from isaac_devkit.scene import load_scene, build_scene
-    scene = load_scene("scene/warehouse_pushback.yaml", repo_root)
+    scene = load_scene("scene/sensor_test_bench.yaml", repo_root)
     build_scene(scene, stage, repo_root)
 """
 
