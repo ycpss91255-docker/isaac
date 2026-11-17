@@ -49,6 +49,19 @@ ASSETS: dict[str, dict[str, str]] = {
             "4bc3d23936b2677f1274e450933855f4d7edce85032fd0ec02d7191c4b25f6f1"
         ),
     },
+    # ~8 KB geometry-only cube (defaultPrim, no physics schemas): the
+    # object the build_scene adapter GPU test marks ``mobility: dynamic``
+    # (#325).  Same bucket / version / license as the Jetbot above.
+    "nvidia_cube": {
+        "url": (
+            "https://omniverse-content-production.s3-us-west-2.amazonaws.com"
+            "/Assets/Isaac/4.2/Isaac/Props/Blocks/nvidia_cube.usd"
+        ),
+        "filename": "nvidia_cube.usd",
+        "sha256": (
+            "0d0f5cc395883c4e81b6ef11aa5f0fa3732b467e3860d139466142d60bd0d803"
+        ),
+    },
 }
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
