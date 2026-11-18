@@ -259,9 +259,10 @@
 #   guard that the adapter test no longer reads example/ assets). Live count
 #   is now 462.
 #
-#   The gpu-integration workflow pin test (#344) adds 1 (live 463) -- the
+#   The gpu-integration workflow tests (#344) add 3 (pin, run-scoped reap
+#   filter, filter == job-script BASELINE_PROJECT; live 465) -- the
 #   enforced floor.
-HOSTED_UNIT_BASELINE = 463
+HOSTED_UNIT_BASELINE = 465
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
