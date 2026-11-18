@@ -113,6 +113,19 @@ Kit 每次啟動都會印出幾種不影響執行的警告：
 - `./script/checkout_identity.sh isolate` 會把 `[image] rule_1 = string:isaac-<dir>-<hash>` 寫進 gitignored 的 `.setup.conf.local`。image tag、compose project 與 container 名稱都跟著它走。`./script/checkout_identity.sh show` 會印出這個 checkout 解析出的名稱。
 - pre build / run / stop hook 會拒絕對共用名稱動作。`ISAAC_ALLOW_SHARED_IDENTITY=1` 可以略過；CI 的 build 步驟就是這樣用。
 - `just docker run` 不會重 build 已存在的 image（base#1552）。pull 新變更後，先 `just docker build -t <stage>` 再 `just docker run -t <stage>`。
+- 磁碟用量：每個會 build 的 checkout 或 worktree 都擁有自己的一組 image（`<hub>/isaac-<dir>-<hash>:<stage>`），每個 stage tag 名義上約 31 GB。它們不共用，刪掉 checkout 目錄也不會從 Docker daemon 移除。
+- 清理已刪除的 checkout：從 `./script/checkout_identity.sh show`（刪目錄前執行；需要 `.env.generated`）或 `docker images` 取得 `isaac-<dir>-<hash>` 名稱，先列出再移除：
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # 完整名稱，例如取自 "image: <hub>/<SLUG>:<stage>"
+  HUB=<hub>                 # 該 image 名稱中的 <hub> 部分
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  filter 只精確比對 slug。不要放寬成 `isaac*`，也不要跑 `docker image prune -a`：共用的 `test-tools:<base 版本>` image（下一條）不可被此流程移除。
 - 有一個 image 仍然共用：每次 build 也會 build lint/bats 工具 image `test-tools:<base 版本>`（目前是 `test-tools:v0.42.0`），名稱只由 pin 住的 base 版本決定。host 上所有 pin 同一個 base 版本的 checkout 與 repo 都寫同一個 tag，所以別的 checkout 可能正在 build 時不要刪它。`just docker build --clean-tools` 會替所有人把它刪掉。它來自 base 的 `build.sh`，上游追蹤在 [base#1551](https://github.com/ycpss91255-docker/base/issues/1551)。
 - isolate 之前啟動的 container 還留在共用 project 裡。用 `docker compose -p <hub>-isaac ps -a` 列出，按名稱停掉自己的。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` 會停掉整個共用 project，包含別的 checkout 的 container。
 
