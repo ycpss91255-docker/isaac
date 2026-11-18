@@ -257,8 +257,12 @@
 #   The build-scene adapter GPU test moving onto official assets (#325) adds 3
 #   (test_test_assets.py 9 -> 12: the pinned NVIDIA cube entry + a structural
 #   guard that the adapter test no longer reads example/ assets). Live count
-#   is now 462 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 462
+#   is now 462.
+#
+#   The producer COPY mode fix (isaac#244) adds 1 (test_stream_source_producer.py
+#   18 -> 19: the producer COPY mode must be traversable by the non-root image
+#   user). Live count is now 463 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 463
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
