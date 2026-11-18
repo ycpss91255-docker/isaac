@@ -3,7 +3,7 @@
 > **LEGACY(2026-05-20 起)**:本 SOP 走的 in-kit Script Editor 路徑已不是預設,改走 **standalone-with-livestream**(`./exec.sh -t headless /isaac-sim/python.sh <script>`)。
 > 新 driver 一律走新 SOP `standalone_livestream_workflow.md`(對應 `adr/0005-standalone-with-livestream-as-default-dev-entrypoint.md`)。
 > 本文件保留當歷史參考 / 偶爾需要 interactive REPL 偵錯時用。
-> ADR-0002(本 SOP 對應的決策)保留歷史紀錄;entrypoint pattern 的最新決策見 ADR-0005。
+> ADR-0002(本 SOP 對應的決策,已移至 isaac_physics_test)保留歷史紀錄;entrypoint pattern 的最新決策見 ADR-0005。
 
 ---
 
@@ -30,8 +30,8 @@ CoreSAM grill-with-docs Q1-Q4 grilling 後決定，路徑對照：
 
 **長期出路**：Isaac Sim 6.0 GA 後可遷移到 OnImpulseEvent OmniGraph 純腳本路徑（NVIDIA 6.0 standalone tutorial 範本），daily GUI 步驟整個消失，本 MD 屆時可廢棄。
 
-詳細詞彙 (Chassis SE(2) Slide / Upper-Layer Algorithm / Motion-Control Simulation) 見 `CONTEXT.md`。
-決策依據見 `adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md`。
+詳細詞彙 (Chassis SE(2) Slide / Upper-Layer Algorithm / Motion-Control Simulation) 見 isaac_physics_test 的 `src/doc/CONTEXT.md`。
+決策依據見 isaac_physics_test 的 `src/doc/adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md`。
 
 ---
 
@@ -225,8 +225,8 @@ cd /home/yunchien/workspace/coreSAM_ws/isaac_ws/src/docker
 
 ## 參考
 
-- `CONTEXT.md` — 詞彙表（Chassis SE(2) Slide / Upper-Layer Algorithm / Motion-Control Simulation）
-- `adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md` — 決策依據
+- isaac_physics_test `src/doc/CONTEXT.md` — 詞彙表（Chassis SE(2) Slide / Upper-Layer Algorithm / Motion-Control Simulation）
+- isaac_physics_test `src/doc/adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md` — 決策依據
 - `action_graph_setup.md` — 原規劃的 Action Graph baked into USD 路徑，grilling 後**棄用**，本 MD 取代
 - `ros2_pubsub_smoke.md` — M1 純 ROS 2 bridge 通訊驗證
 - isaac_physics_test `src/script/cmd_vel_planar_move.py` — 本 MD 對應 script

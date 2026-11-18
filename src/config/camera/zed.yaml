@@ -7,7 +7,7 @@
 # first (see SOP). Without it, the driver dispatch raises a clear error
 # pointing at the SOP doc.
 #
-# Schema rules: doc/adr/0006-per-sensor-yaml-camera-config.md
+# Schema rules: isaac_physics_test:src/doc/adr/0006-per-sensor-yaml-camera-config.md
 
 # mount = camera_link analog (device body center, attached to parent_prim).
 # Pose is RELATIVE to parent_prim.

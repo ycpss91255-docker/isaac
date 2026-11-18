@@ -82,9 +82,9 @@ def test_kit_config_follows_isaac_livestream():
 
 
 def test_openbase_usd_path_raises_when_models_are_absent():
-    """openbase_usd_path raises FileNotFoundError pointing to robot_model repo."""
+    """openbase_usd_path raises FileNotFoundError pointing to sim_asset repo."""
     helper = _load_helper()
-    with pytest.raises(FileNotFoundError, match="robot_model"):
+    with pytest.raises(FileNotFoundError, match="sim_asset"):
         helper.openbase_usd_path()
 
 
