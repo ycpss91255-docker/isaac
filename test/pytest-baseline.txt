@@ -274,8 +274,16 @@
 #   set, other variables ignored, os.environ default, constants), +1 each in
 #   test_import_safety.py / test_no_module_top_isaac_import.py /
 #   test_no_ros_import_in_devkit.py for the new module. Live count is now
-#   513 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 513
+#   513.
+#
+#   The python-mode output hub (#365 part 2) adds 34: test_output_hub.py (17:
+#   delivery of the four kinds, no-copy-without-consumer, one copy shared by
+#   several consumers, unregister, malformed payloads), test_output.py (8:
+#   setup_output dispatch, spec defaults, ros not wired yet), and +3 each in
+#   test_import_safety.py / test_no_module_top_isaac_import.py /
+#   test_no_ros_import_in_devkit.py for the three new modules. Live count is
+#   now 547 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 547
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -418,7 +426,11 @@ HOSTED_UNIT_BASELINE = 513
 #   why every failed hypothesis in the issue "left std unchanged". Reference on
 #   the RTX 5090: 53.0 -> 2.1 with no black pixels left. In-container 33;
 #   aggregate ratchets 32 -> 35 (a ratchet UP).
-GPU_INTEGRATION_BASELINE = 35
+#   The OutputHub GPU delivery test (#365 part 2) adds 4 in-container
+#   (test_output_hub_gpu.py: RGB uint8 (H,W,3), depth float32 (H,W), joint
+#   state, IMU w,x,y,z, all from one runner boot). 35 -> 39 (a ratchet UP).
+#   NOT executed locally; first proof is the CI gpu-integration job.
+GPU_INTEGRATION_BASELINE = 39
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55

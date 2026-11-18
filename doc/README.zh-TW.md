@@ -298,6 +298,22 @@ just docker stop                           # cleanup
 
 共用 host 上 ROS domain 0 可能有其他 `/cmd_vel` publisher，它們也會讓 OpenBase 移動。請給你的執行一個私有 domain，例如 `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'`，旁邊的 container 也要帶同樣的 `-e ROS_DOMAIN_ID=77`。
 
+### Python 輸出 API（isaac#365）
+
+`isaac_devkit.output.setup_output` 不經 ROS，直接把模擬資料交給 Python callback。種類：`rgb`（uint8 `(H, W, 3)`）、`depth`（float32 `(H, W)`）、`joint_state`（`names` / `positions` / `velocities` / `efforts`）、`imu`（`lin_acc` / `ang_vel` / `orientation`，順序 `w, x, y, z`）。只有已註冊 consumer 的種類才會做 GPU 到 CPU 複製。模式由 `ISAAC_OUTPUT_MODE` 決定（預設 `python`；`ros` 尚未接上，見 ADR-0025）。
+
+```python
+from isaac_devkit.output import CameraOutput, JointOutput, setup_output
+
+out = setup_output(
+    cameras=[CameraOutput("rgb", "/World/Robot/cam", 640, 480)],
+    joint=JointOutput("/World/Robot"),
+)
+out.register(lambda frame: print(frame.kind, frame.stamp), kinds=["rgb", "joint_state"])
+# per app.update():
+out.step(sim_time_seconds)
+```
+
 ## Cache 路徑
 
 所有 Isaac Sim runtime state 都持久化在 host 端的 `${WS_PATH}/isaac-sim/`。`WS_PATH` 解析為 repo root，所以就是你 checkout 裡的 `isaac-sim/`。它已列入 gitignore，並由 `.dockerignore` 排除在 docker build context 之外：

@@ -298,6 +298,22 @@ just docker stop                           # cleanup
 
 A shared host can have other `/cmd_vel` publishers on ROS domain 0, and they move the OpenBase too. Give your run a private domain, for example `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'`, with the same `-e ROS_DOMAIN_ID=77` on the sibling container.
 
+### Python output API (isaac#365)
+
+`isaac_devkit.output.setup_output` delivers simulation data to Python callbacks without ROS. Kinds: `rgb` (uint8 `(H, W, 3)`), `depth` (float32 `(H, W)`), `joint_state` (`names` / `positions` / `velocities` / `efforts`) and `imu` (`lin_acc` / `ang_vel` / `orientation`, order `w, x, y, z`). The GPU to CPU copy happens only for kinds that have a registered consumer. The mode comes from `ISAAC_OUTPUT_MODE` (default `python`; `ros` is not wired yet, see ADR-0025).
+
+```python
+from isaac_devkit.output import CameraOutput, JointOutput, setup_output
+
+out = setup_output(
+    cameras=[CameraOutput("rgb", "/World/Robot/cam", 640, 480)],
+    joint=JointOutput("/World/Robot"),
+)
+out.register(lambda frame: print(frame.kind, frame.stamp), kinds=["rgb", "joint_state"])
+# per app.update():
+out.step(sim_time_seconds)
+```
+
 ## Cache layout
 
 All Isaac Sim runtime state persists under `${WS_PATH}/isaac-sim/` on the host. `WS_PATH` resolves to the repo root, so this is `isaac-sim/` in your checkout. It is gitignored and kept out of the docker build context by `.dockerignore`:

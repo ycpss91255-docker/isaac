@@ -298,6 +298,22 @@ just docker stop                           # cleanup
 
 共有 host では ROS domain 0 上に他の `/cmd_vel` publisher が存在することがあり、それらも OpenBase を動かしてしまう。自分の run には専用の domain を割り当てること。例えば `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'` とし、隣接 container にも同じ `-e ROS_DOMAIN_ID=77` を指定する。
 
+### Python 出力 API（isaac#365）
+
+`isaac_devkit.output.setup_output` は ROS を介さずにシミュレーションデータを Python コールバックへ渡します。種別：`rgb`（uint8 `(H, W, 3)`）、`depth`（float32 `(H, W)`）、`joint_state`（`names` / `positions` / `velocities` / `efforts`）、`imu`（`lin_acc` / `ang_vel` / `orientation`、順序 `w, x, y, z`）。コンシューマが登録された種別だけ GPU から CPU へコピーします。モードは `ISAAC_OUTPUT_MODE`（既定 `python`、`ros` は未接続、ADR-0025 参照）で決まります。
+
+```python
+from isaac_devkit.output import CameraOutput, JointOutput, setup_output
+
+out = setup_output(
+    cameras=[CameraOutput("rgb", "/World/Robot/cam", 640, 480)],
+    joint=JointOutput("/World/Robot"),
+)
+out.register(lambda frame: print(frame.kind, frame.stamp), kinds=["rgb", "joint_state"])
+# per app.update():
+out.step(sim_time_seconds)
+```
+
 ## Cache レイアウト
 
 すべての Isaac Sim runtime state は host 側の `${WS_PATH}/isaac-sim/` に永続化される。`WS_PATH` は repo root に解決されるため、checkout 内の `isaac-sim/` がこれに当たる。gitignore 済みで、`.dockerignore` により docker build context からも除外されている：

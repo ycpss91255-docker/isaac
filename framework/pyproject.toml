@@ -92,6 +92,13 @@ exclude_also = [
     "def build_scene\\(",
     "def _set_active_stage\\(",
     "def _materialize_cfg\\(",
+    # output_python: Isaac-side readers (live stage only, GPU suite).
+    "def make_sources\\(",
+    "def _annotator_reader\\(",
+    "def _joint_reader\\(",
+    "def _imu_reader\\(",
+    # output: Isaac-side reader factory.
+    "def make_python_sources\\(",
     # ros_io: Isaac-side OmniGraph attribute reader.
     "def _og_attr_reader\\(",
     # default_driver: Kit-side fresh-stage creation.
