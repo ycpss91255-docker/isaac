@@ -1,6 +1,6 @@
 # TEST.md
 
-**154 tests** total.
+**162 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -249,6 +249,21 @@ Behavioral guard for `script/git/cleanup-merged-worktree.sh` (#368). Hermetic: a
 | `cleanup: root-owned files -> SKIP root-owned files + fix command, nothing else removed` | A `git worktree remove` that fails with "Permission denied" (stub) prints `SKIP root-owned files` and a `chown -R` fix command; worktree and branch remain. |
 | `cleanup: worktree outside the worktree root -> SKIP outside-worktree-root` | A worktree not under `<main>/../worktree` is left alone. |
 | `cleanup: no PR number -> usage, exit 2` | Missing argument prints usage and exits 2. |
+
+## test/bats/smoke/merge_train_spec.bats (8)
+
+Behavioral guard for `script/git/merge-train.sh` (#368). Hermetic: stub `gh` (canned `pr view` lines from a sequence file, `pr merge` recorded), no-op `sleep`, and a stub cleanup script that records its arguments.
+
+| Test | Description |
+|------|-------------|
+| `merge-train: cleanup runs once with the PR number after its own merge` | After `PR1: MERGED` the cleanup script was called exactly once with `1`. |
+| `merge-train: a PR already MERGED at start is not cleaned up` | A PR that is MERGED on first view triggers no merge call and no cleanup. |
+| `merge-train: gh merge error but PR ends MERGED still triggers cleanup once` | A non-zero `gh pr merge` followed by a MERGED view still cleans up once. |
+| `merge-train: cleanup SKIP does not change the exit code; each merged PR is cleaned` | Two PRs: exit 0 and both numbers passed to cleanup. |
+| `merge-train: a failing required check stops with FAIL and no cleanup` | A FAILURE check exits 1 with `PR1: FAIL`, no cleanup. |
+| `merge-train: merge method comes from the repo setting (squash allowed)` | `allow_squash_merge=true` leads to the squash flag in the `gh pr merge` call. |
+| `merge-train: merge method falls back to a merge commit when squash is off` | `allow_squash_merge=false` leads to `--merge`, never the squash flag. |
+| `merge-train: the script source never hard-codes the squash flag` | `grep -n -e "--squash" script/git/merge-train.sh` prints nothing. |
 
 ## test/bats/smoke/workflow_pin_spec.bats (1)
 
