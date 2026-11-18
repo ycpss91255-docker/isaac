@@ -2,7 +2,7 @@
 
 Every experiment driver records which Isaac Sim produced its numbers in an
 ``isaac_variant`` field. Until the 6.2.0 upgrade that field was the string
-literal ``"6.0.1"`` in 23 scripts, so re-running the physics re-validation on
+literal ``"6.0.1"`` in every driver script, so re-running the physics re-validation on
 a new base image would have written 6.2.0 results labelled 6.0.1 -- exactly
 the comparison the re-validation exists to make. The version now comes from
 the image itself (``/isaac-sim/VERSION``), and the last test stops a literal
@@ -59,9 +59,12 @@ _VARIANT_LITERAL = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
 
 def _find_hardcoded_variants(root: Path) -> list[str]:
     """Return repo-relative paths of driver scripts with an isaac_variant literal."""
-    scripts = sorted((root / "src" / "script").glob("*.py")) + sorted(
-        (root / "test").glob("verify_*.py")
-    )
+    scripts = []
+    for base, pattern in (("src/script", "*.py"), ("test", "verify_*.py")):
+        # isaac#360: an empty glob would make the scan pass checking nothing.
+        matched = sorted((root / base).glob(pattern))
+        assert matched, f"scan glob matched nothing: {base}/{pattern}"
+        scripts += matched
     return [
         str(path.relative_to(root))
         for path in scripts
