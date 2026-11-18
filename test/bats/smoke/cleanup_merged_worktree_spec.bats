@@ -141,3 +141,12 @@ EOF
   [ "${status}" -eq 2 ]
   [[ "${output}" == *"Usage"* ]]
 }
+
+@test "cleanup: --dry-run on an all-pass worktree prints WOULD-REMOVE and removes nothing" {
+  gh_says MERGED feat/x "${OID}"
+  run bash -c "cd '${MAIN}' && '${SCRIPT}' --dry-run 7"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == "WOULD-REMOVE "* ]]
+  [ -d "${WT}" ]
+  [ -n "$(git -C "${MAIN}" branch --list feat/x)" ]
+}
