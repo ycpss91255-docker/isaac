@@ -259,9 +259,9 @@
 #   guard that the adapter test no longer reads example/ assets). Live count
 #   is now 462 -- the enforced floor.
 #
-#   isaac#360: test_sim_version.py adds 1 (the isaac_variant scan fails when a
-#   script glob matches nothing). Live count is now 463 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 463
+#   isaac#360: test_sim_version.py adds 4 (the isaac_variant scan fails when a
+#   script glob matches nothing). Live count is now 466 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 466
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
