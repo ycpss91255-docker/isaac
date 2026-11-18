@@ -31,10 +31,11 @@ def test_exact_values_do_not_carry():
 
 
 def test_pairs_strictly_monotonic():
-    # Includes values within 0.5 ns below an integer second (the carry
-    # case); consecutive entries differ by at least 1 ns after rounding.
+    # Includes values within 0.5 ns below integer seconds (the carry
+    # case); every value is at least 2 ns apart so the stamps must differ.
     times = [0.0, 0.5, 0.999999998, 1.0 - 1e-10, 1.000000002, 1.5]
-    times += [i * 0.0333333333333 for i in range(1, 400)]
+    times += [2.0 - 1e-10, 2.000000002, 4.9999999999, 5.000000002]
+    times += [i * 0.0333333 for i in range(1, 400)]
     times = sorted(set(times))
     pairs = [split_stamp(t) for t in times]
     flat = [s * _NS + n for s, n in pairs]
