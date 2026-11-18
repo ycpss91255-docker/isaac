@@ -266,8 +266,16 @@
 #   at module top, plus detector self-tests), and +2 each in
 #   test_import_safety.py and test_no_module_top_isaac_import.py for the two
 #   new modules. The hosted container now installs numpy. Live count is now
-#   498 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 498
+#   498.
+#
+#   The output-mode resolver (#366 part 1, ADR-0025) adds 15:
+#   test_output_mode.py (12: unset -> python, the two valid values, six
+#   invalid spellings that raise ValueError naming the value and the allowed
+#   set, other variables ignored, os.environ default, constants), +1 each in
+#   test_import_safety.py / test_no_module_top_isaac_import.py /
+#   test_no_ros_import_in_devkit.py for the new module. Live count is now
+#   513 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 513
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
