@@ -14,8 +14,7 @@
 
 Onboarding 成功的衡量標準是：scaffold 一個 workspace、跑起來、換機器人、
 換 sensor —— 全部只靠改這個 `example/` 內的檔案，絕不靠讀 `framework/`
-原碼。底下三個任務正是 agent-proxy gate 所驗的內容
-（`doc/onboarding/agent-proxy-gate.md`）。
+原碼。底下三個任務就是這條路徑。
 
 ### 1. 第一筆 topic（scaffold -> run）
 

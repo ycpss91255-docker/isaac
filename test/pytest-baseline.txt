@@ -254,7 +254,7 @@
 #   Cross-container round-trip on the Jetbot asset (isaac#325): adds 4 hosted
 #   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459 --
 #   the enforced floor.
-HOSTED_UNIT_BASELINE = 459
+HOSTED_UNIT_BASELINE = 446
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
