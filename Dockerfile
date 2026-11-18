@@ -563,8 +563,10 @@ CMD ["sleep", "infinity"]
 # src/ is not carried by any base stage (it is bind-mounted at runtime for
 # the devel / headless / stream stages), so the single driver file is COPY'd
 # in explicitly here. COPY writes as the builder (not the image USER), so it
-# lands root-owned 0644 (world-readable) under /opt without a USER switch;
-# /isaac-sim/python.sh reads it fine. The driver reads PUBLIC_IP /
+# lands root-owned under /opt without a USER switch. COPY --chmod also sets
+# the mode of the implicitly created parent dir /opt/isaac-producer, and a
+# directory needs the execute bit for the non-root image USER to open a file
+# inside it, so the mode must be 0755, not 0644 (isaac#244). The driver reads PUBLIC_IP /
 # ISAAC_SIGNAL_PORT from env (its argparse defaults); ISAAC_LIVESTREAM=2 is
 # inherited from the stream stage.
 FROM stream AS producer
@@ -588,7 +590,7 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.source="https://github.com/ycpss91255-docker/isaac"
 LABEL org.opencontainers.image.description="Deterministic WebRTC stream-source producer for downstream viewer e2e (isaac#223)"
 
-COPY --chmod=0644 src/script/stream_source_producer.py \
+COPY --chmod=0755 src/script/stream_source_producer.py \
      /opt/isaac-producer/stream_source_producer.py
 
 ENV PUBLIC_IP="" \
