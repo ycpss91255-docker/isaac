@@ -236,7 +236,25 @@
 #   viz_render.py and the experiment drivers.  _capture_noise_runner.py
 #   inlines the converged-render recipe it imported from viz_render.
 #   Baseline floor adjusts 440 -> 427 (live 441 -> 428).
-HOSTED_UNIT_BASELINE = 427
+#
+#   Official Isaac test-asset fetch helper (#324): adds 9 hosted unit tests
+#   (test/unit/pytest/test_test_assets.py): the NVIDIA Jetbot USD URL pinning
+#   (URL on the Omniverse S3 bucket, version segment, SHA-256 digest, registry
+#   not empty), cache-hit skips download, cache-miss calls download, return
+#   type is Path, offline empty-cache raises RuntimeError naming the asset,
+#   and unknown asset name raises KeyError.  Pure -- mocked HTTP, filesystem
+#   only.  Live count is now 442 -- the enforced floor.
+#
+#   package:// URI resolution (isaac#334 part 2): adds 4 hosted tests.
+#   Live count is now 446 -- the enforced floor.
+#
+#   Default scene driver (isaac#336 part 3): adds 9 hosted tests
+#   (test_default_driver.py). Live count is now 455.
+#
+#   Cross-container round-trip on the Jetbot asset (isaac#325): adds 4 hosted
+#   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459 --
+#   the enforced floor.
+HOSTED_UNIT_BASELINE = 459
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

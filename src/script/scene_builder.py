@@ -3,10 +3,9 @@
 The scene-composition code moved to ``isaac_devkit.scene`` when the
 framework was extracted into ``framework/isaac_devkit/`` (ADR-0017).
 This module re-exports the public surface so that the existing
-``src/script`` entry points (e.g. ``forklift_blocky_driver_wip.py`` and
-the #127 integration runners that add ``src/script`` to ``sys.path``)
-keep importing ``scene_builder`` unchanged until they migrate with the
-forklift application content (#136).
+``src/script`` entry points (e.g. the #127 integration runners that add ``src/script``
+to ``sys.path``) keep importing ``scene_builder`` unchanged. The forklift
+driver that also used this shim moved to isaac_physics_test (#309, #320).
 
 New code should import ``isaac_devkit.scene`` directly.
 """

@@ -115,7 +115,7 @@ After the four steps above, the dispatch in `script/camera_setup.py` should boot
 ```bash
 cd isaac_ws/src/docker
 just docker exec -t stream /isaac-sim/python.sh \
-    /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
+    /home/yunchien/work/src/script/<your_driver>.py \
     --config /home/yunchien/work/src/config/camera/zed.yaml
 ```
 
