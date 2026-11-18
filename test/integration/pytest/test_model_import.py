@@ -2,7 +2,7 @@
 
 End-to-end coverage for ``isaac_devkit.model_import``: invoke the CLI as
 a subprocess against a minimal single-link URDF fixture (copied from the
-openbase model, which now lives in ycpss91255-docker/robot_model), then
+openbase model, which now lives in ycpss91255-docker/sim_asset), then
 verify the resulting USD is a SINGLE Isaac Lab instanceable USD with the
 expected prim hierarchy. The old multi-file "Asset Structure 3.0" layout
 (root + geometry + material + textures + sublayer chain +

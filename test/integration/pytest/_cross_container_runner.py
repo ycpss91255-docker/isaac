@@ -1,12 +1,13 @@
 """Isaac-side runner for the cross-container round-trip test (isaac#132).
 
 Not a pytest test (leading underscore so pytest skips collection). Boots
-the #131 ``ExampleDriver`` headless (no livestream -- bypasses
-IsaacSim#228) and holds the live scene open as the Isaac endpoint of an
+a headless scene around the official Jetbot USD (``--robot-usd``, fetched by
+the pytest layer via ``test/test_assets.py``, #325; no livestream --
+bypasses IsaacSim#228) and holds the live scene open as the Isaac endpoint of an
 Isaac<->ament cross-container ROS 2 round-trip (PRD Pre-Publish item 1):
 
 * outbound (sim -> ament): the framework camera OmniGraph chain publishes
-  ``/camera_bot/camera/color/image_raw`` continuously while this runner
+  ``/jetbot/camera/color/image_raw`` continuously while this runner
   ticks, so a sibling ``ros:humble`` container's ``camera_subscriber``
   node receives real sim frames.
 * inbound (ament -> sim): the framework ``/cmd_vel`` OmniGraph Subscribe
@@ -34,12 +35,13 @@ Marker lines (the host orchestrator / pytest layer assert on these)::
 CLI::
 
     /isaac-sim/python.sh _cross_container_runner.py \\
-        --repo-root <repo> [--ready-hold-ticks N] [--cmd-vel-budget-ticks N]
+        --repo-root <repo> --robot-usd <jetbot.usd> [--ready-hold-ticks N] [--cmd-vel-budget-ticks N]
 """
 
 import argparse
 import ctypes
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -63,6 +65,61 @@ _DEFAULT_CMD_VEL_BUDGET_TICKS = 3000
 _DEFAULT_LINGER_TICKS = 20000
 
 _CMD_VEL_TOPIC = "/cmd_vel"
+_ROBOT_PRIM = "/World/Robot"
+# The Jetbot's articulation body; it has no ``base_link``.
+_CHASSIS_PRIM = f"{_ROBOT_PRIM}/chassis"
+_CAMERA_TOPIC_PREFIX = "/jetbot/camera"
+
+
+def _build_scene_dict(robot_usd: str) -> dict:
+    """In-memory scene: ground + the Jetbot + /cmd_vel subscription."""
+    return {
+        "environment": {"ground_plane": True},
+        "robot": {
+            "name": "jetbot",
+            "model": robot_usd,  # absolute path bypasses MODEL_PATH search
+            "pose": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+        },
+        "ros2_io": {"subscriptions": [{"topic": _CMD_VEL_TOPIC, "type": "twist"}]},
+    }
+
+
+def _camera_cfg() -> dict:
+    """Custom RGB camera mounted on the Jetbot chassis (no external assets)."""
+    return {
+        "mount": {
+            "parent_prim": _CHASSIS_PRIM,
+            "pose": {"xyz": [0.1, 0.0, 0.1], "rpy": [0.0, 0.0, 0.0]},
+        },
+        "sensor": {"category": "camera", "type": "custom"},
+        "sensors": [
+            {
+                "role": "rgb",
+                "name": "color",
+                "pose": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+                "resolution": [1280, 720],
+                "fps": 30,
+                "hfov": 90.0,
+                "vfov": 60.0,
+            }
+        ],
+        "ros": {
+            "topic_prefix": _CAMERA_TOPIC_PREFIX,
+            "frame_id_prefix": "jetbot_camera",
+        },
+    }
+
+
+def _twist_to_planar(linear, angular):
+    """Zero-padded ``(vx, vy, wz)`` from a Twist's linear / angular fields."""
+
+    def _at(seq, index):
+        try:
+            return float(seq[index])
+        except (IndexError, TypeError, KeyError):
+            return 0.0
+
+    return _at(linear, 0), _at(linear, 1), _at(angular, 2)
 
 
 def _cuda_device_count() -> int:
@@ -81,6 +138,7 @@ def _cuda_device_count() -> int:
 def _main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--robot-usd", required=True)
     parser.add_argument(
         "--ready-hold-ticks", type=int, default=_DEFAULT_READY_HOLD_TICKS
     )
@@ -103,23 +161,96 @@ def _main() -> None:
     framework_dir = repo_root / "framework"
     if str(framework_dir) not in sys.path:
         sys.path.insert(0, str(framework_dir))
-    example_dir = repo_root / "example" / "sim"
-    if str(example_dir) not in sys.path:
-        sys.path.insert(0, str(example_dir))
+    robot_usd = str(Path(args.robot_usd).resolve())
 
     ready_hold_ticks = args.ready_hold_ticks
     cmd_vel_budget_ticks = args.cmd_vel_budget_ticks
     linger_ticks = args.linger_ticks
 
     try:
-        from example_driver import (  # noqa: E402
-            ExampleDriver,
-            _CMD_VEL_TOPIC as DRIVER_CMD_VEL_TOPIC,
-            cmd_vel_to_planar_velocity,
+        from isaac_devkit.driver import (  # noqa: E402
+            IsaacDriver,
+            parse_livestream_env,
         )
 
-        class _CrossContainerDriver(ExampleDriver):
-            """Hold the live example scene as the Isaac round-trip endpoint."""
+        class _CrossContainerDriver(IsaacDriver):
+            """Hold the live Jetbot scene as the Isaac round-trip endpoint."""
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.io = None
+
+            def run(self) -> None:
+                from isaacsim import SimulationApp
+
+                kwargs = parse_livestream_env(
+                    os.environ.get("ISAAC_LIVESTREAM")
+                )
+                self._app = SimulationApp(kwargs)
+                signal.signal(signal.SIGINT, self._on_signal)
+                signal.signal(signal.SIGTERM, self._on_signal)
+                try:
+                    import omni.usd
+
+                    scene = _build_scene_dict(robot_usd)
+                    stage = omni.usd.get_context().get_stage()
+                    from isaac_devkit.scene import build_scene
+                    from isaac_devkit.sensors import setup_camera
+
+                    # robot.model is absolute, so repo_root only anchors
+                    # the (unused) legacy model/usd fallback.
+                    build_scene(scene, stage, repo_root)
+                    graph = setup_camera(_camera_cfg(), stage)
+                    print(f"[CAMERA GRAPH OK] graph={graph}", flush=True)
+                    self._camera_topic = (
+                        _CAMERA_TOPIC_PREFIX + "/color/image_raw"
+                    )
+                    self.io = self._setup_ros2_io(scene)
+                    self._ensure_scene_defaults(stage)
+                    self._play_timeline()
+                    self.setup(stage)
+                    self.main()
+                    self.shutdown()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[RAISED] {type(exc).__name__}: {exc}", flush=True)
+                    raise
+                finally:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    self._app.close()
+
+            def _setup_ros2_io(self, scene):
+                from isaac_devkit import ros_io
+
+                subs = ros_io.parse_ros2_io_config(scene)
+                from isaacsim.core.utils.extensions import enable_extension
+
+                enable_extension("isaacsim.core.nodes")
+                enable_extension("isaacsim.ros2.bridge")
+                import omni.graph.core as og
+
+                nodes, set_values, connects = ros_io._build_graph_topology(subs)
+                (graph, _, _, _) = og.Controller.edit(
+                    {
+                        "graph_path": ros_io.GRAPH_PATH,
+                        "evaluator_name": "execution",
+                    },
+                    {
+                        og.Controller.Keys.CREATE_NODES: nodes,
+                        og.Controller.Keys.SET_VALUES: set_values,
+                        og.Controller.Keys.CONNECT: connects,
+                    },
+                )
+                og.Controller.evaluate_sync(graph)
+                topic_paths = {
+                    e["topic"]: ros_io.expected_attr_paths(
+                        e["topic"], e["msg_type"]
+                    )
+                    for e in subs
+                }
+                return ros_io.RosIo(
+                    attr_reader=ros_io._og_attr_reader, topic_paths=topic_paths
+                )
 
             def setup(self, stage) -> None:
                 import carb.settings
@@ -170,7 +301,7 @@ def _main() -> None:
                         break
 
                 if echoed is not None:
-                    vx, vy, wz = cmd_vel_to_planar_velocity(
+                    vx, vy, wz = _twist_to_planar(
                         echoed.fields.get("linear", ()),
                         echoed.fields.get("angular", ()),
                     )
@@ -204,9 +335,6 @@ def _main() -> None:
 
             def shutdown(self) -> None:
                 print("[EXIT CLEAN]", flush=True)
-
-        # Guard against the example renaming the cmd_vel topic.
-        assert DRIVER_CMD_VEL_TOPIC == _CMD_VEL_TOPIC
 
         _CrossContainerDriver().run()
     except Exception as exc:  # noqa: BLE001
