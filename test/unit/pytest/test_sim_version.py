@@ -80,8 +80,33 @@ def test_no_driver_hardcodes_the_isaac_variant():
     )
 
 
-def test_scan_fails_when_the_script_globs_match_nothing(tmp_path):
+def _plant(root: Path, rel: str, text: str = "x = 1\n") -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "present",
+    [
+        [],
+        ["src/script/a.py"],
+        ["test/verify_a.py"],
+    ],
+    ids=["neither-glob", "only-src-script", "only-verify"],
+)
+def test_scan_fails_when_a_script_glob_matches_nothing(tmp_path, present):
     # isaac#360: a scan over an empty file set used to pass vacuously, so
-    # moving the scripts away would leave the guard green and checking nothing.
+    # moving a script family away would leave the guard green and checking
+    # nothing. Each glob must be non-empty on its own, not just the union.
+    for rel in present:
+        _plant(tmp_path, rel)
     with pytest.raises(AssertionError):
         _find_hardcoded_variants(tmp_path)
+
+
+def test_scan_reports_a_planted_variant_literal(tmp_path):
+    # isaac#360: pin the detection itself, not only "passes on the real repo".
+    _plant(tmp_path, "src/script/clean.py")
+    _plant(tmp_path, "test/verify_bad.py", '{"isaac_variant": "6.0.1"}\n')
+    assert _find_hardcoded_variants(tmp_path) == ["test/verify_bad.py"]
