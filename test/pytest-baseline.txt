@@ -241,8 +241,32 @@
 #   cmd_vel_planar scripts moved to ycpss91255-docker/isaac_physics_test, so
 #   their 10 parametrized guards in test_standalone_scripts.py (8 per-script
 #   structure checks + 2 gravity checks) leave with them.
-#   Baseline floor adjusts 427 -> 417 (live 428 -> 418).
-HOSTED_UNIT_BASELINE = 417
+#   Baseline floor adjusts 427 -> 417 (live 428 -> 418); after the merge with main
+#   the floor is recomputed from the real hosted count.
+#   Official Isaac test-asset fetch helper (#324): adds 9 hosted unit tests
+#   (test/unit/pytest/test_test_assets.py): the NVIDIA Jetbot USD URL pinning
+#   (URL on the Omniverse S3 bucket, version segment, SHA-256 digest, registry
+#   not empty), cache-hit skips download, cache-miss calls download, return
+#   type is Path, offline empty-cache raises RuntimeError naming the asset,
+#   and unknown asset name raises KeyError.  Pure -- mocked HTTP, filesystem
+#   only.  Live count is now 442 -- the enforced floor.
+#
+#   package:// URI resolution (isaac#334 part 2): adds 4 hosted tests.
+#   Live count is now 446 -- the enforced floor.
+#
+#   Default scene driver (isaac#336 part 3): adds 9 hosted tests
+#   (test_default_driver.py). Live count is now 455.
+#
+#   Cross-container round-trip on the Jetbot asset (isaac#325): adds 4 hosted
+#   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459.
+#
+#   The build-scene adapter GPU test moving onto official assets (#325) adds 3
+#   (test_test_assets.py 9 -> 12: the pinned NVIDIA cube entry + a structural
+#   guard that the adapter test no longer reads example/ assets). Live count
+#   is now 462 -- the enforced floor.
+#   Planar-script extraction merged with main (isaac#342): main's 462 minus the 10
+#   removed planar guards = 452 (confirmed against the real hosted count).
+HOSTED_UNIT_BASELINE = 452
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
