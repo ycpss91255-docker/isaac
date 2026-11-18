@@ -249,8 +249,12 @@
 #   Live count is now 446 -- the enforced floor.
 #
 #   Default scene driver (isaac#336 part 3): adds 9 hosted tests
-#   (test_default_driver.py). Live count is now 455 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 455
+#   (test_default_driver.py). Live count is now 455.
+#
+#   Cross-container round-trip on the Jetbot asset (isaac#325): adds 4 hosted
+#   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459 --
+#   the enforced floor.
+HOSTED_UNIT_BASELINE = 459
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
