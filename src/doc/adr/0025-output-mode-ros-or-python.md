@@ -2,15 +2,13 @@
 
 ## Status
 
-Accepted (2026-11-18).
+Proposed (2026-11-18).
 
-Amends ADR-0023 (Python as sole external interface): the ROS 2 output path
-is no longer an `rclpy` consumer of the Python API; it is the native
-OmniGraph bridge selected by `ISAAC_OUTPUT_MODE=ros`. The module dependency
-direction and the import-safety invariant of ADR-0023 stand. Does **not**
-supersede ADR-0017 or ADR-0024.
-
-Basis: the owner's direction of 2026-11-18, recorded in isaac#366.
+Records the parts of the owner's 2026-11-18 direction (isaac#366) that are
+already decided. One question is still open (see "Open question"); the ADR
+moves to Accepted once it is settled. Does **not** supersede ADR-0017,
+ADR-0023 or ADR-0024. ADR-0023 is touched only through the open question
+below.
 
 ## Context
 
@@ -84,58 +82,43 @@ Round-2 data: https://github.com/ycpss91255-docker/isaac/issues/366#issuecomment
    contains `isaacsim.ros2.bridge` is unchanged, so existing ROS 2 users are
    not broken by the new default.
 5. **Single entry point.** `ros` mode is built from the same Python entry
-   point as `python` mode (`IsaacDriver` calling `setup_output`); this was
-   shown by the prototype run and is covered by the `ros`-mode GPU smoke test.
-   No separate "ros mode needs a separate entry" path is needed.
+   point as `python` mode (shown by the prototype run, where the graph was
+   built in `isaac`; the placement is the open question above). The `ros`-mode
+   GPU smoke test will confirm it in the repo.
+6. **No `rclpy` consumer layer.** `python` mode has zero ROS dependency and
+   the "Python output plus an `rclpy` consumer in `isaac_ros2`" arrangement
+   is cancelled.
 
-## Ruling on ADR-0023: `isaacsim.ros2.*` node-type strings in `isaac`
+## Open question: where does the `ros`-mode OmniGraph wiring live?
 
-ADR-0023 prohibits module-top `import rclpy`, `import rosidl_*` and any
-`isaacsim.ros2.*` import in Module 1, allows function-local `isaacsim.ros2.*`
-imports only in Module 2 files, and says "the files implementing that bridge
-must reside in Module 2".
+Not decided here. The `ros`-mode output graph (and, by extension, the ROS 2
+inbound graph of `ros_io`) is built with `og.Controller.edit` from node-type
+strings such as `isaacsim.ros2.bridge.ROS2CameraHelper`. No Python module
+under `isaacsim.ros2` is imported; OmniGraph resolves the extension at
+runtime. ADR-0023 prohibits module-top `rclpy` / `rosidl_*` /
+`isaacsim.ros2.*` imports in Module 1 (`isaac_devkit`), allows function-local
+`isaacsim.ros2.*` imports only in Module 2 (`isaac_ros2`), and says the files
+implementing the bridge must reside in Module 2.
 
-The `ros`-mode graph names node types such as
-`isaacsim.ros2.bridge.ROS2CameraHelper` as **strings** passed to
-`og.Controller.edit`. No Python module under `isaacsim.ros2` is imported,
-function-locally or otherwise; the extension is resolved by OmniGraph at
-runtime. The tests that enforce the invariant
-(`test_no_module_top_isaac_import.py`, `test_no_ros_import_in_devkit.py`,
-`test_import_safety.py`) inspect imports and still pass.
+| Option | Where the graph builder lives | Effect on ADR-0023 |
+|---|---|---|
+| A. In `isaac` | One dedicated module in `isaac_devkit`, no ROS import anywhere (strings only), reached from `setup_output` by a function-local import | By the letter (imports) no breach; by the intent (bridge wiring in Module 2) it needs a narrow amendment of ADR-0023 allowing node-type strings in one module. Single entry point stays inside `isaac`. |
+| B. In `isaac_ros2` | `isaac_ros2` provides the graph builder; `isaac` calls it when `ISAAC_OUTPUT_MODE=ros` (optional import, absent in `python` mode) | ADR-0023 stands unchanged (`isaacsim.ros2.*` only in Module 2). `isaac` gains a call-out dependency on a downstream package, so the mode switch in `isaac` needs `isaac_ros2` installed for `ros`, and the dependency direction (Module 2 imports Module 1) needs a defined hook (for example a registered builder) to stay intact. |
 
-Ruling:
-
-- **By the letter** (imports), the strings do not breach ADR-0023.
-- **By the intent** (the bridge wiring files live in Module 2), they do touch
-  the boundary, because the strings are bridge wiring. Strict reading would
-  put the `ros`-mode graph builder in `isaac_ros2`, which would force the
-  entry point to depend on a downstream package to honour a mode switch that
-  the owner placed in `isaac`.
-- **Amendment to ADR-0023** (narrow): Module 1 may contain the native-ROS
-  output graph builder for `ISAAC_OUTPUT_MODE=ros`, subject to all of:
-  1. it lives in a single dedicated module, so it can later move to
-     `isaac_ros2` as a file move (the `setup_output` entry reaches it through
-     a function-local import);
-  2. no ROS package is imported anywhere in Module 1, at module top or inside
-     a function: no `rclpy`, `rosidl_*`, `builtin_interfaces` or
-     `isaacsim.ros2.*` import. Node-type names appear only as strings;
-  3. the existing module-top import guards keep running unchanged.
-  The rest of ADR-0023 (dependency direction, `isaac_devkit` has no ROS
-  runtime dependency, the legacy `ros_io` / `sensor_ros` / `init_rclpy`
-  moves) is unchanged. The legacy ROS 2 pieces in `isaac_devkit` are not
-  gated by `ISAAC_OUTPUT_MODE`; their removal stays with #276 / #328.
+The prototype showed both modes are buildable from one Python entry point
+under either placement as far as the entry is concerned (the run built the
+graph in `isaac`; the B arrangement is UNVERIFIED). This ADR does not choose.
 
 ## Consequences
 
-- **#276 scope.** The "ROS 2 wiring moves out of `isaac_devkit`" work is
-  restated: the output side of ROS 2 is the native OmniGraph path selected by
-  `ISAAC_OUTPUT_MODE=ros`, not an `rclpy` consumer of the Python API. What
-  still moves to `isaac_ros2` is the legacy inbound I/O (`ros_io`), the sensor
-  publish wiring of layer (c) (`sensor_ros`) and the `init_rclpy` helper.
-- **#328 handoff.** `isaac_ros2` keeps owning the ROS 2 inbound side and may
-  take the output graph builder module when it runs standalone. #328 still has
-  to decide where `init_rclpy()` and the boot extension list live; with this
-  ADR the boot list is derived from the output mode first.
+- **#276 / #328 scope.** The ROS 2 output side is the native OmniGraph path
+  selected by `ISAAC_OUTPUT_MODE=ros`, not an `rclpy` consumer of the Python
+  API. Where that path's builder lives follows the open question; the legacy
+  inbound I/O (`ros_io`), sensor publish wiring of layer (c) (`sensor_ros`)
+  and `init_rclpy` remain tracked by #276 / #328 (described only; nothing
+  changes in other repos). #328 still has to decide where `init_rclpy()` and
+  the boot extension list live; with this ADR the boot list is derived from
+  the output mode first.
 - **No `rclpy` needed for output in either mode.** `python` mode has no ROS
   dependency at all; `ros` mode uses the bridge extension, not `rclpy`.
 - **Operations.** A receiver of `ros` mode output should use RELIABLE QoS and

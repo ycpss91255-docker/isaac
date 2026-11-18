@@ -7,10 +7,10 @@ Accepted (2026-09-07).
 Adds constraints on top of ADR-0017 (sections 3, 6, 8). Does **not** supersede
 ADR-0017.
 
-Amended by [ADR-0025](0025-output-mode-ros-or-python.md) (2026-11-18): the ROS 2
-output path is the native OmniGraph bridge selected by `ISAAC_OUTPUT_MODE=ros`,
-not an `rclpy` consumer of the Python API; a narrow exception allows the
-node-type-string graph builder in `isaac_devkit`.
+Related: [ADR-0025](0025-output-mode-ros-or-python.md) (Proposed, 2026-11-18)
+cancels the `rclpy` consumer layer for output and leaves open where the
+native `ros`-mode OmniGraph wiring lives (isaac or `isaac_ros2`); this ADR is
+not amended until that is settled.
 
 ## Context
 
