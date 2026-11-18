@@ -425,6 +425,9 @@ RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
 # stream_smoke.sh -> stream_smoke_lib.sh.
 COPY script/ci /lint/ci
 RUN shellcheck -S warning -x /lint/ci/*.sh
+# [#368] Repo git helpers (script/git/).
+COPY script/git /lint/git
+RUN shellcheck -S warning -x /lint/git/*.sh
 WORKDIR /lint
 RUN hadolint Dockerfile
 
@@ -491,6 +494,9 @@ COPY --chmod=0755 script/checkout_identity.sh /smoke_test/checkout_identity.sh
 # assert_pytest_baseline_isolation_spec.bats so the spec can exercise its
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
 COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_baseline.sh
+# [#368] Worktree-cleanup git helpers, baked next to
+# cleanup_merged_worktree_spec.bats (stub gh + throwaway repo, no network).
+COPY --chmod=0755 script/git/cleanup-merged-worktree.sh /smoke_test/cleanup-merged-worktree.sh
 
 ARG USER="${USER_NAME}"
 USER "${USER}"
