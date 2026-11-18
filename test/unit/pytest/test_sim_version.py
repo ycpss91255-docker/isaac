@@ -54,17 +54,31 @@ def test_default_reads_the_image_install():
     assert sim_version.DEFAULT_VERSION_FILE == Path("/isaac-sim/VERSION")
 
 
-def test_no_driver_hardcodes_the_isaac_variant():
-    pattern = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
-    scripts = sorted((_REPO_ROOT / "src" / "script").glob("*.py")) + sorted(
-        (_REPO_ROOT / "test").glob("verify_*.py")
+_VARIANT_LITERAL = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
+
+
+def _find_hardcoded_variants(root: Path) -> list[str]:
+    """Return repo-relative paths of driver scripts with an isaac_variant literal."""
+    scripts = sorted((root / "src" / "script").glob("*.py")) + sorted(
+        (root / "test").glob("verify_*.py")
     )
-    offenders = [
-        str(path.relative_to(_REPO_ROOT))
+    return [
+        str(path.relative_to(root))
         for path in scripts
-        if pattern.search(path.read_text(encoding="utf-8"))
+        if _VARIANT_LITERAL.search(path.read_text(encoding="utf-8"))
     ]
+
+
+def test_no_driver_hardcodes_the_isaac_variant():
+    offenders = _find_hardcoded_variants(_REPO_ROOT)
     assert not offenders, (
         "isaac_variant must come from isaac_sim_version(), not a literal: "
         + ", ".join(offenders)
     )
+
+
+def test_scan_fails_when_the_script_globs_match_nothing(tmp_path):
+    # isaac#360: a scan over an empty file set used to pass vacuously, so
+    # moving the scripts away would leave the guard green and checking nothing.
+    with pytest.raises(AssertionError):
+        _find_hardcoded_variants(tmp_path)
