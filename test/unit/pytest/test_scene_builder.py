@@ -148,7 +148,7 @@ class TestValidateScene:
 
 
 class TestResolveModelPath:
-    def test_resolves_robot_model(self, repo_root):
+    def test_resolves_sim_asset(self, repo_root):
         resolved = scene_builder.resolve_model_path("robot/openbase/openbase.usd", repo_root)
         assert resolved.exists()
         assert resolved.name == "openbase.usd"
