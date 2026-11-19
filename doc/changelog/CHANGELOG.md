@@ -29,6 +29,7 @@
 - **Live `robot_model` references renamed to `sim_asset` (isaac#329).** The repo was renamed; the `FileNotFoundError` message in `standalone_common.openbase_usd_path`, `src/model/README.md`, a fixture comment, a test docstring and the test names/assertions now say `sim_asset`. Test count unchanged.
 
 ### Removed
+- **`src/scene/warehouse_pushback.yaml` removed; it lives in ycpss91255-docker/isaac_physics_test (isaac#342).** The `scene.py` usage docstring now uses `scene/sensor_test_bench.yaml`.
 - **Planar-move scripts removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `cmd_vel_planar_move.py`, `cmd_vel_planar_standalone.py`, `cmd_vel_planar_standalone_l2.py`, `move_openbase_planar.py`, `move_openbase_planar_standalone.py`, their README rows, smoke cases and hosted guards. Hosted-unit baseline 427 -> 417.
 - **`src/doc/CONTEXT.md` and ADR-0001 / 0002 / 0006 / 0010 removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** References in remaining docs now point there.
 - **Stale `forklift_blocky_driver_wip.py` references removed (isaac#329).** The driver moved to isaac_physics_test in #309/#320; docstrings and comments in `isaac_driver.py`, `scene_builder.py`, `camera_setup.py`, `config/camera/{realsense,custom}.yaml`, `zed_install.md` and `standalone_livestream_workflow.md` now point at isaac_physics_test or use a `<your_driver>` placeholder. Comment and doc changes only; no behaviour change.
