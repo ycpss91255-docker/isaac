@@ -4,7 +4,7 @@
 # `sensors[depth]` for an RGB-only setup). Add entries to model
 # multi-camera rigs.
 #
-# Schema rules: doc/adr/0006-per-sensor-yaml-camera-config.md
+# Schema rules: isaac_physics_test:src/doc/adr/0006-per-sensor-yaml-camera-config.md
 # Edit + re-run a driver that accepts --config (e.g. one in isaac_physics_test) to apply.
 
 # mount = camera_link analog (device body center, attached to parent_prim).
