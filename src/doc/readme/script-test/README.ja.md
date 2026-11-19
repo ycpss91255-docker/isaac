@@ -11,7 +11,7 @@
 ./isaac_ws/src/script/test/standalone_smoke.sh
 
 # 単一 case(スクリプト編集時の高速イテレーション)
-./isaac_ws/src/script/test/standalone_smoke.sh --only cmd_vel
+./isaac_ws/src/script/test/standalone_smoke.sh --only ros2_test_pub
 
 # CI / strict モード: SKIP は FAIL 扱い
 ./isaac_ws/src/script/test/standalone_smoke.sh --strict
@@ -38,8 +38,6 @@
 |--------|---------------|--------:|:----:|
 | `ros2_test_pub_standalone.py` | `standalone publishing` | 150s | no |
 | `ros2_test_sub_standalone.py` | `standalone subscribed to` | 150s | no |
-| `cmd_vel_planar_standalone.py` | `standalone subscribed` | 180s | yes |
-| `move_openbase_planar_standalone.py` | `[tick` | 180s | yes |
 
 Marker は受け取った stdout+stderr ストリームに対する regex マッチ。各 standalone スクリプトはコア setup 完了(rclpy subscriber 起動、または最初の `[tick]`)時にタグ付き行を 1 回だけ出力します。
 
