@@ -272,8 +272,12 @@
 #   (test_workflow_pins.py, new). Live count is now 454.
 #
 #   Run-scoped reap filter (isaac#344) adds 1 (test_workflow_pins.py 3 tests).
-#   Live count is now 455 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 455
+#   Live count is now 455.
+#
+#   Run-scoped reap filter bound to the script's BASELINE_PROJECT (isaac#344)
+#   adds 1 (test_workflow_pins.py 4 tests). Live count is now 456 -- the
+#   enforced floor.
+HOSTED_UNIT_BASELINE = 456
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

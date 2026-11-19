@@ -8,6 +8,8 @@ discovered set so a rename or an empty discovery cannot pass vacuously.
 """
 
 import pathlib
+import shutil
+import subprocess
 
 import yaml
 
@@ -58,3 +60,54 @@ def test_gpu_integration_passes_run_scoped_reap_filter():
         "label=com.docker.compose.project="
         "isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}"
     )
+
+
+_STUB_SETUP = "#!/usr/bin/env bash\nprintf 'WS_PATH=/x\\n' > .env.generated\n"
+_STUB_BUILD = "#!/usr/bin/env bash\nexit 0\n"
+_STUB_BASELINE = (
+    "#!/usr/bin/env bash\n"
+    'echo "BASELINE_PROJECT=${BASELINE_PROJECT}" > "${OBSERVED}"\n'
+)
+
+
+def test_reap_filter_matches_script_baseline_project(tmp_path):
+    """isaac#344: the reap filter must name the project the script runs.
+
+    The script is run for real (stubbed setup/build/baseline) with a known
+    run id and attempt; the project it exports is the expected value.
+    """
+    (tmp_path / "script" / "ci").mkdir(parents=True)
+    (tmp_path / "test").mkdir()
+    for name in ("gpu_job_lib.sh", "gpu_integration_job.sh"):
+        shutil.copy(_REPO_ROOT / "script" / "ci" / name,
+                    tmp_path / "script" / "ci" / name)
+    for rel, body in (
+        ("script/setup.sh", _STUB_SETUP),
+        ("script/build.sh", _STUB_BUILD),
+        ("test/assert_pytest_baseline.sh", _STUB_BASELINE),
+    ):
+        (tmp_path / rel).write_text(body, encoding="utf-8")
+    for path in tmp_path.rglob("*.sh"):
+        path.chmod(0o755)
+    observed = tmp_path / "observed.txt"
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GITHUB_WORKSPACE": str(tmp_path),
+        "GITHUB_RUN_ID": "111",
+        "GITHUB_RUN_ATTEMPT": "2",
+        "OBSERVED": str(observed),
+    }
+    subprocess.run(
+        ["bash", str(tmp_path / "script" / "ci" / "gpu_integration_job.sh")],
+        check=True, env=env, cwd=tmp_path, capture_output=True,
+    )
+    project = observed.read_text(encoding="utf-8").strip().split("=", 1)[1]
+
+    doc = yaml.safe_load(
+        (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
+    )
+    template = doc["jobs"]["gpu-integration"]["with"]["reap-container-filter"]
+    rendered = template.replace("${{ github.run_id }}", "111").replace(
+        "${{ github.run_attempt }}", "2"
+    )
+    assert rendered == f"label=com.docker.compose.project={project}"
