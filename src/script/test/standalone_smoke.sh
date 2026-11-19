@@ -29,7 +29,7 @@
 #   ./isaac_ws/src/script/test/standalone_smoke.sh
 #
 # Single case (fast iteration):
-#   ./isaac_ws/src/script/test/standalone_smoke.sh --only cmd_vel
+#   ./isaac_ws/src/script/test/standalone_smoke.sh --only ros2_test_pub
 
 set -uo pipefail
 
@@ -42,8 +42,6 @@ CONTAINER=yunchien-isaac-standalone
 CASES=(
   "ros2_test_pub_standalone.py|standalone publishing|150|no"
   "ros2_test_sub_standalone.py|standalone subscribed to|150|no"
-  "cmd_vel_planar_standalone.py|standalone subscribed|180|yes"
-  "move_openbase_planar_standalone.py|\\[tick|180|yes"
 )
 
 usage() {

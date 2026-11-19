@@ -148,7 +148,7 @@ class TestValidateScene:
 
 
 class TestResolveModelPath:
-    def test_resolves_robot_model(self, repo_root):
+    def test_resolves_sim_asset(self, repo_root):
         resolved = scene_builder.resolve_model_path("robot/openbase/openbase.usd", repo_root)
         assert resolved.exists()
         assert resolved.name == "openbase.usd"
@@ -171,6 +171,123 @@ class TestResolveModelPath:
     def test_rejects_missing_model(self, repo_root):
         with pytest.raises(FileNotFoundError, match="not found"):
             scene_builder.resolve_model_path("robot/nope/nope.usd", repo_root)
+
+
+class TestModelPathSearch:
+    """MODEL_PATH env var: colon-separated search roots for models."""
+
+    def test_model_path_search_order(self, tmp_path, monkeypatch):
+        """First matching root in MODEL_PATH wins."""
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        (root_a / "bot").mkdir(parents=True)
+        (root_a / "bot" / "bot.usd").write_text("#usda 1.0")
+        (root_b / "bot").mkdir(parents=True)
+        (root_b / "bot" / "bot.usd").write_text("#usda 1.0 (second)")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path("bot/bot.usd", tmp_path)
+        assert resolved == root_a / "bot" / "bot.usd"
+
+    def test_model_path_second_root_found(self, tmp_path, monkeypatch):
+        """Model in the second root is found when not in the first."""
+        root_a = tmp_path / "a"
+        root_a.mkdir()
+        root_b = tmp_path / "b"
+        (root_b / "bot").mkdir(parents=True)
+        (root_b / "bot" / "bot.usd").write_text("#usda 1.0")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path("bot/bot.usd", tmp_path)
+        assert resolved == root_b / "bot" / "bot.usd"
+
+    def test_model_path_absolute_bypasses_search(self, tmp_path, monkeypatch):
+        """An absolute model path is used as-is, ignoring MODEL_PATH."""
+        abs_model = tmp_path / "direct" / "my.usd"
+        abs_model.parent.mkdir(parents=True)
+        abs_model.write_text("#usda 1.0")
+        monkeypatch.setenv("MODEL_PATH", "/nonexistent")
+        resolved = scene_builder.resolve_model_path(str(abs_model), tmp_path)
+        assert resolved == abs_model
+
+    def test_model_path_fallback_to_repo_root(self, repo_root, monkeypatch):
+        """Without MODEL_PATH, resolve_model_path uses <repo_root>/model/usd/."""
+        monkeypatch.delenv("MODEL_PATH", raising=False)
+        resolved = scene_builder.resolve_model_path(
+            "robot/openbase/openbase.usd", repo_root
+        )
+        assert resolved.exists()
+        assert resolved.name == "openbase.usd"
+
+    def test_model_path_error_lists_all_roots(self, tmp_path, monkeypatch):
+        """The error for a missing model names every root that was searched."""
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        root_a.mkdir()
+        root_b.mkdir()
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        with pytest.raises(FileNotFoundError, match=str(root_a)) as exc_info:
+            scene_builder.resolve_model_path("no/such.usd", tmp_path)
+        assert str(root_b) in str(exc_info.value)
+
+
+class TestPackageUriResolve:
+    """package:// URIs resolved by scanning package.xml under MODEL_PATH."""
+
+    @staticmethod
+    def _make_pkg(root, pkg_name, model_rel="urdf/robot.usd"):
+        """Create a minimal ROS package with a model file under *root*."""
+        pkg_dir = root / pkg_name
+        model = pkg_dir / model_rel
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_text("#usda 1.0")
+        (pkg_dir / "package.xml").write_text(
+            f"<package><name>{pkg_name}</name></package>"
+        )
+        return pkg_dir
+
+    def test_package_uri_resolved_from_model_path(self, tmp_path, monkeypatch):
+        """package://pkg/rel resolves to <root>/pkg/rel."""
+        root = tmp_path / "models"
+        self._make_pkg(root, "my_robot", "urdf/robot.usd")
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        resolved = scene_builder.resolve_model_path(
+            "package://my_robot/urdf/robot.usd", tmp_path
+        )
+        assert resolved == root / "my_robot" / "urdf" / "robot.usd"
+
+    def test_package_uri_requires_package_xml(self, tmp_path, monkeypatch):
+        """A directory without package.xml is not treated as a package."""
+        root = tmp_path / "models"
+        pkg_dir = root / "fake_pkg"
+        (pkg_dir / "urdf").mkdir(parents=True)
+        (pkg_dir / "urdf" / "robot.usd").write_text("#usda 1.0")
+        # No package.xml!
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        with pytest.raises(FileNotFoundError):
+            scene_builder.resolve_model_path(
+                "package://fake_pkg/urdf/robot.usd", tmp_path
+            )
+
+    def test_package_uri_searches_multiple_roots(self, tmp_path, monkeypatch):
+        """package:// scans each MODEL_PATH root in order."""
+        root_a = tmp_path / "a"
+        root_a.mkdir()
+        root_b = tmp_path / "b"
+        self._make_pkg(root_b, "bot_desc", "meshes/bot.usd")
+        monkeypatch.setenv("MODEL_PATH", f"{root_a}:{root_b}")
+        resolved = scene_builder.resolve_model_path(
+            "package://bot_desc/meshes/bot.usd", tmp_path
+        )
+        assert resolved == root_b / "bot_desc" / "meshes" / "bot.usd"
+
+    def test_package_uri_error_names_package(self, tmp_path, monkeypatch):
+        """The error for an unresolved package:// URI names the package."""
+        root = tmp_path / "models"
+        root.mkdir()
+        monkeypatch.setenv("MODEL_PATH", str(root))
+        with pytest.raises(FileNotFoundError, match="no_such_pkg"):
+            scene_builder.resolve_model_path(
+                "package://no_such_pkg/model.usd", tmp_path
+            )
 
 
 class TestGenerateInstances:

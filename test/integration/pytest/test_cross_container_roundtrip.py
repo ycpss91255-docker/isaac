@@ -1,14 +1,14 @@
 """Isaac<->ament cross-container ROS 2 round-trip (isaac#132, M2 gate).
 
 PRD Pre-Publish item 1: prove a real ROS 2 message crosses the container
-boundary in BOTH directions between the Isaac example (``example/sim/``)
+boundary in BOTH directions between the Isaac scene (the official Jetbot USD via ``test/test_assets.py``, #325)
 and the ament example package (``example/ros2/``):
 
 * sim -> ament (camera): the framework camera OmniGraph chain in the
-  Isaac container publishes ``/camera_bot/camera/color/image_raw``; the
+  Isaac container publishes ``/jetbot/camera/color/image_raw``; the
   ament ``example_app_py camera_subscriber`` node, running in a SIBLING
   ``ros:humble`` container on the host network, receives a real sim frame
-  and logs ``[FRAME OK] ... frame_id=camera_bot_camera_color_optical_frame``.
+  and logs ``[FRAME OK] ... frame_id=jetbot_camera_color_optical_frame``.
 * ament -> sim (cmd_vel): the ament ``example_app_py cmd_vel_publisher``
   node in the sibling container publishes ``/cmd_vel``; the Isaac side's
   ``RosIo.latest('/cmd_vel')`` (an OmniGraph Subscribe attribute, no
@@ -52,6 +52,13 @@ from pathlib import Path
 
 import pytest
 
+# ``test/`` hosts the shared asset helper (#341); make it importable.
+_TEST_DIR = Path(__file__).resolve().parents[2]
+if str(_TEST_DIR) not in sys.path:
+    sys.path.insert(0, str(_TEST_DIR))
+
+from test_assets import fetch_test_asset  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ISAAC_RUNNER = Path(__file__).parent / "_cross_container_runner.py"
 ROS2_WS = REPO_ROOT / "example" / "ros2"
@@ -71,8 +78,8 @@ ROS_DOMAIN_ID = "0"
 RMW = "rmw_fastrtps_cpp"
 FASTDDS_PROFILE = REPO_ROOT / "config" / "ros2" / "fastdds.xml"
 
-EXPECTED_CAMERA_TOPIC = "/camera_bot/camera/color/image_raw"
-EXPECTED_CAMERA_FRAME_ID = "camera_bot_camera_color_optical_frame"
+EXPECTED_CAMERA_TOPIC = "/jetbot/camera/color/image_raw"
+EXPECTED_CAMERA_FRAME_ID = "jetbot_camera_color_optical_frame"
 
 # Sibling cmd_vel content; asserted echoed on the Isaac side.
 SENT_VX = 0.37
@@ -196,7 +203,7 @@ CAMERA_SIBLING_NAME = "xc-camera-sibling"
 CMDVEL_SIBLING_NAME = "xc-cmdvel-sibling"
 
 
-def _compose_run_isaac_cmd() -> list[str]:
+def _compose_run_isaac_cmd(robot_usd) -> list[str]:
     """docker compose one-off (``--rm``) that boots the Isaac runner.
 
     Mounts this repo at the container work dir so the runner's
@@ -214,7 +221,27 @@ def _compose_run_isaac_cmd() -> list[str]:
         "-v", f"{REPO_ROOT}:{work}",
         "test",
         PYTHON_SH, runner, "--repo-root", work,
+        "--robot-usd", _container_path(robot_usd),
     ]
+
+
+def _container_path(host_path) -> str:
+    """Map a host path under the repo to its path inside the Isaac container.
+
+    The asset cache lives under ``<repo>/.cache/test-assets`` by default, so
+    it is visible through the repo bind mount at ``CONTAINER_WORK``. An
+    override cache outside the repo is not mounted and is rejected loudly.
+    """
+    rel = Path(host_path).resolve().relative_to(REPO_ROOT)
+    return f"{CONTAINER_WORK}/{rel.as_posix()}"
+
+
+def _camera_run_cmd() -> str:
+    """``ros2 run`` the ament camera_subscriber on the Jetbot camera topic."""
+    return (
+        "ros2 run example_app_py camera_subscriber --ros-args "
+        f"-p camera_topic:={EXPECTED_CAMERA_TOPIC}"
+    )
 
 
 def _ament_node_script(node: str = "", custom_run: str = "") -> str:
@@ -290,7 +317,7 @@ def _spawn_camera_subscriber():
             "-v", f"{ROS2_WS}:/src:ro",
             "-v", f"{FASTDDS_PROFILE}:/cfg/fastdds.xml:ro",
             ROS_IMAGE, "bash", "-c",
-            _ament_node_script("camera_subscriber"),
+            _ament_node_script(custom_run=_camera_run_cmd()),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -355,7 +382,7 @@ def _terminate(proc) -> str:
     return out or ""
 
 
-def _run_roundtrip_once() -> dict:
+def _run_roundtrip_once(robot_usd) -> dict:
     """One full cross-container round-trip; return captured evidence.
 
     Boots the Isaac runner (streamed), waits for ``[XC READY]``, then
@@ -374,7 +401,7 @@ def _run_roundtrip_once() -> dict:
         pass
 
     isaac = subprocess.Popen(
-        _compose_run_isaac_cmd(),
+        _compose_run_isaac_cmd(robot_usd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -522,13 +549,14 @@ def roundtrip():
     # Clear any xc-* orphan a crashed/cancelled prior run leaked, so its stale
     # DDS participants do not pollute this run's host-network discovery (#224).
     _sweep_xc_siblings()
+    robot_usd = fetch_test_asset("jetbot")
     result = None
     try:
         for attempt in range(MAX_RETRIES + 1):
             sys.stderr.write(
                 f"\n[cross-container] attempt {attempt + 1}/{MAX_RETRIES + 1}\n"
             )
-            result = _run_roundtrip_once()
+            result = _run_roundtrip_once(robot_usd)
             got_camera = "[FRAME OK]" in result["camera_sibling"]
             got_cmd_vel = "[XC CMD_VEL RX]" in result["isaac"]
             if got_camera and got_cmd_vel:
