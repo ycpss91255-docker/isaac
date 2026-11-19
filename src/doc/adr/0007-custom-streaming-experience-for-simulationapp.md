@@ -52,7 +52,7 @@ Each rejected option fails on a different axis:
 
 - `ycpss91255-docker/isaac#21` — issue tracking the docker side fix (mount layout for kit/data + kit/logs + the custom kit experience).
 - ADR-0005 — entrypoint pattern; Update section explains the live-verification findings.
-- ADR-0002 — original in-kit Script Editor path, still valid as a Plan B.
+- ADR-0002 (in isaac_physics_test) — original in-kit Script Editor path, still valid as a Plan B.
 - IsaacLab AppLauncher source (custom kit experience precedent): <https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab/isaaclab/app/app_launcher.py>
 - Isaac Sim livestream client docs: <https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/manual_livestream_clients.html>
 
