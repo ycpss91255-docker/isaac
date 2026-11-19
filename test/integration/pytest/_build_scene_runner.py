@@ -1,27 +1,29 @@
-"""Kit-side runner: spawn the example scene via the framework build_scene
+"""Kit-side runner: spawn a Jetbot + cube scene via the framework build_scene
 adapter (#152, ADR-0018 decisions 1 + 3).
 
 Not a pytest test (leading underscore so pytest skips collection). Boots a
-headless ``SimulationApp``, loads the example three-file scene, and calls
+headless ``SimulationApp``, builds an in-memory scene around the official
+Jetbot (robot) and NVIDIA cube (``mobility: dynamic`` object) USDs passed
+on the CLI (fetched by the pytest layer through ``test/test_assets.py``,
+#325 -- no repo-bundled scaffold files), and calls
 the FRAMEWORK ``isaac_devkit.scene.build_scene`` -- the new
 ``to_isaaclab_cfg`` -> ``sim_utils`` cfg -> ``cfg.func()`` spawn path --
 then reports the spawned prims as marker lines. This is the dedicated GPU
-coverage for the adapter (the example driver still uses its own raw-pxr
-``_build_scene`` until #154, so the example GPU test does not exercise the
-adapter; this runner does).
+coverage for the adapter.
 
 Marker lines (the pytest layer asserts on these)::
 
     [ADAPTER PRIM] path=<p> valid=<bool>     ground / light / robot root
     [ADAPTER OBJECT] path=<p> valid=<bool> rigidbody=<bool>
-    [ADAPTER BASE_LINK] valid=<bool>         loose (depends on committed USD)
+    [ADAPTER CHASSIS] valid=<bool>           Jetbot articulation body
     [ADAPTER OK] ground=<bool> light=<bool> robot=<bool> objects=<N>
     [EXIT CLEAN]
     [RAISED] <type>: <msg>
 
 CLI::
 
-    /isaac-sim/python.sh _build_scene_runner.py --repo-root <repo>
+    /isaac-sim/python.sh _build_scene_runner.py --repo-root <repo> \\
+        --robot-usd <jetbot.usd> --object-usd <nvidia_cube.usd>
 """
 
 import argparse
@@ -33,14 +35,16 @@ from pathlib import Path
 def _main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--robot-usd", required=True)
+    parser.add_argument("--object-usd", required=True)
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
     framework_dir = repo_root / "framework"
-    example_dir = repo_root / "example" / "sim"
-    for d in (framework_dir, example_dir):
-        if str(d) not in sys.path:
-            sys.path.insert(0, str(d))
+    if str(framework_dir) not in sys.path:
+        sys.path.insert(0, str(framework_dir))
+    robot_usd = str(Path(args.robot_usd).resolve())
+    object_usd = str(Path(args.object_usd).resolve())
 
     # Headless, no livestream (ROS 2 bridge + livestream in one Kit process
     # segfaults randomly, IsaacSim#228); this runner does no ROS 2 anyway.
@@ -56,10 +60,24 @@ def _main() -> None:
         import omni.usd
         from pxr import UsdPhysics
 
-        from example_driver import ExampleDriver, load_three_file_scene
         from isaac_devkit.scene import build_scene
 
-        scene = load_three_file_scene(repo_root / ExampleDriver.SCENE)
+        # Absolute model paths bypass the MODEL_PATH search.
+        scene = {
+            "environment": {"ground_plane": True},
+            "robot": {
+                "name": "jetbot",
+                "model": robot_usd,
+                "pose": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+            },
+            "objects": [
+                {
+                    "model": object_usd,
+                    "pose": {"xyz": [1.0, 0.0, 0.5], "rpy": [0.0, 0.0, 0.0]},
+                    "mobility": "dynamic",
+                }
+            ],
+        }
 
         ctx = omni.usd.get_context()
         stage = ctx.get_stage()
@@ -67,8 +85,7 @@ def _main() -> None:
             ctx.new_stage()
             stage = ctx.get_stage()
 
-        # The example scene's model paths resolve under example/sim/model/usd.
-        build_scene(scene, stage, example_dir)
+        build_scene(scene, stage, repo_root)
 
         def _valid(path: str) -> bool:
             return bool(stage.GetPrimAtPath(path).IsValid())
@@ -79,15 +96,15 @@ def _main() -> None:
         for path in ("/World/ground", "/World/light", "/World/Robot"):
             print(f"[ADAPTER PRIM] path={path} valid={_valid(path)}", flush=True)
 
-        # base_link resolves now that the committed camera_bot.usd carries a
-        # defaultPrim (/camera_bot, set in #154's fb6f580): the adapter's
-        # UsdFileCfg reference brings in the referenced content, so
-        # /World/Robot/base_link is valid. Asserted strictly by the test.
-        base_link = _valid("/World/Robot/base_link")
-        print(f"[ADAPTER BASE_LINK] valid={base_link}", flush=True)
+        # The Jetbot USD has a defaultPrim (/jetbot), so the adapter's
+        # UsdFileCfg reference brings in the referenced content and its
+        # articulation body lands at /World/Robot/chassis (the Jetbot has no
+        # base_link). Asserted strictly by the test.
+        chassis = _valid("/World/Robot/chassis")
+        print(f"[ADAPTER CHASSIS] valid={chassis}", flush=True)
 
         # The spawned orientation is what a quaternion-order mistake shows up
-        # in: the scene YAML says rpy [0,0,0], so every spawned prim must
+        # in: the scene dict says rpy [0,0,0], so every spawned prim must
         # carry an IDENTITY orient. Sending (w,x,y,z) into a spawner that
         # documents (x,y,z,w) writes (0,1,0,0) instead -- 180 degrees about X,
         # the whole scene upside-down. Structure assertions cannot see that;
