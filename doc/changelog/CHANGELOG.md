@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- **Output-mode resolver and ADR-0025 (isaac#366 part 1).** `isaac_devkit.output_mode.resolve_output_mode()` reads `ISAAC_OUTPUT_MODE`: unset gives `python`, `ros` and `python` pass through, anything else (wrong case, empty, `both`) raises `ValueError` naming the value and the allowed set. ADR-0025 (Proposed) records the decided parts of the owner direction of 2026-11-18: one exclusive global switch, `ros` is Isaac's native OmniGraph ROS 2 bridge, `python` is the Python output API with no ROS and no `rclpy` consumer layer; `isaacsim.ros2.bridge` must be enabled before Kit boots, so the entry reads the variable first; the config carrier is `env.toml` / `env.local.toml` (interim: the gitignored `.env` overlay on base v0.42.0). Where the `ros`-mode OmniGraph wiring lives (isaac or `isaac_ros2`, and its effect on ADR-0023) is recorded as an open question, not decided. Hosted baseline 498 -> 513.
+
+### Added
 - **Output-API helpers: stamp split and byte buffers (isaac#365 part 1).** `isaac_devkit.stamp.split_stamp(t)` turns a time in seconds into `(sec, nanosec)` and carries a nanosecond value that rounds to 1e9 into the seconds field (a time just below an integer second used to produce an invalid or non-monotonic stamp). `isaac_devkit.buffers.to_u8_buffer(arr)` returns the raw bytes of a C-contiguous buffer as `array.array('B')` (a float32 depth image is 4 bytes per pixel); a non-contiguous input raises `ValueError` instead of being copied silently. Both are pure stdlib and import no ROS or Isaac package. `test/assert_pytest_baseline.sh` installs `numpy` in the hosted container; a new AST guard (`test_no_ros_import_in_devkit.py`) enforces ADR-0023 for the ROS names. Hosted baseline 462 -> 498.
 
 ### Changed
