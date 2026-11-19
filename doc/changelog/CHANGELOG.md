@@ -9,6 +9,9 @@
 ### Docs
 - **PRD convergence draft annotated for moved CONTEXT.md and ADRs (isaac#361).** A note at the top of `doc/PRD-template-convergence.draft.md` states that `CONTEXT.md` and the forklift ADRs it mentions moved, or are moving, to isaac_physics_test; the draft body is unchanged.
 ### Added
+- **Python output API, python mode (isaac#365 part 2).** `isaac_devkit.output.setup_output()` wires the python output path chosen by `ISAAC_OUTPUT_MODE` (default `python`; `ros` raises `NotImplementedError` until the native path lands, ADR-0025). `OutputHub` registers callbacks per kind (`rgb` uint8 `(H, W, 3)` alpha dropped, `depth` float32 `(H, W)`, `joint_state`, `imu` with orientation `w, x, y, z`); a source's reader (the GPU to CPU copy) runs only for kinds that have a consumer. Isaac-side readers live in `output_python.py` with function-local imports (ADR-0023). New `OutputModeError`. Hosted baseline 513 -> 547; GPU baseline 35 -> 39 (`test_output_hub_gpu.py`, first run on CI).
+
+### Added
 - **Output-mode resolver and ADR-0025 (isaac#366 part 1).** `isaac_devkit.output_mode.resolve_output_mode()` reads `ISAAC_OUTPUT_MODE`: unset gives `python`, `ros` and `python` pass through, anything else (wrong case, empty, `both`) raises `ValueError` naming the value and the allowed set. ADR-0025 (Proposed) records the decided parts of the owner direction of 2026-11-18: one exclusive global switch, `ros` is Isaac's native OmniGraph ROS 2 bridge, `python` is the Python output API with no ROS and no `rclpy` consumer layer; `isaacsim.ros2.bridge` must be enabled before Kit boots, so the entry reads the variable first; the config carrier is `env.toml` / `env.local.toml` (interim: the gitignored `.env` overlay on base v0.42.0). Where the `ros`-mode OmniGraph wiring lives (isaac or `isaac_ros2`, and its effect on ADR-0023) is recorded as an open question, not decided. Hosted baseline 498 -> 513.
 
 ### Added
