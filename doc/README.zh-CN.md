@@ -113,6 +113,19 @@ Kit 每次启动都会打印几种不影响运行的警告：
 - `./script/checkout_identity.sh isolate` 会把 `[image] rule_1 = string:isaac-<dir>-<hash>` 写进 gitignored 的 `.setup.conf.local`。image tag、compose project 与 container 名称都跟着它走。`./script/checkout_identity.sh show` 会打印这个 checkout 解析出的名称。
 - pre build / run / stop hook 会拒绝对共用名称操作。`ISAAC_ALLOW_SHARED_IDENTITY=1` 可以跳过；CI 的 build 步骤就是这样用。
 - `just docker run` 不会重新 build 已存在的 image（base#1552）。pull 新变更后，先 `just docker build -t <stage>` 再 `just docker run -t <stage>`。
+- 磁盘占用：每个会 build 的 checkout 或 worktree 都拥有自己的一组 image（`<hub>/isaac-<dir>-<hash>:<stage>`），每个 stage tag 名义上约 31 GB。它们不共用，删掉 checkout 目录也不会从 Docker daemon 移除。
+- 清理已删除的 checkout：从 `./script/checkout_identity.sh show`（删目录前执行；需要 `.env.generated`）或 `docker images` 获取 `isaac-<dir>-<hash>` 名称，先列出再移除：
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # 完整名称，例如取自 "image: <hub>/<SLUG>:<stage>"
+  HUB=<hub>                 # 该 image 名称中的 <hub> 部分
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  filter 只精确匹配 slug。不要放宽成 `isaac*`，也不要运行 `docker image prune -a`：共用的 `test-tools:<base 版本>` image（下一条）不可被此流程移除。
 - 有一个 image 仍然共用：每次 build 也会 build lint/bats 工具 image `test-tools:<base 版本>`（目前是 `test-tools:v0.42.0`），名称只由 pin 住的 base 版本决定。host 上所有 pin 同一个 base 版本的 checkout 与 repo 都写同一个 tag，所以别的 checkout 可能正在 build 时不要删它。`just docker build --clean-tools` 会替所有人把它删掉。它来自 base 的 `build.sh`，上游追踪在 [base#1551](https://github.com/ycpss91255-docker/base/issues/1551)。
 - isolate 之前启动的 container 还留在共用 project 里。用 `docker compose -p <hub>-isaac ps -a` 列出，按名称停掉自己的。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` 会停掉整个共用 project，包含别的 checkout 的 container。
 
@@ -276,14 +289,12 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`src/script/` 放有 M1 / M2 demo 的 in-kit Script Editor 版本与 standalone 版本。standalone 版本透过 `SimulationApp` 启动自己的 Kit，并依 stage 的 `ISAAC_LIVESTREAM` 决定模式（`headless` 为 0，`stream` 为 2）。`cmd_vel_planar_standalone.py` 一律以 headless 跑 Kit，因为在同一个 standalone process 里同时开 livestream 与 ROS 2 bridge 曾让 Kit crash（IsaacSim#228）。每个 standalone 脚本都接受 `--run-seconds N`，遇到任何错误都 exit 1（以前是 exit 0）。
+`src/script/` 放有 M1 / M2 demo 的 in-kit Script Editor 版本与 standalone 版本。standalone 版本透过 `SimulationApp` 启动自己的 Kit，并依 stage 的 `ISAAC_LIVESTREAM` 决定模式（`headless` 为 0，`stream` 为 2）。每个 standalone 脚本都接受 `--run-seconds N`，遇到任何错误都 exit 1（以前是 exit 0）。
 
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 验证结果（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒在 `/isaac/test` 发布一次 | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：打印每则 `/host/test` 讯息 | 3/3 收到 |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：固定 `CMD_VX/VY/WZ` 平面移动 | x +0.5 m/s，z 维持 0 |
-| （无 in-kit 版本） | `cmd_vel_planar_standalone.py`：订阅 `/cmd_vel`（geometry_msgs/Twist）并让 OpenBase 在平面上移动 | 0 指令时静止，`linear.x: 0.5` 时 x +0.5 m/s，z 维持 0 |
 
 使用 pattern：
 

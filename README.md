@@ -113,6 +113,19 @@ Every checkout of this repo on a host used to resolve the same image tag (`<hub>
 - `./script/checkout_identity.sh isolate` writes `[image] rule_1 = string:isaac-<dir>-<hash>` into the gitignored `.setup.conf.local`. The image tag, the compose project and the container names all follow it. `./script/checkout_identity.sh show` prints what this checkout resolves to.
 - The pre build / run / stop hooks refuse to act on the shared names. `ISAAC_ALLOW_SHARED_IDENTITY=1` overrides that; CI's build steps use it.
 - `just docker run` does not rebuild an image that already exists (base#1552). After pulling changes, run `just docker build -t <stage>` before `just docker run -t <stage>`.
+- Disk cost: every checkout or worktree that builds owns its own image set (`<hub>/isaac-<dir>-<hash>:<stage>`), about 31 GB nominal per stage tag. They are not shared, and deleting the checkout directory does not remove them from the Docker daemon.
+- Cleaning up a deleted checkout: take the `isaac-<dir>-<hash>` name from `./script/checkout_identity.sh show` (run it before deleting the directory; it needs `.env.generated`) or from `docker images`, then list first and remove second:
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # exact name, e.g. from "image: <hub>/<SLUG>:<stage>"
+  HUB=<hub>                 # the <hub> part of that image name
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  The filters match the exact slug only. Do not widen them to `isaac*` and do not run `docker image prune -a`: the shared `test-tools:<base version>` image (next bullet) must not be removed by this procedure.
 - One image stays shared: every build also builds the lint/bats tool image `test-tools:<base version>` (now `test-tools:v0.42.0`), named by the pinned base version only. Every checkout and every repo on the host that pins the same base version writes the same tag, so do not delete it while another checkout may be building. `just docker build --clean-tools` removes it for all of them. It comes from base's `build.sh` and is tracked upstream on [base#1551](https://github.com/ycpss91255-docker/base/issues/1551).
 - Containers started before isolating stay in the shared project. List them with `docker compose -p <hub>-isaac ps -a` and stop yours by name. `ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` stops the whole shared project, other checkouts' containers included.
 
@@ -276,14 +289,12 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 ### Standalone Python workflow (alternative to Script Editor)
 
-`src/script/` ships in-kit Script Editor versions of the M1 / M2 demos and standalone equivalents. The standalone ones boot their own Kit through `SimulationApp`, following the stage's `ISAAC_LIVESTREAM` (`headless` 0, `stream` 2). `cmd_vel_planar_standalone.py` always runs Kit headless, because the livestream and the ROS 2 bridge in one standalone process have crashed Kit (IsaacSim#228). Each standalone script takes `--run-seconds N`, and it exits 1 on any error (it used to exit 0).
+`src/script/` ships in-kit Script Editor versions of the M1 / M2 demos and standalone equivalents. The standalone ones boot their own Kit through `SimulationApp`, following the stage's `ISAAC_LIVESTREAM` (`headless` 0, `stream` 2). Each standalone script takes `--run-seconds N`, and it exits 1 on any error (it used to exit 0).
 
 | In-kit (Script Editor → File → Open → Run) | Standalone (`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`) | Verified on 6.2.0 (headless) |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`: publishes `/isaac/test` once per second | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`: prints each `/host/test` message | 3/3 received |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`: fixed `CMD_VX/VY/WZ` planar move | x +0.5 m/s, z stays 0 |
-| (no in-kit equivalent) | `cmd_vel_planar_standalone.py`: subscribes `/cmd_vel` (geometry_msgs/Twist) and moves the OpenBase in the plane | still at 0 command, x +0.5 m/s at `linear.x: 0.5`, z stays 0 |
 
 Pattern:
 
