@@ -226,7 +226,7 @@ _PUBLISH_SCRIPT = _REPO_ROOT / "script" / "ci" / "publish_stream_source.sh"
 # Every self-hosted job in the org goes through this one reusable workflow
 # (the runner group is locked to it); it targets the self-hosted GPU pool.
 _GPU_REUSABLE = (
-    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.3.0"
+    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0"
 )
 
 

@@ -16,7 +16,15 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
-  WORKFLOW_DIR="${BATS_TEST_DIRNAME}/../../../.github/workflows"
+  # Repo checkout: test/bats/smoke/ -> repo root.  devel-test image: the
+  # Dockerfile bakes .github/workflows/ next to the specs (isaac#402).
+  if [ -d "${BATS_TEST_DIRNAME}/../../../.github/workflows" ]; then
+    WORKFLOW_DIR="${BATS_TEST_DIRNAME}/../../../.github/workflows"
+  else
+    WORKFLOW_DIR="${BATS_TEST_DIRNAME}/workflows"
+  fi
+  # A missing directory must fail, never pass vacuously.
+  [ -d "${WORKFLOW_DIR}" ]
 }
 
 @test "no workflow references gpu-self-hosted.yml@main" {
@@ -27,7 +35,25 @@ setup() {
     echo "Found unpinned gpu-self-hosted.yml@main references:"
     echo "${hits}"
     echo ""
-    echo "Pin to a release tag (e.g. @v0.3.0) instead."
+    echo "Pin to a release tag (e.g. @v0.4.0) instead."
+    return 1
+  fi
+}
+
+@test "every gpu-self-hosted.yml caller is pinned to @v0.4.0" {
+  local f
+  for f in main.yaml stream-smoke.yaml publish-stream-source.yaml; do
+    [ -f "${WORKFLOW_DIR}/${f}" ] || { echo "missing caller: ${f}"; return 1; }
+    grep -q 'gpu-self-hosted\.yml@v0\.4\.0' "${WORKFLOW_DIR}/${f}" \
+      || { echo "${f} is not pinned to gpu-self-hosted.yml@v0.4.0"; return 1; }
+  done
+  # No gpu-self-hosted.yml ref anywhere may be a tag other than v0.4.0.
+  local other
+  other=$(grep -rn 'gpu-self-hosted\.yml@' "${WORKFLOW_DIR}/" \
+    | grep -v 'gpu-self-hosted\.yml@v0\.4\.0' || true)
+  if [ -n "${other}" ]; then
+    echo "gpu-self-hosted.yml refs not at @v0.4.0:"
+    echo "${other}"
     return 1
   fi
 }
