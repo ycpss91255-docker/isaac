@@ -269,8 +269,11 @@
 #   removed planar guards = 452 (confirmed against the real hosted count).
 #
 #   Pinning every gpu-self-hosted.yml caller to @v0.4.0 (isaac#402) adds 2
-#   (test_workflow_pins.py, new). Live count is now 454 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 454
+#   (test_workflow_pins.py, new). Live count is now 454.
+#
+#   Run-scoped reap filter (isaac#344) adds 1 (test_workflow_pins.py 3 tests).
+#   Live count is now 455 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 455
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

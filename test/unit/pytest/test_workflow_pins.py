@@ -45,3 +45,16 @@ def test_every_gpu_reusable_caller_is_pinned_to_v040():
 
 def test_gpu_reusable_callers_are_the_known_three():
     assert set(_callers()) == _EXPECTED_CALLERS
+
+
+def test_gpu_integration_passes_run_scoped_reap_filter():
+    """isaac#344: the cancel-safe reap step only runs when the input is set."""
+    doc = yaml.safe_load(
+        (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
+    )
+    job = doc["jobs"]["gpu-integration"]
+    assert job["uses"] == f"{_REUSABLE}@{_PINNED_TAG}"
+    assert job["with"]["reap-container-filter"] == (
+        "label=com.docker.compose.project="
+        "isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
