@@ -1,20 +1,20 @@
-"""Kit-side runner for the example GPU integration test (isaac#132).
+"""Kit-side runner for the example GPU integration test (isaac#132, #325).
 
 Not a pytest test (leading underscore so pytest skips collection). Boots
-the #131 ``ExampleDriver`` headless (no livestream -- bypasses
-IsaacSim#228) and exercises the strong L1-L4 + ``/cmd_vel`` round-trip
+a headless scene around the official Jetbot USD (passed via
+``--robot-usd``; fetched by the pytest layer through
+``test/test_assets.py``) with no livestream (bypasses IsaacSim#228) and exercises the strong L1-L4 + ``/cmd_vel`` round-trip
 assertions the PRD lists (Testing & Acceptance), emitting canonical
 marker lines so the pytest layer can assert without depending on the
 process exit code (Kit's ``app.close`` calls ``_exit(0)`` and swallows
 ``sys.exit``).
 
-Rather than run the example driver's unattended ``main()`` loop, this
-runner subclasses ``ExampleDriver`` and overrides the subclass hooks to
-probe the live stage in place: the full SCENE-driven lifecycle
-(``SimulationApp`` -> signal handlers -> build_scene -> setup_sensors ->
-setup_ros2_io -> defaults -> play -> setup -> main -> shutdown -> close)
-still runs through the framework, but ``setup`` / ``main`` make the
-integration assertions and print markers.
+The runner subclasses the framework ``IsaacDriver`` and walks the same
+SCENE-driven lifecycle the removed example driver did (``SimulationApp``
+-> signal handlers -> build_scene -> camera -> ros2_io -> defaults ->
+play -> setup -> main -> shutdown -> close); ``setup`` / ``main`` make the
+integration assertions and print markers. The scene is an in-memory dict
+(no ``example/sim/`` files).
 
 Marker lines (the pytest layer asserts on these)::
 
@@ -38,7 +38,7 @@ Marker lines (the pytest layer asserts on these)::
 CLI::
 
     /isaac-sim/python.sh _example_headless_runner.py \\
-        --repo-root <repo>
+        --repo-root <repo> --robot-usd <path/to/jetbot.usd>
 """
 
 import argparse
@@ -57,6 +57,61 @@ _FRAME_BUDGET_TICKS = 1800
 _CMD_VEL_BUDGET_TICKS = 600
 
 _CMD_VEL_TOPIC = "/cmd_vel"
+_ROBOT_PRIM = "/World/Robot"
+# The Jetbot's articulation body; it has no ``base_link``.
+_CHASSIS_PRIM = f"{_ROBOT_PRIM}/chassis"
+_CAMERA_TOPIC_PREFIX = "/jetbot/camera"
+
+
+def _build_scene_dict(robot_usd: str) -> dict:
+    """In-memory scene: ground + light + the Jetbot + /cmd_vel subscription."""
+    return {
+        "environment": {"ground_plane": True},
+        "robot": {
+            "name": "jetbot",
+            "model": robot_usd,  # absolute path bypasses MODEL_PATH search
+            "pose": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+        },
+        "ros2_io": {"subscriptions": [{"topic": _CMD_VEL_TOPIC, "type": "twist"}]},
+    }
+
+
+def _camera_cfg() -> dict:
+    """Custom RGB camera mounted on the Jetbot chassis (no external assets)."""
+    return {
+        "mount": {
+            "parent_prim": _CHASSIS_PRIM,
+            "pose": {"xyz": [0.1, 0.0, 0.1], "rpy": [0.0, 0.0, 0.0]},
+        },
+        "sensor": {"category": "camera", "type": "custom"},
+        "sensors": [
+            {
+                "role": "rgb",
+                "name": "color",
+                "pose": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+                "resolution": [1280, 720],
+                "fps": 30,
+                "hfov": 90.0,
+                "vfov": 60.0,
+            }
+        ],
+        "ros": {
+            "topic_prefix": _CAMERA_TOPIC_PREFIX,
+            "frame_id_prefix": "jetbot_camera",
+        },
+    }
+
+
+def _twist_to_planar(linear, angular):
+    """Zero-padded ``(vx, vy, wz)`` from a Twist's linear / angular fields."""
+
+    def _at(seq, index):
+        try:
+            return float(seq[index])
+        except (IndexError, TypeError, KeyError):
+            return 0.0
+
+    return _at(linear, 0), _at(linear, 1), _at(angular, 2)
 
 
 def _cuda_device_count() -> int:
@@ -75,6 +130,7 @@ def _cuda_device_count() -> int:
 def _main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--robot-usd", required=True)
     args = parser.parse_args()
 
     # Headless, no livestream: ROS 2 bridge + livestream in one Kit
@@ -86,21 +142,100 @@ def _main() -> None:
     framework_dir = repo_root / "framework"
     if str(framework_dir) not in sys.path:
         sys.path.insert(0, str(framework_dir))
-    example_dir = repo_root / "example" / "sim"
-    if str(example_dir) not in sys.path:
-        sys.path.insert(0, str(example_dir))
+    robot_usd = str(Path(args.robot_usd).resolve())
 
     try:
-        from example_driver import (  # noqa: E402
-            ExampleDriver,
-            _CMD_VEL_TOPIC as DRIVER_CMD_VEL_TOPIC,
+        from isaac_devkit.driver import (  # noqa: E402
+            IsaacDriver,
+            parse_livestream_env,
         )
         from isaac_devkit.model_import import (  # noqa: E402
             _summarize_prim_records,
         )
 
-        class _ExampleIntegrationDriver(ExampleDriver):
-            """Probe the live example scene in setup() / main()."""
+        class _ExampleIntegrationDriver(IsaacDriver):
+            """Build the Jetbot scene, then probe it in setup() / main()."""
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.io = None
+                self._robot_prim_path = _ROBOT_PRIM
+
+            # -- Lifecycle (the SCENE shape the example driver walked) --
+
+            def run(self) -> None:
+                from isaacsim import SimulationApp
+
+                kwargs = parse_livestream_env(
+                    os.environ.get("ISAAC_LIVESTREAM")
+                )
+                self._app = SimulationApp(kwargs)
+                signal.signal(signal.SIGINT, self._on_signal)
+                signal.signal(signal.SIGTERM, self._on_signal)
+                try:
+                    import omni.usd
+
+                    scene = _build_scene_dict(robot_usd)
+                    stage = omni.usd.get_context().get_stage()
+                    from isaac_devkit.scene import build_scene
+
+                    # robot.model is absolute, so repo_root only anchors
+                    # the (unused) legacy model/usd fallback.
+                    build_scene(scene, stage, repo_root)
+                    self._setup_camera(stage)
+                    self.io = self._setup_ros2_io(scene)
+                    self._ensure_scene_defaults(stage)
+                    self._play_timeline()
+                    self.setup(stage)
+                    self.main()
+                    self.shutdown()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[RAISED] {type(exc).__name__}: {exc}", flush=True)
+                    raise
+                finally:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    self._app.close()
+
+            def _setup_camera(self, stage) -> None:
+                from isaac_devkit.sensors import setup_camera
+
+                graph = setup_camera(_camera_cfg(), stage)
+                print(f"[CAMERA GRAPH OK] graph={graph}", flush=True)
+                self._camera_topic = _CAMERA_TOPIC_PREFIX + "/color/image_raw"
+
+            def _setup_ros2_io(self, scene):
+                from isaac_devkit import ros_io
+
+                subs = ros_io.parse_ros2_io_config(scene)
+                from isaacsim.core.utils.extensions import enable_extension
+
+                enable_extension("isaacsim.core.nodes")
+                enable_extension("isaacsim.ros2.bridge")
+                import omni.graph.core as og
+
+                nodes, set_values, connects = ros_io._build_graph_topology(subs)
+                (graph, _, _, _) = og.Controller.edit(
+                    {
+                        "graph_path": ros_io.GRAPH_PATH,
+                        "evaluator_name": "execution",
+                    },
+                    {
+                        og.Controller.Keys.CREATE_NODES: nodes,
+                        og.Controller.Keys.SET_VALUES: set_values,
+                        og.Controller.Keys.CONNECT: connects,
+                    },
+                )
+                og.Controller.evaluate_sync(graph)
+                topic_paths = {
+                    e["topic"]: ros_io.expected_attr_paths(
+                        e["topic"], e["msg_type"]
+                    )
+                    for e in subs
+                }
+                return ros_io.RosIo(
+                    attr_reader=ros_io._og_attr_reader, topic_paths=topic_paths
+                )
 
             def setup(self, stage) -> None:
                 import carb.settings
@@ -120,7 +255,7 @@ def _main() -> None:
             def _assert_l1(self, stage) -> None:
                 from pxr import Usd, UsdPhysics
 
-                base_link_path = f"{self._robot_prim_path}/base_link"
+                base_link_path = _CHASSIS_PRIM
                 base_link = stage.GetPrimAtPath(base_link_path)
                 valid = bool(base_link.IsValid())
                 has_rb = bool(
@@ -151,12 +286,7 @@ def _main() -> None:
                         continue
                     records.append((path, prim.GetTypeName()))
 
-                from example_driver import load_three_file_scene
-
-                scene = load_three_file_scene(
-                    repo_root / ExampleDriver.SCENE
-                )
-                robot_name = scene["robot"].get("name", "camera_bot")
+                robot_name = _build_scene_dict(robot_usd)["robot"]["name"]
                 expected_root = f"/{robot_name}"
                 prefix_len = len(self._robot_prim_path)
                 rerooted = [
@@ -291,9 +421,7 @@ def _main() -> None:
                         break
 
                 if echoed is not None:
-                    from example_driver import cmd_vel_to_planar_velocity
-
-                    vx, vy, wz = cmd_vel_to_planar_velocity(
+                    vx, vy, wz = _twist_to_planar(
                         echoed.fields.get("linear", ()),
                         echoed.fields.get("angular", ()),
                     )
@@ -326,10 +454,6 @@ def _main() -> None:
                     rclpy.try_shutdown()
                 finally:
                     print("[EXIT CLEAN]", flush=True)
-
-        # Keep the driver's cmd_vel topic constant in sync (guards against
-        # the example renaming the topic without updating this probe).
-        assert DRIVER_CMD_VEL_TOPIC == _CMD_VEL_TOPIC
 
         _ExampleIntegrationDriver().run()
     except Exception as exc:  # noqa: BLE001

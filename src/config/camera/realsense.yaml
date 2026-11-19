@@ -1,6 +1,6 @@
 # RealSense D455 sim camera for forklift between-fork mount.
 # Uses NVIDIA's bundled rsd455.usd asset (intrinsics, baseline, IMU all pre-set).
-# Edit + re-run forklift_blocky_driver_wip.py with --config to apply.
+# Edit + re-run a driver that accepts --config (e.g. one in isaac_physics_test) to apply.
 
 # mount = camera_link analog (device body center, attached to parent_prim).
 # Pose is RELATIVE to parent_prim.

@@ -36,7 +36,7 @@ TCP keeps the standard ROS 2 / rviz workflow (no extra apps, no browser, no rmw 
 - `ros2_cross_network.md` — full debug log + both-side code snippets (kept on the dev workstation).
 - Workspace harness CLAUDE.md — the perception product returns RLE masks, not raw images.
 - [Fast DDS transports (UDP/TCP/SHM)](https://fast-dds.docs.eprosima.com/en/latest/fastdds/transport/transport.html)
-- ADR-0006 (per-sensor-type camera config; superseded by ADR-0017), ADR-0014 (sim-runtime stage taxonomy).
+- ADR-0006 (in isaac_physics_test; per-sensor-type camera config; superseded by ADR-0017), ADR-0014 (sim-runtime stage taxonomy).
 
 ## Editorial note (2026-06-11)
 

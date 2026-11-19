@@ -273,7 +273,7 @@ RUN_AS="$(id -u):$(id -g)"
 docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
   -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
   set -eu
-  pip install --quiet --user pyyaml pytest pytest-cov xacro
+  pip install --quiet --user pyyaml pytest pytest-cov xacro numpy
   cd framework
   python -m pytest ../test/unit/pytest/ \
     -p no:cacheprovider \
@@ -285,7 +285,7 @@ collected="$(
   docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
     -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
     set -eu
-    pip install --quiet --user pyyaml pytest xacro >/dev/null
+    pip install --quiet --user pyyaml pytest xacro numpy >/dev/null
     python -m pytest test/unit/pytest/ --collect-only -q -p no:cacheprovider \
       2>/dev/null | grep -c "::"
   '
