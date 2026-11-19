@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+### Added
+- **CI 檢查：PR 的 commit 帶 AI 署名時失敗（isaac#413）。** 新增 `script/ci/check_no_ai_attribution.py`，`main.yaml` 的 `hosted-unit` 在 `pull_request` 時對 `base.sha..head.sha` 逐一檢查 commit 訊息與 author / committer：`Co-authored-by:` 後接 Claude 或 anthropic.com、`Generated with Claude Code`、`Claude-Session`（不分大小寫）、anthropic.com 的作者 / committer 信箱，命中即印出 commit sha 並以非 0 結束。範圍只含 PR 的 commit，main 上既有的 `52978e2` 不處理。checkout 改 `fetch-depth: 0` 以取得範圍。Hosted-unit baseline 452 -> 462（`test_no_ai_attribution.py` 10 個測試）。
 ### Fixed
 - **`isaac-stream-source` producer stage COPY uses `--chmod=0755` (isaac#244).** The `COPY --chmod=0644` of `stream_source_producer.py` also gave the implicitly created `/opt/isaac-producer` directory mode 0644, so the non-root image USER could not open the file and the container exited 1. The mode is now 0755 and the stale "0644 world-readable is fine" comment is corrected. Hosted-unit baseline 462 -> 463 (+1 in `test_stream_source_producer.py`). The `:0.0.1` image already published stays broken until a new tag is published (release decision). Not yet run on the GPU runner (`producer_smoke.sh`).
 ### Removed

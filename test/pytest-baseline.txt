@@ -320,7 +320,11 @@
 #   script glob matches nothing). Merged with main (506 + 3) live count is now
 #   509 -- the enforced floor. The test/verify_*.py glob was dropped from the scan
 #   (that family moved to isaac_physics_test, nothing left to scan).
-HOSTED_UNIT_BASELINE = 509
+#
+#   PR commit AI-attribution check (isaac#413): adds 10 hosted tests
+#   (test_no_ai_attribution.py). Merged with main (509 + 10) live count is
+#   now 519 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 519
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
