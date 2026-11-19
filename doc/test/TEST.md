@@ -1,6 +1,6 @@
 # TEST.md
 
-**147 tests** total.
+**149 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -235,14 +235,16 @@ Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration
 | `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
 | `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
 
-## test/bats/smoke/workflow_pin_spec.bats (2)
+## test/bats/smoke/workflow_pin_spec.bats (4)
 
-Guard: every reusable-workflow reference to the org's `gpu-self-hosted.yml` must be pinned to a release tag, never `@main`. When `.github`'s main branch is broken, every isaac push/PR that reaches `gpu-integration` or `stream-smoke` fails with "workflow file issue" and 0 jobs (run 42776185240, 2026-11-10). The base `build-worker.yaml` and `release-worker.yaml` are already pinned (e.g. `@v0.42.0`); this spec covers `gpu-self-hosted.yml`. Hermetic -- greps `.github/workflows/` files, no docker or network.
+Guard: every reusable-workflow reference to the org's `gpu-self-hosted.yml` must be pinned to a release tag, never `@main`. When `.github`'s main branch is broken, every isaac push/PR that reaches `gpu-integration` or `stream-smoke` fails with "workflow file issue" and 0 jobs (run 42776185240, 2026-11-10). The base `build-worker.yaml` and `release-worker.yaml` are already pinned (e.g. `@v0.42.0`); this spec covers `gpu-self-hosted.yml`. Hermetic -- greps (pin tests) or PyYAML-parses (isaac#344 tests) `.github/workflows/` files, no docker or network.
 
 | Test | Description |
 |------|-------------|
 | `no workflow references gpu-self-hosted.yml@main` | Greps every workflow YAML under `.github/workflows/` and fails if any references `gpu-self-hosted.yml@main`. |
 | `every gpu-self-hosted.yml caller is pinned to @v0.4.0` | main.yaml, stream-smoke.yaml and publish-stream-source.yaml must each exist and reference `gpu-self-hosted.yml@v0.4.0`; any other `gpu-self-hosted.yml@` tag fails. The spec's `setup` fails when the workflows directory is absent (the devel-test image now bakes `.github/workflows/`). |
+| `gpu-integration passes the run-scoped reap-container-filter` | Parses main.yaml with PyYAML (never greps) and asserts the `gpu-integration` job uses `gpu-self-hosted.yml@v0.4.0` and its `with:` carries `reap-container-filter` equal to `label=com.docker.compose.project=isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}` (isaac#344). |
+| `reap-container-filter names the BASELINE_PROJECT gpu_integration_job.sh runs` | Runs the real `gpu_integration_job.sh` against stubs with `GITHUB_RUN_ID=111 GITHUB_RUN_ATTEMPT=2`, captures the `BASELINE_PROJECT` it exports, renders the workflow filter with the same values and asserts they name the same compose project (isaac#344). |
 
 ## test/unit/pytest/ — hosted unit (pytest, not in the bats count above)
 
