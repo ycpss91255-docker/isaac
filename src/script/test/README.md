@@ -15,7 +15,7 @@ once seen, and reports PASS / FAIL per case.
 ./isaac_ws/src/script/test/standalone_smoke.sh
 
 # Single case (fast iteration during script edit)
-./isaac_ws/src/script/test/standalone_smoke.sh --only cmd_vel
+./isaac_ws/src/script/test/standalone_smoke.sh --only ros2_test_pub
 
 # CI / strict mode: SKIP becomes FAIL
 ./isaac_ws/src/script/test/standalone_smoke.sh --strict
@@ -48,8 +48,6 @@ Pre-requisites:
 |--------|---------------|--------:|:----:|
 | `ros2_test_pub_standalone.py` | `standalone publishing` | 150s | no |
 | `ros2_test_sub_standalone.py` | `standalone subscribed to` | 150s | no |
-| `cmd_vel_planar_standalone.py` | `standalone subscribed` | 180s | yes |
-| `move_openbase_planar_standalone.py` | `[tick` | 180s | yes |
 
 The marker is grepped as a regex against captured stdout+stderr. Each
 standalone script prints exactly one of these tagged lines once its
