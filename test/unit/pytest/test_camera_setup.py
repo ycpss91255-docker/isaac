@@ -7,7 +7,7 @@ FOV -> aperture math. The Kit-side dispatch (setup_camera and the _setup_*
 OmniGraph builders) require Isaac Sim and are exercised in integration
 tests, not here.
 
-Schema rules: doc/adr/0006-per-sensor-yaml-camera-config.md
+Schema rules: isaac_physics_test:src/doc/adr/0006-per-sensor-yaml-camera-config.md
 """
 
 import math
