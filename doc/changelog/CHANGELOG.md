@@ -35,6 +35,7 @@
 - **Live `robot_model` references renamed to `sim_asset` (isaac#329).** The repo was renamed; the `FileNotFoundError` message in `standalone_common.openbase_usd_path`, `src/model/README.md`, a fixture comment, a test docstring and the test names/assertions now say `sim_asset`. Test count unchanged.
 
 ### Removed
+- **Diagnostic scripts removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `diagnose_inkit.py`, `diag_graph_bridge.py`, `diag_usd_loop.py`.
 - **Onboarding agent-proxy gate (isaac#326, unit 2).** Deleted `test/onboarding/agent_proxy_gate.sh`, `test/unit/pytest/test_onboarding_gate.py` (13 tests) and `doc/onboarding/agent-proxy-gate.md`; the gate asserted on `example/sim`, which is being removed. `HOSTED_UNIT_BASELINE` ratcheted down 459 -> 446 (the removed tests, not a regression).
 - **`test/.sag-sweep.json` result removed; it lives in ycpss91255-docker/isaac_physics_test (isaac#342).**
 - **URDF import verification scripts and results removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `verify_collision_import.py`, `verify_import_fidelity.py`, `verify_urdf_mesh_collision_path.py` and their `.verify-*.json` results. ADR-0020 references now link there; `test/fixtures/urdf/` stays.
