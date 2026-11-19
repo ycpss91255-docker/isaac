@@ -5,6 +5,7 @@ stream-smoke.yaml, publish-stream-source.yaml) must all pin the same
 release tag.  Callers are discovered by parsing every workflow file, so a
 new caller is covered without editing this list; a second test pins the
 discovered set so a rename or an empty discovery cannot pass vacuously.
+isaac#344 adds two tests for the run-scoped reap filter of gpu-integration.
 """
 
 import pathlib
@@ -36,6 +37,14 @@ def _callers():
     return found
 
 
+def _gpu_integration_job():
+    """Parsed `gpu-integration` job of main.yaml."""
+    doc = yaml.safe_load(
+        (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
+    )
+    return doc["jobs"]["gpu-integration"]
+
+
 def test_every_gpu_reusable_caller_is_pinned_to_v040():
     bad = {
         name: refs
@@ -51,10 +60,7 @@ def test_gpu_reusable_callers_are_the_known_three():
 
 def test_gpu_integration_passes_run_scoped_reap_filter():
     """isaac#344: the cancel-safe reap step only runs when the input is set."""
-    doc = yaml.safe_load(
-        (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
-    )
-    job = doc["jobs"]["gpu-integration"]
+    job = _gpu_integration_job()
     assert job["uses"] == f"{_REUSABLE}@{_PINNED_TAG}"
     assert job["with"]["reap-container-filter"] == (
         "label=com.docker.compose.project="
@@ -103,10 +109,7 @@ def test_reap_filter_matches_script_baseline_project(tmp_path):
     )
     project = observed.read_text(encoding="utf-8").strip().split("=", 1)[1]
 
-    doc = yaml.safe_load(
-        (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
-    )
-    template = doc["jobs"]["gpu-integration"]["with"]["reap-container-filter"]
+    template = _gpu_integration_job()["with"]["reap-container-filter"]
     rendered = template.replace("${{ github.run_id }}", "111").replace(
         "${{ github.run_attempt }}", "2"
     )
