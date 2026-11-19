@@ -16,8 +16,7 @@
 オンボーディング成功の指標は、workspace を scaffold し、起動し、ロボットを
 差し替え、sensor を差し替えること —— すべてこの `example/` 内のファイルを
 編集するだけで行い、`framework/` のソースは決して読まない、というものです。
-以下の 3 つのタスクは agent-proxy gate が検証する内容そのものです
-（`doc/onboarding/agent-proxy-gate.md`）。
+以下の 3 つのタスクがその道筋です。
 
 ### 1. 最初の topic（scaffold -> run）
 
