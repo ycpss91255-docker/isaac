@@ -1,21 +1,12 @@
 """Hosted guards for the README-listed standalone driver scripts.
 
-The README's "Standalone Python workflow" table points a new user at four
+The README's "Standalone Python workflow" table points a new user at
 scripts under ``src/script/``. A README-only onboarding run on Isaac Sim
 6.2.0 found that:
 
-  - ``move_openbase_planar_standalone.py`` died on
-    ``ModuleNotFoundError: omni.isaac.dynamic_control`` (removed in the 6.x
-    line) and still exited 0, because ``SimulationApp`` shuts Kit down with
-    ``_exit(0)`` and a module-top failure never reaches any handler;
-  - ``cmd_vel_planar_standalone.py`` let the base fall through the floor
-    (``lin.z = -0.16`` every report): the per-tick velocity write clears
-    ``v.z`` only after PhysX has integrated gravity, the same effect the
-    ``move_openbase`` script already cancels by disabling gravity on
-    ``base_link``;
   - ``ros2_test_pub_standalone.py`` claimed ~1 Hz but published every 60
     Kit updates, i.e. 3.5-7.5 Hz depending on load;
-  - all four hard-coded ``/home/yunchien/work/...``.
+  - all of them hard-coded ``/home/yunchien/work/...``.
 
 The runtime behaviour needs the GPU and is verified in the container (see
 the PR); these hosted tests pin the shape that makes it hold: a pure helper
@@ -39,8 +30,6 @@ _HELPER = _SCRIPT_DIR / "standalone_common.py"
 _README_SCRIPTS = (
     "ros2_test_pub_standalone.py",
     "ros2_test_sub_standalone.py",
-    "move_openbase_planar_standalone.py",
-    "cmd_vel_planar_standalone.py",
 )
 _ISAAC_TOP_LEVEL = ("omni", "pxr", "isaacsim", "isaaclab", "carb", "rclpy")
 
@@ -199,12 +188,3 @@ def test_ros2_test_pub_publishes_on_a_wall_clock_period():
     assert "PeriodicTimer(" in source
     assert "_PUBLISH_EVERY" not in source
 
-
-@pytest.mark.parametrize(
-    "name", ("cmd_vel_planar_standalone.py", "move_openbase_planar_standalone.py")
-)
-def test_planar_scripts_disable_gravity_on_base_link(name):
-    source = (_SCRIPT_DIR / name).read_text(encoding="utf-8")
-    assert "standalone_common.setup_openbase_stage(" in source
-    helper = _HELPER.read_text(encoding="utf-8")
-    assert ".GetDisableGravityAttr().Set(True)" in helper

@@ -336,22 +336,21 @@ four layers: URDF in `src/isaac/sim/model/` -> `import_urdf` -> placement in `ro
 ## Per-ADR disposition table
 
 Disposition of all 16 existing ADRs. "Migrate" rows were planned to move physically in #136;
-however the `isaac-forklift` repo creation is deferred per #129. ADR-0003 / 0004 / 0008 / 0021
-have been extracted to `ycpss91255-docker/isaac_physics_test` (isaac#309). ADR-0001 remains in
-this repo (it predates the physics experiments and applies to the base chassis model).
+however the `isaac-forklift` repo creation is deferred per #129. ADR-0001 / 0002 / 0003 / 0004 / 0006 / 0008 / 0010 / 0021
+have been extracted to `ycpss91255-docker/isaac_physics_test` (isaac#309, isaac#342).
 
 | ADR | Title (short) | Disposition | Destination | New number |
 |---|---|---|---|---|
-| 0001 | Chassis SE(2) slide | migrate | `isaac-forklift` (#136) | forklift ADR-0001 |
-| 0002 | cmd_vel teleop via in-kit Script Editor | kept | base (historical; entrypoint already superseded in place by ADR-0005) | — |
+| 0001 | Chassis SE(2) slide | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0001-chassis-se2-slide-for-upper-layer-algorithm.md) (isaac#342) | `isaac_physics_test` | — |
+| 0002 | cmd_vel teleop via in-kit Script Editor | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0002-cmd-vel-teleop-via-in-kit-script-editor.md) (isaac#342); entrypoint already superseded by ADR-0005 | `isaac_physics_test` | — |
 | 0003 | Two-track simulation strategy | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0003-two-track-simulation-strategy.md) (isaac#309) | `isaac_physics_test` | — |
 | 0004 | Model A-hybrid block model | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0004-model-a-hybrid-forklift-block-model.md) (isaac#309) | `isaac_physics_test` | — |
 | 0005 | Standalone-with-livestream entrypoint | kept (light editorial de-application) | base | — |
-| 0006 | Per-sensor-type YAML config | **supersede** (this ADR section 5 + restatement above; stub header added) | file migrates with #136 | forklift ADR-0004 |
+| 0006 | Per-sensor-type YAML config | **supersede** (this ADR section 5 + restatement above; stub header added) | extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0006-per-sensor-yaml-camera-config.md) (isaac#342) | — |
 | 0007 | Custom streaming Kit experience | kept (light editorial de-application) | base | — |
 | 0008 | L2/L3 physics vocabulary | **DONE** -- extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0008-l2-l3-physics-level-vocabulary-and-coexistence-rules.md) (isaac#309); generic restatement above still applies | `isaac_physics_test` | — |
 | 0009 | IsaacDriver lifecycle-only pattern | kept (light editorial de-application; `USD` class attr replaced by `SCENE` per section 9) | base | — |
-| 0010 | 4-layer Isaac Dev Kit | **supersede** (restated as the module set above; stub header added) | file migrates with #136 | forklift ADR-0006 |
+| 0010 | 4-layer Isaac Dev Kit | **supersede** (restated as the module set above; stub header added) | extracted to [`isaac_physics_test`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/src/doc/adr/0010-isaac-dev-kit-standardized-development-environment.md) (isaac#342) | — |
 | 0011 | CI hosted/self-hosted split | kept (already revised inline by ADR-0012 + its own 2026-06-02 update) | base | — |
 | 0012 | Research org split, dual runners | **amend** (update appended: org-axis re-derivation, below) | base | — |
 | 0013 | Test ownership + tool sublayer | **amend** (update appended: re-derivation, below) | base | — |
@@ -363,10 +362,8 @@ Light editorial de-application (0005 / 0007 / 0009 / 0015) = incidental applicat
 words swapped to camera-bot wording in place, with an editorial note in each file; original
 wording stays in git history. Decision content is untouched.
 
-Residual note: ADR-0002 (kept) still carries application-era example vocabulary (the research
-robot it was written against). The PRD's de-application list does not include it; whether it
-gets a light editorial pass or migrates alongside 0001/0003/0004 is deferred to the migration
-review (#136 / #137) rather than decided unilaterally here.
+Residual note: ADR-0002 (application-era example vocabulary) has since been extracted to
+`isaac_physics_test` (isaac#342), so the deferred editorial question no longer applies here.
 
 ## Amendment: ADR-0013 (re-derivation, not voiding)
 
@@ -411,7 +408,7 @@ section in ADR-0012.
   not-yet-implemented paths.
 - Nothing moves physically in this change: superseded files keep their paths (with stub
   headers pointing here) until #136, so every existing cross-reference to ADR-0006 / 0008 /
-  0010 still resolves; after migration the stubs preserve traceability.
+  0010 still resolved; those ADRs have since been extracted to `isaac_physics_test` (isaac#342).
 - The purity grep (M3, #137) excludes stub pointer lines by design.
 - ADR-0009's lifecycle-only pattern is reaffirmed; its `USD` class attr is replaced by `SCENE`
   (section 9) as part of the contract, recorded here rather than as a 0009 rewrite.
