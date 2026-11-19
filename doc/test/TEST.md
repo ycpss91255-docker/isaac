@@ -1,6 +1,6 @@
 # TEST.md
 
-**146 tests** total.
+**167 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -235,6 +235,48 @@ Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration
 | `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
 | `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
 
+## test/bats/smoke/cleanup_merged_worktree_spec.bats (9)
+
+Behavioral guard for `script/git/cleanup-merged-worktree.sh` (#368). Hermetic: a throwaway repo (bare origin + clone + sibling `worktree/` dir) is built in `BATS_TEST_TMPDIR` and `gh` is a stub printing a canned `state<TAB>branch<TAB>oid` line. No docker, no network, no real worktree is touched.
+
+| Test | Description |
+|------|-------------|
+| `cleanup: dirty worktree -> SKIP dirty, nothing removed` | A modified tracked file yields `SKIP dirty`; the worktree and branch remain. |
+| `cleanup: untracked file also counts as dirty` | An untracked file also yields `SKIP dirty`. |
+| `cleanup: unpushed commit -> SKIP unpushed, nothing removed` | A local commit beyond the PR `headRefOid` yields `SKIP unpushed`. |
+| `cleanup: PR not merged -> SKIP not-merged, nothing removed` | An OPEN PR yields `SKIP not-merged`. |
+| `cleanup: all checks pass -> worktree and branch removed, removed=1` | The worktree directory, its `git worktree list` entry and the local branch are gone; output carries `removed=1`. |
+| `cleanup: root-owned files -> SKIP root-owned files + fix command, nothing else removed` | A `git worktree remove` that fails with "Permission denied" (stub) prints `SKIP root-owned files` and a `chown -R` fix command; worktree and branch remain. |
+| `cleanup: worktree outside the worktree root -> SKIP outside-worktree-root` | A worktree not under `<main>/../worktree` is left alone. |
+| `cleanup: no PR number -> usage, exit 2` | Missing argument prints usage and exits 2. |
+| `cleanup: --dry-run on an all-pass worktree prints WOULD-REMOVE and removes nothing` | `--dry-run` runs every check and prints `WOULD-REMOVE <path> (<branch>)`; worktree and branch remain. |
+
+## test/bats/smoke/cleanup_merged_all_spec.bats (4)
+
+Behavioral guard for `script/git/cleanup-merged-all.sh`, the script behind `just cleanup-merged` (#368). Hermetic: throwaway repo + bare origin, stub `gh` answering `pr list --head` and `pr view` from files.
+
+| Test | Description |
+|------|-------------|
+| `cleanup-merged-all: removes merged worktrees, skips the rest, prints summary` | Merged+clean is removed; merged+dirty and OPEN are skipped; summary `removed=1 skipped=2`. |
+| `cleanup-merged-all: --dry-run removes nothing and still prints the summary` | `WOULD-REMOVE` is printed, summary `removed=0 skipped=1`, worktree and branch remain. |
+| `cleanup-merged-all: one worktree failing does not abort the batch` | A stub cleanup that exits 3 for one PR counts as skipped; the next worktree is still removed. |
+| `cleanup-merged-all: a worktree with no merged PR is skipped, not an error` | No merged PR for the branch is a skip, exit 0. |
+
+## test/bats/smoke/merge_train_spec.bats (8)
+
+Behavioral guard for `script/git/merge-train.sh` (#368). Hermetic: stub `gh` (canned `pr view` lines from a sequence file, `pr merge` recorded), no-op `sleep`, and a stub cleanup script that records its arguments.
+
+| Test | Description |
+|------|-------------|
+| `merge-train: cleanup runs once with the PR number after its own merge` | After `PR1: MERGED` the cleanup script was called exactly once with `1`. |
+| `merge-train: a PR already MERGED at start is not cleaned up` | A PR that is MERGED on first view triggers no merge call and no cleanup. |
+| `merge-train: gh merge error but PR ends MERGED still triggers cleanup once` | A non-zero `gh pr merge` followed by a MERGED view still cleans up once. |
+| `merge-train: cleanup SKIP does not change the exit code; each merged PR is cleaned` | Two PRs: exit 0 and both numbers passed to cleanup. |
+| `merge-train: a failing required check stops with FAIL and no cleanup` | A FAILURE check exits 1 with `PR1: FAIL`, no cleanup. |
+| `merge-train: merge method comes from the repo setting (squash allowed)` | `allow_squash_merge=true` leads to the squash flag in the `gh pr merge` call. |
+| `merge-train: merge method falls back to a merge commit when squash is off` | `allow_squash_merge=false` leads to `--merge`, never the squash flag. |
+| `merge-train: the script source never hard-codes the squash flag` | `grep -n -e "--squash" script/git/merge-train.sh` prints nothing. |
+
 ## test/bats/smoke/workflow_pin_spec.bats (1)
 
 Guard: every reusable-workflow reference to the org's `gpu-self-hosted.yml` must be pinned to a release tag, never `@main`. When `.github`'s main branch is broken, every isaac push/PR that reaches `gpu-integration` or `stream-smoke` fails with "workflow file issue" and 0 jobs (run 42776185240, 2026-11-10). The base `build-worker.yaml` and `release-worker.yaml` are already pinned (e.g. `@v0.42.0`); this spec covers `gpu-self-hosted.yml`. Hermetic -- greps `.github/workflows/` files, no docker or network.
@@ -275,7 +317,7 @@ Host-runnable unit tests for the `isaac_devkit` framework pure surface (no Isaac
 | `test_xc_roundtrip_asset_migration.py` | 4 | Hosted guard for the cross-container round-trip migration onto the official Jetbot asset (isaac#325): expected camera topic / frame_id are `/jetbot/camera/color/image_raw` / `jetbot_camera_color_optical_frame`; the ament `camera_subscriber` sibling is pointed at that topic via its `camera_topic` parameter (no ament package change); the test module fetches the USD through `fetch_test_asset("jetbot")`; the Isaac runner takes `--robot-usd` and no longer imports `example_driver` or references camera_bot. Reads the real module + runner source; no docker, GPU or network. |
 | ~~`test_render_settings.py`~~ | ~~13~~ | Moved to `ycpss91255-docker/isaac_physics_test` with `viz_render.py` (isaac#309). The converged-render recipe `_capture_noise_runner.py` used is now inlined there. |
 | `test_sim_version.py` | 7 | `isaac_devkit.sim_version.isaac_sim_version` (isaac#295): the Isaac Sim release read from `/isaac-sim/VERSION` (`6.2.0-rc.15+...` -> `6.2.0`, `6.0.1-rc.7+...` -> `6.0.1`, a bare `5.1.0`), `unknown` for an absent or empty file, the default path; plus a structural scan over `src/script/*.py` and `test/verify_*.py` that no script writes `isaac_variant` as a literal (23 said `"6.0.1"` before the 6.2.0 upgrade). Pure -- tmp files and source reads. |
-| `test_standalone_scripts.py` | 28 | The README-listed standalone drivers (`src/script/{ros2_test_pub,ros2_test_sub,move_openbase_planar,cmd_vel_planar}_standalone.py`), from a README-only onboarding run on 6.2.0. Pins the pure helper `src/script/standalone_common.py`: `kit_config` follows `ISAAC_LIVESTREAM`, `openbase_usd_path` raises `FileNotFoundError` mentioning `sim_asset` when the USD is absent (models moved to `ycpss91255-docker/sim_asset`), `PeriodicTimer` fires once per wall-clock period whatever the Kit update rate and does not burst after a stall, and `run_and_exit` turns an exception into exit code 1 and passes a return code through. Each script has no `omni.isaac.dynamic_control` import (removed in 6.x), no hard-coded `/home/yunchien`, no module-top Isaac import or `SimulationApp(...)` (a module-top failure bypassed every handler and exited 0), and a `__main__` block that goes through `run_and_exit`. `ros2_test_pub` publishes on a `PeriodicTimer` instead of every 60 ticks (measured 3.5-7.5 Hz against a claimed ~1 Hz), and both planar scripts disable gravity on `base_link`. Pure -- AST parses, file reads, and a fake clock. |
+| `test_standalone_scripts.py` | 18 | The README-listed standalone drivers (`src/script/{ros2_test_pub,ros2_test_sub}_standalone.py`), from a README-only onboarding run on 6.2.0. Pins the pure helper `src/script/standalone_common.py`: `kit_config` follows `ISAAC_LIVESTREAM`, `openbase_usd_path` raises `FileNotFoundError` mentioning `sim_asset` when the USD is absent (models moved to `ycpss91255-docker/sim_asset`), `PeriodicTimer` fires once per wall-clock period whatever the Kit update rate and does not burst after a stall, and `run_and_exit` turns an exception into exit code 1 and passes a return code through. Each script has no `omni.isaac.dynamic_control` import (removed in 6.x), no hard-coded `/home/yunchien`, no module-top Isaac import or `SimulationApp(...)` (a module-top failure bypassed every handler and exited 0), and a `__main__` block that goes through `run_and_exit`. `ros2_test_pub` publishes on a `PeriodicTimer` instead of every 60 ticks (measured 3.5-7.5 Hz against a claimed ~1 Hz). The `move_openbase_planar` / `cmd_vel_planar` standalone scripts and their guards moved to `ycpss91255-docker/isaac_physics_test` (isaac#342). Pure -- AST parses, file reads, and a fake clock. |
 | `test_repo_config.py` | 3 | Repo-level config found by onboarding. `.dockerignore` keeps the host Isaac Sim cache tree `isaac-sim/` out of the build context; Kit creates `isaac-sim/documents/Kit/shared/screenshots` with mode 000, which made `just docker build` fail with `permission denied` after the first launch. `.setup.conf` `[deploy]` uses `gpu_runtime`, not the deprecated `runtime` that base warns about on every setup. The Dockerfile pre-creates `/isaac-sim/extsUser`: the experience file lists it as an extension folder, the NGC image does not ship it, and the non-root user cannot create it, so Kit scanned `~/work` instead and warned `Extensions config 'extension.toml' doesn't exist` once per top-level directory. Pure file reads. |
 | `test_onboarding_gate.py` | 13 | M5 onboarding agent-proxy gate precondition (#135): the 4-lang `example/README.{md,zh-TW,zh-CN,ja}` exists, the English README documents the three onboarding tasks (first-topic / URDF swap / in-scope sensor swap), carries the lidar/imu `NotImplementedError` out-of-scope callout, and the URDF + sensor swap surfaces (`example/sim/model/camera_bot.urdf`, `example/sim/config/sensor/custom.yaml`) are present; plus the `test/onboarding/agent_proxy_gate.sh` harness passes its structure precondition (`STRUCTURE PASS`) and its `--audit` mode fails on a tool-call log that reads `framework/isaac_devkit/*` and passes on a clean log. Hosted, no Isaac/GPU/network. |
 | `test_test_assets.py` | 12 | Official Isaac test-asset fetch helper (`test/test_assets.py`, #324). Pins the NVIDIA Jetbot USD URL on the Omniverse S3 bucket with a version segment and SHA-256 digest; cache-hit path returns without calling `_download`; cache-miss path calls `_download`; the return value is a `Path`; an empty cache with a simulated `ConnectionError` raises `RuntimeError` naming the asset; an unknown asset name raises `KeyError`. #325 adds the pinned `nvidia_cube` entry (URL on the same bucket/version, SHA-256) and a structural guard that `test_build_scene_adapter.py` / `_build_scene_runner.py` no longer reference `example_driver` / `example/sim` and use `fetch_test_asset`. Pure -- mocked HTTP, filesystem only. |

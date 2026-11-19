@@ -11,7 +11,7 @@
 ./isaac_ws/src/script/test/standalone_smoke.sh
 
 # 單一 case(改 script 時快速 iterate)
-./isaac_ws/src/script/test/standalone_smoke.sh --only cmd_vel
+./isaac_ws/src/script/test/standalone_smoke.sh --only ros2_test_pub
 
 # CI / strict 模式:SKIP 視為 FAIL
 ./isaac_ws/src/script/test/standalone_smoke.sh --strict
@@ -38,8 +38,6 @@
 |--------|---------------|--------:|:----:|
 | `ros2_test_pub_standalone.py` | `standalone publishing` | 150s | no |
 | `ros2_test_sub_standalone.py` | `standalone subscribed to` | 150s | no |
-| `cmd_vel_planar_standalone.py` | `standalone subscribed` | 180s | yes |
-| `move_openbase_planar_standalone.py` | `[tick` | 180s | yes |
 
 Marker 用 regex 比對在收到的 stdout+stderr 串上。每支 standalone script 都會在核心 setup 完成(rclpy subscriber 活、或第一次 `[tick]`)時恰好印出一次該 tag 行。
 

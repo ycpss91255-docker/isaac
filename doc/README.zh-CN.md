@@ -276,14 +276,12 @@ kit terminal 应印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`src/script/` 放有 M1 / M2 demo 的 in-kit Script Editor 版本与 standalone 版本。standalone 版本透过 `SimulationApp` 启动自己的 Kit，并依 stage 的 `ISAAC_LIVESTREAM` 决定模式（`headless` 为 0，`stream` 为 2）。`cmd_vel_planar_standalone.py` 一律以 headless 跑 Kit，因为在同一个 standalone process 里同时开 livestream 与 ROS 2 bridge 曾让 Kit crash（IsaacSim#228）。每个 standalone 脚本都接受 `--run-seconds N`，遇到任何错误都 exit 1（以前是 exit 0）。
+`src/script/` 放有 M1 / M2 demo 的 in-kit Script Editor 版本与 standalone 版本。standalone 版本透过 `SimulationApp` 启动自己的 Kit，并依 stage 的 `ISAAC_LIVESTREAM` 决定模式（`headless` 为 0，`stream` 为 2）。每个 standalone 脚本都接受 `--run-seconds N`，遇到任何错误都 exit 1（以前是 exit 0）。
 
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 验证结果（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒在 `/isaac/test` 发布一次 | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：打印每则 `/host/test` 讯息 | 3/3 收到 |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：固定 `CMD_VX/VY/WZ` 平面移动 | x +0.5 m/s，z 维持 0 |
-| （无 in-kit 版本） | `cmd_vel_planar_standalone.py`：订阅 `/cmd_vel`（geometry_msgs/Twist）并让 OpenBase 在平面上移动 | 0 指令时静止，`linear.x: 0.5` 时 x +0.5 m/s，z 维持 0 |
 
 使用 pattern：
 
