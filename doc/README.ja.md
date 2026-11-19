@@ -289,14 +289,12 @@ kit terminal に `[ros2_test_sub] /host/test <- 'hello-from-host'` と出力さ�
 
 ### Standalone Python workflow（Script Editor 代替手段）
 
-`src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp` で独自の Kit を boot し、stage の `ISAAC_LIVESTREAM`（`headless` は 0、`stream` は 2）に従う。`cmd_vel_planar_standalone.py` は常に Kit を headless で動かす。1 つの standalone process 内で livestream と ROS 2 bridge を併用すると Kit が crash したため（IsaacSim#228）。各 standalone スクリプトは `--run-seconds N` を受け付け、エラー時は exit 1 で終了する（以前は exit 0 だった）。
+`src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp` で独自の Kit を boot し、stage の `ISAAC_LIVESTREAM`（`headless` は 0、`stream` は 2）に従う。各 standalone スクリプトは `--run-seconds N` を受け付け、エラー時は exit 1 で終了する（以前は exit 0 だった）。
 
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 で検証（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：`/isaac/test` を毎秒 1 回 publish | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：受信した `/host/test` メッセージを毎回出力 | 3/3 受信 |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：固定の `CMD_VX/VY/WZ` で平面移動 | x +0.5 m/s、z は 0 のまま |
-| （in-kit 版なし） | `cmd_vel_planar_standalone.py`：`/cmd_vel`（geometry_msgs/Twist）を subscribe し、OpenBase を平面内で移動 | 指令 0 では静止、`linear.x: 0.5` で x +0.5 m/s、z は 0 のまま |
 
 使用 pattern：
 
