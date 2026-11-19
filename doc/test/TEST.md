@@ -1,6 +1,6 @@
 # TEST.md
 
-**162 tests** total.
+**167 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -235,7 +235,7 @@ Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration
 | `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
 | `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
 
-## test/bats/smoke/cleanup_merged_worktree_spec.bats (8)
+## test/bats/smoke/cleanup_merged_worktree_spec.bats (9)
 
 Behavioral guard for `script/git/cleanup-merged-worktree.sh` (#368). Hermetic: a throwaway repo (bare origin + clone + sibling `worktree/` dir) is built in `BATS_TEST_TMPDIR` and `gh` is a stub printing a canned `state<TAB>branch<TAB>oid` line. No docker, no network, no real worktree is touched.
 
@@ -249,6 +249,18 @@ Behavioral guard for `script/git/cleanup-merged-worktree.sh` (#368). Hermetic: a
 | `cleanup: root-owned files -> SKIP root-owned files + fix command, nothing else removed` | A `git worktree remove` that fails with "Permission denied" (stub) prints `SKIP root-owned files` and a `chown -R` fix command; worktree and branch remain. |
 | `cleanup: worktree outside the worktree root -> SKIP outside-worktree-root` | A worktree not under `<main>/../worktree` is left alone. |
 | `cleanup: no PR number -> usage, exit 2` | Missing argument prints usage and exits 2. |
+| `cleanup: --dry-run on an all-pass worktree prints WOULD-REMOVE and removes nothing` | `--dry-run` runs every check and prints `WOULD-REMOVE <path> (<branch>)`; worktree and branch remain. |
+
+## test/bats/smoke/cleanup_merged_all_spec.bats (4)
+
+Behavioral guard for `script/git/cleanup-merged-all.sh`, the script behind `just cleanup-merged` (#368). Hermetic: throwaway repo + bare origin, stub `gh` answering `pr list --head` and `pr view` from files.
+
+| Test | Description |
+|------|-------------|
+| `cleanup-merged-all: removes merged worktrees, skips the rest, prints summary` | Merged+clean is removed; merged+dirty and OPEN are skipped; summary `removed=1 skipped=2`. |
+| `cleanup-merged-all: --dry-run removes nothing and still prints the summary` | `WOULD-REMOVE` is printed, summary `removed=0 skipped=1`, worktree and branch remain. |
+| `cleanup-merged-all: one worktree failing does not abort the batch` | A stub cleanup that exits 3 for one PR counts as skipped; the next worktree is still removed. |
+| `cleanup-merged-all: a worktree with no merged PR is skipped, not an error` | No merged PR for the branch is a skip, exit 0. |
 
 ## test/bats/smoke/merge_train_spec.bats (8)
 

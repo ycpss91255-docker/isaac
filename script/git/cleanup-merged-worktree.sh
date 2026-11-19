@@ -3,7 +3,7 @@
 # Remove the worktree and local branch of a MERGED pull request (#368).
 #
 # Usage:
-#   cleanup-merged-worktree.sh [--fix-owner] [--repo OWNER/REPO] <pr-number>
+#   cleanup-merged-worktree.sh [--fix-owner] [--dry-run] [--repo OWNER/REPO] <pr-number>
 #
 # A pull request merged on GitHub triggers no local git event, so nothing
 # cleans up after it. This script does, but only when it is provably safe:
@@ -23,6 +23,9 @@
 # prints `SKIP root-owned files` plus the fix command. `--fix-owner` runs that
 # fix in a throwaway container and retries once.
 #
+# `--dry-run` runs every check and prints `WOULD-REMOVE <path> (<branch>)`
+# instead of removing anything.
+#
 # Environment:
 #   WORKTREE_ROOT  Directory that must contain the worktree
 #                  (default: <main checkout>/../worktree).
@@ -33,7 +36,7 @@ set -uo pipefail
 
 # Prints the usage text to stderr.
 usage() {
-  echo "Usage: ${0##*/} [--fix-owner] [--repo OWNER/REPO] <pr-number>" >&2
+  echo "Usage: ${0##*/} [--fix-owner] [--dry-run] [--repo OWNER/REPO] <pr-number>" >&2
 }
 
 # Prints "SKIP <reason>" and exits 0.
@@ -49,10 +52,11 @@ fix_command() {
 }
 
 main() {
-  local fix_owner=0 repo="" pr=""
+  local fix_owner=0 dry_run=0 repo="" pr=""
   while (($# > 0)); do
     case "$1" in
       --fix-owner) fix_owner=1 ;;
+      --dry-run) dry_run=1 ;;
       --repo)
         [[ $# -ge 2 ]] || { usage; exit 2; }
         repo="$2"
@@ -120,6 +124,11 @@ main() {
       skip "unpushed"
     fi
     skip "head-mismatch"
+  fi
+
+  if ((dry_run)); then
+    echo "WOULD-REMOVE ${wt_real} (${branch})"
+    exit 0
   fi
 
   local err

@@ -497,6 +497,8 @@ COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_basel
 # [#368] Worktree-cleanup git helpers, baked next to
 # cleanup_merged_worktree_spec.bats (stub gh + throwaway repo, no network).
 COPY --chmod=0755 script/git/cleanup-merged-worktree.sh /smoke_test/cleanup-merged-worktree.sh
+# [#368] cleanup-merged-all.sh (the script behind `just cleanup-merged`).
+COPY --chmod=0755 script/git/cleanup-merged-all.sh /smoke_test/cleanup-merged-all.sh
 # [#368] merge-train.sh (stub gh / cleanup), baked next to merge_train_spec.bats.
 COPY --chmod=0755 script/git/merge-train.sh /smoke_test/merge-train.sh
 
