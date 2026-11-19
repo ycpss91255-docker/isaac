@@ -29,6 +29,7 @@
 - **Live `robot_model` references renamed to `sim_asset` (isaac#329).** The repo was renamed; the `FileNotFoundError` message in `standalone_common.openbase_usd_path`, `src/model/README.md`, a fixture comment, a test docstring and the test names/assertions now say `sim_asset`. Test count unchanged.
 
 ### Removed
+- **`test/.sag-sweep.json` result removed; it lives in ycpss91255-docker/isaac_physics_test (isaac#342).**
 - **URDF import verification scripts and results removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `verify_collision_import.py`, `verify_import_fidelity.py`, `verify_urdf_mesh_collision_path.py` and their `.verify-*.json` results. ADR-0020 references now link there; `test/fixtures/urdf/` stays.
 - **`src/scene/warehouse_pushback.yaml` removed; it lives in ycpss91255-docker/isaac_physics_test (isaac#342).** The `scene.py` usage docstring now uses `scene/sensor_test_bench.yaml`.
 - **Planar-move scripts removed; they live in ycpss91255-docker/isaac_physics_test (isaac#342).** `cmd_vel_planar_move.py`, `cmd_vel_planar_standalone.py`, `cmd_vel_planar_standalone_l2.py`, `move_openbase_planar.py`, `move_openbase_planar_standalone.py`, their README rows, smoke cases and hosted guards. Hosted-unit baseline 427 -> 417.
