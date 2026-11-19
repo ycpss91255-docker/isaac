@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+### Fixed
+- **`isaac-stream-source` producer stage COPY uses `--chmod=0755` (isaac#244).** The `COPY --chmod=0644` of `stream_source_producer.py` also gave the implicitly created `/opt/isaac-producer` directory mode 0644, so the non-root image USER could not open the file and the container exited 1. The mode is now 0755 and the stale "0644 world-readable is fine" comment is corrected. Hosted-unit baseline 462 -> 463 (+1 in `test_stream_source_producer.py`). The `:0.0.1` image already published stays broken until a new tag is published (release decision). Not yet run on the GPU runner (`producer_smoke.sh`).
 ### Removed
 - **`script/new-workspace.sh` consumer-workspace scaffold and everything that exercised it (isaac#326, unit 1).** Deleted the script, its hosted structure-check (`test_new_workspace_scaffold.py`, 23 tests), the scaffold GPU smoke (`test_scaffold_smoke.py` + `_scaffold_smoke_runner.py`, 3 tests), and `script/demo-bump-propagation.sh` (it drove the scaffold). `HOSTED_UNIT_BASELINE` ratcheted down to the real count and `GPU_INTEGRATION_BASELINE` 35 -> 32 (intentional removal of the tests, not lost coverage). The `example/README` first-topic step no longer calls the script. The onboarding gate (unit 2) and `example/sim` (#327) are untouched.
 ### Docs
