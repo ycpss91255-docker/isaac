@@ -19,11 +19,9 @@ Onboarding 成功的衡量標準是：scaffold 一個 workspace、跑起來、�
 
 ### 1. 第一筆 topic（scaffold -> run）
 
-Scaffold 一個 consumer workspace；base 範例已預填進 `src/isaac/`，開箱即跑：
+`new-workspace.sh` scaffold 已移除（#326）；從本 repo 根目錄執行：
 
 ```bash
-script/new-workspace.sh my-robot-ws
-cd my-robot-ws
 just setup && just build && just run
 ```
 

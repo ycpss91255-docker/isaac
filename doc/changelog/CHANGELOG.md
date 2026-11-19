@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+### Removed
+- **`script/new-workspace.sh` consumer-workspace scaffold and everything that exercised it (isaac#326, unit 1).** Deleted the script, its hosted structure-check (`test_new_workspace_scaffold.py`, 23 tests), the scaffold GPU smoke (`test_scaffold_smoke.py` + `_scaffold_smoke_runner.py`, 3 tests), and `script/demo-bump-propagation.sh` (it drove the scaffold). `HOSTED_UNIT_BASELINE` ratcheted down to the real count and `GPU_INTEGRATION_BASELINE` 35 -> 32 (intentional removal of the tests, not lost coverage). The `example/README` first-topic step no longer calls the script. The onboarding gate (unit 2) and `example/sim` (#327) are untouched.
 ### Docs
 - **PRD convergence draft annotated for moved CONTEXT.md and ADRs (isaac#361).** A note at the top of `doc/PRD-template-convergence.draft.md` states that `CONTEXT.md` and the forklift ADRs it mentions moved, or are moving, to isaac_physics_test; the draft body is unchanged.
 ### Added
