@@ -113,6 +113,19 @@ Kit 每次啟動都會印出幾種不影響執行的警告：
 - `./script/checkout_identity.sh isolate` 會把 `[image] rule_1 = string:isaac-<dir>-<hash>` 寫進 gitignored 的 `.setup.conf.local`。image tag、compose project 與 container 名稱都跟著它走。`./script/checkout_identity.sh show` 會印出這個 checkout 解析出的名稱。
 - pre build / run / stop hook 會拒絕對共用名稱動作。`ISAAC_ALLOW_SHARED_IDENTITY=1` 可以略過；CI 的 build 步驟就是這樣用。
 - `just docker run` 不會重 build 已存在的 image（base#1552）。pull 新變更後，先 `just docker build -t <stage>` 再 `just docker run -t <stage>`。
+- 磁碟用量：每個會 build 的 checkout 或 worktree 都擁有自己的一組 image（`<hub>/isaac-<dir>-<hash>:<stage>`），每個 stage tag 名義上約 31 GB。它們不共用，刪掉 checkout 目錄也不會從 Docker daemon 移除。
+- 清理已刪除的 checkout：從 `./script/checkout_identity.sh show`（刪目錄前執行；需要 `.env.generated`）或 `docker images` 取得 `isaac-<dir>-<hash>` 名稱，先列出再移除：
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # 完整名稱，例如取自 "image: <hub>/<SLUG>:<stage>"
+  HUB=<hub>                 # 該 image 名稱中的 <hub> 部分
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  filter 只精確比對 slug。不要放寬成 `isaac*`，也不要跑 `docker image prune -a`：共用的 `test-tools:<base 版本>` image（下一條）不可被此流程移除。
 - 有一個 image 仍然共用：每次 build 也會 build lint/bats 工具 image `test-tools:<base 版本>`（目前是 `test-tools:v0.42.0`），名稱只由 pin 住的 base 版本決定。host 上所有 pin 同一個 base 版本的 checkout 與 repo 都寫同一個 tag，所以別的 checkout 可能正在 build 時不要刪它。`just docker build --clean-tools` 會替所有人把它刪掉。它來自 base 的 `build.sh`，上游追蹤在 [base#1551](https://github.com/ycpss91255-docker/base/issues/1551)。
 - isolate 之前啟動的 container 還留在共用 project 裡。用 `docker compose -p <hub>-isaac ps -a` 列出，按名稱停掉自己的。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` 會停掉整個共用 project，包含別的 checkout 的 container。
 
@@ -276,14 +289,12 @@ Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 ### Standalone Python workflow（Script Editor 替代方案）
 
-`src/script/` 同時放 M1 / M2 demo 的 in-kit Script Editor 版本與 standalone 版本。standalone 版本透過 `SimulationApp` 啟動自己的 Kit，並依 stage 的 `ISAAC_LIVESTREAM` 決定模式（`headless` 為 0、`stream` 為 2）。`cmd_vel_planar_standalone.py` 一律以 headless 執行 Kit，因為在同一個 standalone process 裡同時跑 livestream 與 ROS 2 bridge 曾讓 Kit crash（IsaacSim#228）。每支 standalone 腳本都接受 `--run-seconds N`，遇到任何錯誤會以 exit 1 結束（以前是 exit 0）。
+`src/script/` 同時放 M1 / M2 demo 的 in-kit Script Editor 版本與 standalone 版本。standalone 版本透過 `SimulationApp` 啟動自己的 Kit，並依 stage 的 `ISAAC_LIVESTREAM` 決定模式（`headless` 為 0、`stream` 為 2）。每支 standalone 腳本都接受 `--run-seconds N`，遇到任何錯誤會以 exit 1 結束（以前是 exit 0）。
 
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 驗證結果（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒發布一次 `/isaac/test` | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：印出每則 `/host/test` 訊息 | 3/3 收到 |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：以固定 `CMD_VX/VY/WZ` 平面移動 | x +0.5 m/s，z 維持 0 |
-| （無 in-kit 版本） | `cmd_vel_planar_standalone.py`：訂閱 `/cmd_vel`（geometry_msgs/Twist）並讓 OpenBase 在平面上移動 | 指令為 0 時靜止，`linear.x: 0.5` 時 x +0.5 m/s，z 維持 0 |
 
 使用 pattern：
 
@@ -297,6 +308,22 @@ just docker stop                           # cleanup
 ```
 
 共用 host 上 ROS domain 0 可能有其他 `/cmd_vel` publisher，它們也會讓 OpenBase 移動。請給你的執行一個私有 domain，例如 `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'`，旁邊的 container 也要帶同樣的 `-e ROS_DOMAIN_ID=77`。
+
+### Python 輸出 API（isaac#365）
+
+`isaac_devkit.output.setup_output` 不經 ROS，直接把模擬資料交給 Python callback。種類：`rgb`（uint8 `(H, W, 3)`）、`depth`（float32 `(H, W)`）、`joint_state`（`names` / `positions` / `velocities` / `efforts`）、`imu`（`lin_acc` / `ang_vel` / `orientation`，順序 `w, x, y, z`）。只有已註冊 consumer 的種類才會做 GPU 到 CPU 複製。模式由 `ISAAC_OUTPUT_MODE` 決定（預設 `python`；`ros` 尚未接上，見 ADR-0025）。
+
+```python
+from isaac_devkit.output import CameraOutput, JointOutput, setup_output
+
+out = setup_output(
+    cameras=[CameraOutput("rgb", "/World/Robot/cam", 640, 480)],
+    joint=JointOutput("/World/Robot"),
+)
+out.register(lambda frame: print(frame.kind, frame.stamp), kinds=["rgb", "joint_state"])
+# per app.update():
+out.step(sim_time_seconds)
+```
 
 ## Cache 路徑
 

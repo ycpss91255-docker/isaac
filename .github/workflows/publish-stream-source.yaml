@@ -76,7 +76,7 @@ jobs:
     concurrency:
       group: isaac-publish-stream-source
       cancel-in-progress: false
-    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.3.0
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0
     with:
       run-script: bash script/ci/publish_stream_source.sh
       timeout-minutes: 90

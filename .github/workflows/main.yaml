@@ -98,10 +98,11 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.3.0
+    uses: ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0
     with:
       run-script: ./script/ci/gpu_integration_job.sh
       timeout-minutes: 30
+      reap-container-filter: label=com.docker.compose.project=isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}
 
   call-release:
     needs: call-docker-build

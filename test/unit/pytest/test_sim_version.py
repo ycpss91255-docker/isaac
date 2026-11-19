@@ -60,8 +60,10 @@ _VARIANT_LITERAL = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
 def _find_hardcoded_variants(root: Path) -> list[str]:
     """Return repo-relative paths of driver scripts with an isaac_variant literal."""
     scripts = []
-    for base, pattern in (("src/script", "*.py"), ("test", "verify_*.py")):
-        # isaac#360: an empty glob would make the scan pass checking nothing.
+    # isaac#360: an empty glob would make the scan pass checking nothing. The
+    # test/verify_*.py family moved to isaac_physics_test, so only src/script
+    # remains in scope.
+    for base, pattern in (("src/script", "*.py"),):
         matched = sorted((root / base).glob(pattern))
         assert matched, f"scan glob matched nothing: {base}/{pattern}"
         scripts += matched
@@ -90,10 +92,9 @@ def _plant(root: Path, rel: str, text: str = "x = 1\n") -> None:
     "present",
     [
         [],
-        ["src/script/a.py"],
         ["test/verify_a.py"],
     ],
-    ids=["neither-glob", "only-src-script", "only-verify"],
+    ids=["no-script", "only-moved-verify-family"],
 )
 def test_scan_fails_when_a_script_glob_matches_nothing(tmp_path, present):
     # isaac#360: a scan over an empty file set used to pass vacuously, so
@@ -108,5 +109,5 @@ def test_scan_fails_when_a_script_glob_matches_nothing(tmp_path, present):
 def test_scan_reports_a_planted_variant_literal(tmp_path):
     # isaac#360: pin the detection itself, not only "passes on the real repo".
     _plant(tmp_path, "src/script/clean.py")
-    _plant(tmp_path, "test/verify_bad.py", '{"isaac_variant": "6.0.1"}\n')
-    assert _find_hardcoded_variants(tmp_path) == ["test/verify_bad.py"]
+    _plant(tmp_path, "src/script/bad.py", '{"isaac_variant": "6.0.1"}\n')
+    assert _find_hardcoded_variants(tmp_path) == ["src/script/bad.py"]

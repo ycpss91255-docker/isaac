@@ -113,6 +113,19 @@ Kit は起動のたびに、実行に影響しない警告をいくつか出力�
 - `./script/checkout_identity.sh isolate` が `[image] rule_1 = string:isaac-<dir>-<hash>` を gitignore 済みの `.setup.conf.local` に書き込む。image tag・compose project・container 名はすべてこれに従う。`./script/checkout_identity.sh show` でこの checkout の解決結果を表示できる。
 - pre build / run / stop hook は共有名のままでは実行を拒否する。`ISAAC_ALLOW_SHARED_IDENTITY=1` で上書きできる（CI の build ステップが使用）。
 - `just docker run` は既存の image を再 build しない（base#1552）。変更を pull したら `just docker run -t <stage>` の前に `just docker build -t <stage>` を実行する。
+- ディスク使用量：build する checkout または worktree ごとに独自の image セット（`<hub>/isaac-<dir>-<hash>:<stage>`）を持ち、stage tag 1 つあたり名目上約 31 GB。共有されず、checkout ディレクトリを削除しても Docker daemon からは消えない。
+- 削除済み checkout の後始末：`./script/checkout_identity.sh show`（ディレクトリ削除前に実行。`.env.generated` が必要）または `docker images` から `isaac-<dir>-<hash>` の名前を得て、先に一覧表示してから削除する：
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # 正確な名前。例: "image: <hub>/<SLUG>:<stage>" から
+  HUB=<hub>                 # その image 名の <hub> 部分
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  filter は slug の完全一致のみ。`isaac*` に広げたり `docker image prune -a` を実行したりしない：共有の `test-tools:<base バージョン>` image（次の項目）はこの手順で削除してはならない。
 - 1 つの image はまだ共有される：毎回の build で lint/bats 用ツール image `test-tools:<base バージョン>`（現在は `test-tools:v0.42.0`）も build され、その名前は pin した base バージョンだけで決まる。同じ base バージョンを pin する host 上のすべての checkout と repo が同じ tag を書き込むため、別の checkout が build 中かもしれないときは削除しないこと。`just docker build --clean-tools` は全員の分をまとめて削除する。これは base の `build.sh` に由来し、上流では [base#1551](https://github.com/ycpss91255-docker/base/issues/1551) で追跡している。
 - isolate 前に起動した container は共有 project に残る。`docker compose -p <hub>-isaac ps -a` で一覧し、自分のものを名前で停止する。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` は共有 project 全体（別の checkout の container を含む）を停止する。
 
@@ -276,14 +289,12 @@ kit terminal に `[ros2_test_sub] /host/test <- 'hello-from-host'` と出力さ�
 
 ### Standalone Python workflow（Script Editor 代替手段）
 
-`src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp` で独自の Kit を boot し、stage の `ISAAC_LIVESTREAM`（`headless` は 0、`stream` は 2）に従う。`cmd_vel_planar_standalone.py` は常に Kit を headless で動かす。1 つの standalone process 内で livestream と ROS 2 bridge を併用すると Kit が crash したため（IsaacSim#228）。各 standalone スクリプトは `--run-seconds N` を受け付け、エラー時は exit 1 で終了する（以前は exit 0 だった）。
+`src/script/` には M1 / M2 デモの in-kit Script Editor 版と standalone 版が同梱されている。standalone 版は `SimulationApp` で独自の Kit を boot し、stage の `ISAAC_LIVESTREAM`（`headless` は 0、`stream` は 2）に従う。各 standalone スクリプトは `--run-seconds N` を受け付け、エラー時は exit 1 で終了する（以前は exit 0 だった）。
 
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 で検証（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：`/isaac/test` を毎秒 1 回 publish | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`：受信した `/host/test` メッセージを毎回出力 | 3/3 受信 |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`：固定の `CMD_VX/VY/WZ` で平面移動 | x +0.5 m/s、z は 0 のまま |
-| （in-kit 版なし） | `cmd_vel_planar_standalone.py`：`/cmd_vel`（geometry_msgs/Twist）を subscribe し、OpenBase を平面内で移動 | 指令 0 では静止、`linear.x: 0.5` で x +0.5 m/s、z は 0 のまま |
 
 使用 pattern：
 
@@ -297,6 +308,22 @@ just docker stop                           # cleanup
 ```
 
 共有 host では ROS domain 0 上に他の `/cmd_vel` publisher が存在することがあり、それらも OpenBase を動かしてしまう。自分の run には専用の domain を割り当てること。例えば `bash -c 'ROS_DOMAIN_ID=77 exec /isaac-sim/python.sh ...'` とし、隣接 container にも同じ `-e ROS_DOMAIN_ID=77` を指定する。
+
+### Python 出力 API（isaac#365）
+
+`isaac_devkit.output.setup_output` は ROS を介さずにシミュレーションデータを Python コールバックへ渡します。種別：`rgb`（uint8 `(H, W, 3)`）、`depth`（float32 `(H, W)`）、`joint_state`（`names` / `positions` / `velocities` / `efforts`）、`imu`（`lin_acc` / `ang_vel` / `orientation`、順序 `w, x, y, z`）。コンシューマが登録された種別だけ GPU から CPU へコピーします。モードは `ISAAC_OUTPUT_MODE`（既定 `python`、`ros` は未接続、ADR-0025 参照）で決まります。
+
+```python
+from isaac_devkit.output import CameraOutput, JointOutput, setup_output
+
+out = setup_output(
+    cameras=[CameraOutput("rgb", "/World/Robot/cam", 640, 480)],
+    joint=JointOutput("/World/Robot"),
+)
+out.register(lambda frame: print(frame.kind, frame.stamp), kinds=["rgb", "joint_state"])
+# per app.update():
+out.step(sim_time_seconds)
+```
 
 ## Cache レイアウト
 

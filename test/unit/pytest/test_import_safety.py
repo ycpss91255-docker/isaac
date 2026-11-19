@@ -39,6 +39,12 @@ _DEVKIT_MODULES = (
     "isaac_devkit.scene",
     "isaac_devkit.driver",
     "isaac_devkit.sim_version",
+    "isaac_devkit.stamp",
+    "isaac_devkit.buffers",
+    "isaac_devkit.output_mode",
+    "isaac_devkit.output_hub",
+    "isaac_devkit.output",
+    "isaac_devkit.output_python",
 )
 
 

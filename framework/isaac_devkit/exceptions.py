@@ -47,3 +47,7 @@ class SensorNotFoundError(SensorConfigError):
 
 class LinkNotFoundError(SensorConfigError):
     """Placement ``link`` does not exist on the target robot prim."""
+
+
+class OutputModeError(IsaacDevkitError):
+    """A call is not valid in the active ``ISAAC_OUTPUT_MODE`` (ADR-0025)."""
