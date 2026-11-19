@@ -283,7 +283,11 @@
 #   test_import_safety.py / test_no_module_top_isaac_import.py /
 #   test_no_ros_import_in_devkit.py for the new module. Live count is now
 #   503 after the merge with main (488 + 15) -- the enforced floor.
-HOSTED_UNIT_BASELINE = 503
+# isaac#326 unit 1: new-workspace.sh removed with its 23 hosted structure-check
+#   tests (test_new_workspace_scaffold.py) -- an intentional ratchet DOWN
+#   503 -> 480 (the real count), not lost coverage. Earlier #134 scaffold
+#   mentions above are historical.
+HOSTED_UNIT_BASELINE = 480
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -426,7 +430,9 @@ HOSTED_UNIT_BASELINE = 503
 #   why every failed hypothesis in the issue "left std unchanged". Reference on
 #   the RTX 5090: 53.0 -> 2.1 with no black pixels left. In-container 33;
 #   aggregate ratchets 32 -> 35 (a ratchet UP).
-GPU_INTEGRATION_BASELINE = 35
+# isaac#326 unit 1: test_scaffold_smoke.py (3 tests) removed with the scaffold
+#   -- intentional ratchet DOWN 35 -> 32.
+GPU_INTEGRATION_BASELINE = 32
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55
