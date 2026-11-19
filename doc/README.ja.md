@@ -113,6 +113,19 @@ Kit は起動のたびに、実行に影響しない警告をいくつか出力�
 - `./script/checkout_identity.sh isolate` が `[image] rule_1 = string:isaac-<dir>-<hash>` を gitignore 済みの `.setup.conf.local` に書き込む。image tag・compose project・container 名はすべてこれに従う。`./script/checkout_identity.sh show` でこの checkout の解決結果を表示できる。
 - pre build / run / stop hook は共有名のままでは実行を拒否する。`ISAAC_ALLOW_SHARED_IDENTITY=1` で上書きできる（CI の build ステップが使用）。
 - `just docker run` は既存の image を再 build しない（base#1552）。変更を pull したら `just docker run -t <stage>` の前に `just docker build -t <stage>` を実行する。
+- ディスク使用量：build する checkout または worktree ごとに独自の image セット（`<hub>/isaac-<dir>-<hash>:<stage>`）を持ち、stage tag 1 つあたり名目上約 31 GB。共有されず、checkout ディレクトリを削除しても Docker daemon からは消えない。
+- 削除済み checkout の後始末：`./script/checkout_identity.sh show`（ディレクトリ削除前に実行。`.env.generated` が必要）または `docker images` から `isaac-<dir>-<hash>` の名前を得て、先に一覧表示してから削除する：
+
+  ```bash
+  SLUG=isaac-<dir>-<hash>   # 正確な名前。例: "image: <hub>/<SLUG>:<stage>" から
+  HUB=<hub>                 # その image 名の <hub> 部分
+  docker ps -a --filter "label=com.docker.compose.project=${HUB}-${SLUG}" --format '{{.Names}}'
+  docker ps -aq --filter "label=com.docker.compose.project=${HUB}-${SLUG}" | xargs -r docker rm -f
+  docker images --filter "reference=*/${SLUG}:*"
+  docker images -q --filter "reference=*/${SLUG}:*" | xargs -r docker rmi
+  ```
+
+  filter は slug の完全一致のみ。`isaac*` に広げたり `docker image prune -a` を実行したりしない：共有の `test-tools:<base バージョン>` image（次の項目）はこの手順で削除してはならない。
 - 1 つの image はまだ共有される：毎回の build で lint/bats 用ツール image `test-tools:<base バージョン>`（現在は `test-tools:v0.42.0`）も build され、その名前は pin した base バージョンだけで決まる。同じ base バージョンを pin する host 上のすべての checkout と repo が同じ tag を書き込むため、別の checkout が build 中かもしれないときは削除しないこと。`just docker build --clean-tools` は全員の分をまとめて削除する。これは base の `build.sh` に由来し、上流では [base#1551](https://github.com/ycpss91255-docker/base/issues/1551) で追跡している。
 - isolate 前に起動した container は共有 project に残る。`docker compose -p <hub>-isaac ps -a` で一覧し、自分のものを名前で停止する。`ISAAC_ALLOW_SHARED_IDENTITY=1 just docker stop` は共有 project 全体（別の checkout の container を含む）を停止する。
 
