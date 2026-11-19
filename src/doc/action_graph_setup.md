@@ -379,8 +379,8 @@ just docker stop
 
 本流程設計依據：
 
-- `isaac_ws/src/script/diag_usd_loop.py` — USD load + APP.update 純跑 90s 穩定
-- `isaac_ws/src/script/diag_graph_bridge.py` — 加入 bridge ext + Action Graph 於 standalone 後 ~2s crash 重現
+- isaac_physics_test `src/script/diag_usd_loop.py` — USD load + APP.update 純跑 90s 穩定
+- isaac_physics_test `src/script/diag_graph_bridge.py` — 加入 bridge ext + Action Graph 於 standalone 後 ~2s crash 重現
 - isaac_physics_test `src/script/cmd_vel_planar_standalone.py` — 嘗試 6+ 種 standalone 路徑（dc / SingleRigidPrim / World / signal handler 抑制 / warmup loop），全 random crash
 - isaac_physics_test `src/script/move_openbase_planar_standalone.py` — 純 dc + USD（無 ROS）90s 穩定，證 PhysX / USD load 本身沒問題
 

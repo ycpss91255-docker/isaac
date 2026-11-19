@@ -4,7 +4,7 @@ Greenfield module (isaac#130): no predecessor exists in ``src/script/``.
 Inbound ROS 2 traffic reaches the simulation through an OmniGraph ROS 2
 Subscribe node whose outputs are read from graph attributes -- **no rclpy
 executor is spun up**, which sidesteps the rclpy/Kit signal-init ordering
-conflict (see ``src/script/diag_graph_bridge.py`` lineage).
+conflict (see ``isaac_physics_test:src/script/diag_graph_bridge.py`` lineage).
 
 Contract surface (ADR-0017 section 9)::
 
