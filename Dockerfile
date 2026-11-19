@@ -455,6 +455,9 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
 COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
 COPY test/bats/smoke/ /smoke_test/
+# [isaac#402] Workflow files baked so workflow_pin_spec.bats cannot pass vacuously
+# on a missing directory (bats runs non-recursively, so this is not a spec).
+COPY .github/workflows/ /smoke_test/workflows/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 # [#233] Tier A stream-smoke decision logic (client-connect sequence +
