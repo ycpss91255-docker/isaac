@@ -15,3 +15,10 @@
 #
 #   local-hello:
 #       @./local.sh
+
+# Remove the worktree and local branch of every worktree whose PR is MERGED
+# (#368). Safe by construction: a dirty, unpushed or outside-root worktree is
+# skipped, never forced. Flags pass through: --dry-run, --fix-owner,
+# --repo OWNER/REPO. Prints a final `removed=N skipped=M` summary.
+cleanup-merged *args:
+    @bash script/git/cleanup-merged-all.sh {{args}}

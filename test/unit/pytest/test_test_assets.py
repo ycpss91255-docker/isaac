@@ -51,6 +51,37 @@ class TestAssetPinning:
         assert len(test_assets.ASSETS) >= 1
 
 
+class TestCubeAsset:
+    """The official NVIDIA cube prop is registered for the adapter GPU test (#325)."""
+
+    def test_cube_is_pinned_on_the_same_bucket_and_version(self):
+        info = test_assets.ASSETS["nvidia_cube"]
+        assert "omniverse-content-production" in info["url"]
+        assert "/4.2/" in info["url"]
+        assert info["url"].endswith("/Props/Blocks/nvidia_cube.usd")
+        assert info["filename"] == "nvidia_cube.usd"
+
+    def test_cube_sha256_is_pinned(self):
+        digest = test_assets.ASSETS["nvidia_cube"]["sha256"]
+        assert len(digest) == 64
+        int(digest, 16)  # hex
+
+
+class TestAdapterGpuTestUsesHelper:
+    """test_build_scene_adapter no longer reads the example/ scaffold (#325)."""
+
+    _PYTEST_DIR = Path(__file__).resolve().parents[2] / "integration" / "pytest"
+
+    def test_adapter_test_and_runner_do_not_use_example_assets(self):
+        for name in ("test_build_scene_adapter.py", "_build_scene_runner.py"):
+            text = (self._PYTEST_DIR / name).read_text()
+            assert "example_driver" not in text, name
+            assert "example/sim" not in text, name
+            assert '"example"' not in text, name
+        test_text = (self._PYTEST_DIR / "test_build_scene_adapter.py").read_text()
+        assert "fetch_test_asset" in test_text
+
+
 # -- Cache behaviour tests ------------------------------------------------
 
 

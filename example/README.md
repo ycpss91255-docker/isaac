@@ -19,12 +19,9 @@ reading `framework/` source. The three tasks below walk that path.
 
 ### 1. First topic (scaffold -> run)
 
-Scaffold a consumer workspace; the base example is pre-filled into
-`src/isaac/` so it runs out of the box:
+The `new-workspace.sh` scaffold was removed (#326); from this repo's root:
 
 ```bash
-script/new-workspace.sh my-robot-ws
-cd my-robot-ws
 just setup && just build && just run
 ```
 

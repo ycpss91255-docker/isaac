@@ -1,11 +1,12 @@
 """L1 adapter GPU test (#152, ADR-0018 decisions 1 + 3).
 
 Dedicated GPU coverage for the new ``isaac_devkit.scene.build_scene``
-adapter: the example scene is spawned through ``to_isaaclab_cfg`` ->
-``sim_utils`` cfg -> ``cfg.func()`` (NOT the example driver's own raw-pxr
-``_build_scene``, which still runs until #154), and the spawned prims are
-asserted on the live stage. This is the DoD "the example scene spawns via
-the adapter; L1 prim assertions hold" check.
+adapter: a scene is spawned through ``to_isaaclab_cfg`` -> ``sim_utils``
+cfg -> ``cfg.func()`` and the spawned prims are asserted on the live
+stage. Since #325 the scene is built in the runner around the official
+NVIDIA Jetbot (robot) and cube (``mobility: dynamic`` object) USDs,
+fetched through ``test/test_assets.py`` -- not repo-bundled scaffold
+assets.
 
 The Kit side runs in ``_build_scene_runner.py`` (one ``SimulationApp`` per
 process -- the singleton constraint); this module owns the subprocess
@@ -23,6 +24,13 @@ from pathlib import Path
 
 import pytest
 
+# ``test/`` hosts the shared asset helper (#341); make it importable.
+_TEST_DIR = Path(__file__).resolve().parents[2]
+if str(_TEST_DIR) not in sys.path:
+    sys.path.insert(0, str(_TEST_DIR))
+
+from test_assets import fetch_test_asset  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_build_scene_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"
@@ -31,9 +39,20 @@ RUN_TIMEOUT_SEC = 600
 
 @pytest.fixture(scope="module")
 def adapter_run():
-    """Spawn the example scene via the framework adapter once, share stdout."""
+    """Spawn the Jetbot + cube scene via the framework adapter once."""
+    robot_usd = fetch_test_asset("jetbot")
+    object_usd = fetch_test_asset("nvidia_cube")
     result = subprocess.run(
-        [PYTHON_SH, str(RUNNER_SCRIPT), "--repo-root", str(REPO_ROOT)],
+        [
+            PYTHON_SH,
+            str(RUNNER_SCRIPT),
+            "--repo-root",
+            str(REPO_ROOT),
+            "--robot-usd",
+            str(robot_usd),
+            "--object-usd",
+            str(object_usd),
+        ],
         capture_output=True,
         text=True,
         timeout=RUN_TIMEOUT_SEC,
@@ -56,12 +75,11 @@ def test_adapter_runner_clean_exit(adapter_run):
 def test_adapter_spawns_ground_light_robot(adapter_run):
     """environment ground + light + robot USD spawn via the cfg adapter.
 
-    Strengthened in #154: also asserts /World/Robot/base_link RESOLVES
-    through the adapter reference. The committed camera_bot.usd now carries
-    a defaultPrim (/camera_bot, fb6f580), so the adapter's UsdFileCfg
-    reference pulls in the referenced robot content and base_link lands at
-    /World/Robot/base_link. (Reported-not-asserted before the defaultPrim
-    fix -- the legacy-importer asset had no referenceable root prim.)
+    Also asserts /World/Robot/chassis RESOLVES through the adapter
+    reference: the Jetbot USD carries a defaultPrim (/jetbot), so the
+    UsdFileCfg reference pulls in the referenced robot content and its
+    articulation body lands at /World/Robot/chassis (the Jetbot has no
+    base_link).
     """
     m = re.search(
         r"\[ADAPTER OK\] ground=(\w+) light=(\w+) robot=(\w+) objects=(\d+)",
@@ -73,10 +91,10 @@ def test_adapter_spawns_ground_light_robot(adapter_run):
     assert m.group(3) == "True", "robot USD not spawned at /World/Robot"
     assert int(m.group(4)) >= 1, "no object instance spawned under /World/Objects"
 
-    base_link = re.search(r"\[ADAPTER BASE_LINK\] valid=(\w+)", adapter_run.stdout)
-    assert base_link, f"no [ADAPTER BASE_LINK] marker:\n{adapter_run.stdout}"
-    assert base_link.group(1) == "True", (
-        "/World/Robot/base_link did not resolve through the adapter "
+    chassis = re.search(r"\[ADAPTER CHASSIS\] valid=(\w+)", adapter_run.stdout)
+    assert chassis, f"no [ADAPTER CHASSIS] marker:\n{adapter_run.stdout}"
+    assert chassis.group(1) == "True", (
+        "/World/Robot/chassis did not resolve through the adapter "
         "reference (defaultPrim regression?)"
     )
 
@@ -84,16 +102,11 @@ def test_adapter_spawns_ground_light_robot(adapter_run):
 def test_adapter_spawns_mobility_dynamic_object(adapter_run):
     """A mobility: dynamic object spawns AND carries RigidBodyAPI.
 
-    object.yaml declares the prop_cube as ``mobility: dynamic``; the
-    adapter builds a ``UsdFileCfg`` with ``rigid_props`` + ``mass_props`` +
-    ``collision_props`` and ``cfg.func`` spawns it.
-
-    Strengthened in #154: the resulting ``UsdPhysics.RigidBodyAPI`` IS now
-    asserted. The committed ``prop_cube.usda`` carries a defaultPrim
-    (/prop_cube, fb6f580), so the ``UsdFileCfg`` reference resolves to the
-    referenced content and the dynamic-mobility props land on a real prim
-    (``rigidbody=True``). Before the defaultPrim fix the reference resolved
-    empty and the API landed on absent content (reported-not-asserted).
+    The scene marks the official NVIDIA cube ``mobility: dynamic``; the
+    adapter spawns it with ``UsdFileCfg`` and then DEFINES the physics
+    schema post-spawn (``_apply_mobility_physics``). The cube USD has a
+    defaultPrim, so the reference resolves and ``UsdPhysics.RigidBodyAPI``
+    lands on a real prim (``rigidbody=True``).
     """
     m = re.search(
         r"\[ADAPTER OBJECT\] path=(\S+) valid=True rigidbody=(\w+)",
@@ -107,17 +120,16 @@ def test_adapter_spawns_mobility_dynamic_object(adapter_run):
 
 
 def test_adapter_spawns_with_identity_orientation(adapter_run):
-    """rpy [0,0,0] in the YAML must reach the stage as an identity orient.
+    """rpy [0,0,0] in the scene must reach the stage as an identity orient.
 
     Regression guard for the quaternion-order bug: ``rpy_to_quat`` returns
     (w,x,y,z) while the ``sim_utils`` spawners document ``orientation`` as
     (x,y,z,w). Passing it through unreordered sends identity as x=1, w=0 --
     a 180-degree rotation about X, so every scene spawns upside-down
-    (authored z becomes -z, the example robot ends up below the floor).
+    (authored z becomes -z, the robot ends up below the floor).
 
     The existing adapter tests assert prim STRUCTURE and cannot see this;
-    the example scene's cube and the robot's box pair are symmetric enough
-    that the render looks plausible either way.
+    a symmetric cube and a near-symmetric robot look plausible either way.
     """
     import re
 
@@ -130,6 +142,6 @@ def test_adapter_spawns_with_identity_orientation(adapter_run):
         w, x, y, z = (float(v) for v in quat_str.split(","))
         assert (w, x, y, z) == pytest.approx((1.0, 0.0, 0.0, 0.0), abs=1e-6), (
             f"{path} spawned rotated: orient=({w}, {x}, {y}, {z}); the scene "
-            "YAML says rpy [0,0,0] so this must be identity. (0,1,0,0) means "
+            "scene says rpy [0,0,0] so this must be identity. (0,1,0,0) means "
             "the (w,x,y,z) quaternion reached the spawner as (x,y,z,w)."
         )

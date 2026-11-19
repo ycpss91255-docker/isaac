@@ -20,12 +20,9 @@
 
 ### 1. 最初の topic（scaffold -> run）
 
-consumer workspace を scaffold します。base サンプルが `src/isaac/` に
-事前展開されているため、そのまま動きます：
+`new-workspace.sh` scaffold は削除されました（#326）。本 repo のルートから実行します：
 
 ```bash
-script/new-workspace.sh my-robot-ws
-cd my-robot-ws
 just setup && just build && just run
 ```
 
