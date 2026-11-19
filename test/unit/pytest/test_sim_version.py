@@ -2,7 +2,7 @@
 
 Every experiment driver records which Isaac Sim produced its numbers in an
 ``isaac_variant`` field. Until the 6.2.0 upgrade that field was the string
-literal ``"6.0.1"`` in 23 scripts, so re-running the physics re-validation on
+literal ``"6.0.1"`` in every driver script, so re-running the physics re-validation on
 a new base image would have written 6.2.0 results labelled 6.0.1 -- exactly
 the comparison the re-validation exists to make. The version now comes from
 the image itself (``/isaac-sim/VERSION``), and the last test stops a literal
@@ -54,17 +54,60 @@ def test_default_reads_the_image_install():
     assert sim_version.DEFAULT_VERSION_FILE == Path("/isaac-sim/VERSION")
 
 
-def test_no_driver_hardcodes_the_isaac_variant():
-    pattern = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
-    scripts = sorted((_REPO_ROOT / "src" / "script").glob("*.py")) + sorted(
-        (_REPO_ROOT / "test").glob("verify_*.py")
-    )
-    offenders = [
-        str(path.relative_to(_REPO_ROOT))
+_VARIANT_LITERAL = re.compile(r"""["']isaac_variant["']\s*:\s*["']""")
+
+
+def _find_hardcoded_variants(root: Path) -> list[str]:
+    """Return repo-relative paths of driver scripts with an isaac_variant literal."""
+    scripts = []
+    # isaac#360: an empty glob would make the scan pass checking nothing. The
+    # test/verify_*.py family moved to isaac_physics_test, so only src/script
+    # remains in scope.
+    for base, pattern in (("src/script", "*.py"),):
+        matched = sorted((root / base).glob(pattern))
+        assert matched, f"scan glob matched nothing: {base}/{pattern}"
+        scripts += matched
+    return [
+        str(path.relative_to(root))
         for path in scripts
-        if pattern.search(path.read_text(encoding="utf-8"))
+        if _VARIANT_LITERAL.search(path.read_text(encoding="utf-8"))
     ]
+
+
+def test_no_driver_hardcodes_the_isaac_variant():
+    offenders = _find_hardcoded_variants(_REPO_ROOT)
     assert not offenders, (
         "isaac_variant must come from isaac_sim_version(), not a literal: "
         + ", ".join(offenders)
     )
+
+
+def _plant(root: Path, rel: str, text: str = "x = 1\n") -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "present",
+    [
+        [],
+        ["test/verify_a.py"],
+    ],
+    ids=["no-script", "only-moved-verify-family"],
+)
+def test_scan_fails_when_a_script_glob_matches_nothing(tmp_path, present):
+    # isaac#360: a scan over an empty file set used to pass vacuously, so
+    # moving a script family away would leave the guard green and checking
+    # nothing. Each glob must be non-empty on its own, not just the union.
+    for rel in present:
+        _plant(tmp_path, rel)
+    with pytest.raises(AssertionError):
+        _find_hardcoded_variants(tmp_path)
+
+
+def test_scan_reports_a_planted_variant_literal(tmp_path):
+    # isaac#360: pin the detection itself, not only "passes on the real repo".
+    _plant(tmp_path, "src/script/clean.py")
+    _plant(tmp_path, "src/script/bad.py", '{"isaac_variant": "6.0.1"}\n')
+    assert _find_hardcoded_variants(tmp_path) == ["src/script/bad.py"]

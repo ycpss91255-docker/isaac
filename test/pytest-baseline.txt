@@ -315,7 +315,12 @@
 #   test_import_safety.py / test_no_module_top_isaac_import.py /
 #   test_no_ros_import_in_devkit.py for the three new modules. Live count is
 #   now 506 after the merge with main (472 + 34) -- the enforced floor.
-HOSTED_UNIT_BASELINE = 506
+#
+#   isaac#360: test_sim_version.py adds 3 (the isaac_variant scan fails when a
+#   script glob matches nothing). Merged with main (506 + 3) live count is now
+#   509 -- the enforced floor. The test/verify_*.py glob was dropped from the scan
+#   (that family moved to isaac_physics_test, nothing left to scan).
+HOSTED_UNIT_BASELINE = 509
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
