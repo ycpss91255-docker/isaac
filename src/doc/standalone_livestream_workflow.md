@@ -212,7 +212,7 @@ else:
 ## 相關文件
 
 - `adr/0005-standalone-with-livestream-as-default-dev-entrypoint.md` — 這條路徑的決策依據
-- `adr/0002-cmd-vel-teleop-via-in-kit-script-editor.md` — 舊 in-kit 流程的決策依據(2026-05-20 之後僅為歷史)
+- isaac_physics_test `src/doc/adr/0002-cmd-vel-teleop-via-in-kit-script-editor.md` — 舊 in-kit 流程的決策依據(2026-05-20 之後僅為歷史)
 - `cmd_vel_inkit_teleop.md` — 舊 in-kit 日常 SOP(legacy)
 - `action_graph_setup.md` — 更早期 Action Graph 一次性 GUI SOP(deprecated)
 - `script/standalone_livestream_smoke.py` — 最小 sanity driver(`SimulationApp + livestream:2` 開合 / 30s spin / exit 0)

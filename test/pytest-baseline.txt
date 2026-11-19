@@ -237,6 +237,12 @@
 #   inlines the converged-render recipe it imported from viz_render.
 #   Baseline floor adjusts 440 -> 427 (live 441 -> 428).
 #
+#   Planar-script extraction (isaac#342): the move_openbase_planar and
+#   cmd_vel_planar scripts moved to ycpss91255-docker/isaac_physics_test, so
+#   their 10 parametrized guards in test_standalone_scripts.py (8 per-script
+#   structure checks + 2 gravity checks) leave with them.
+#   Baseline floor adjusts 427 -> 417 (live 428 -> 418); after the merge with main
+#   the floor is recomputed from the real hosted count.
 #   Official Isaac test-asset fetch helper (#324): adds 9 hosted unit tests
 #   (test/unit/pytest/test_test_assets.py): the NVIDIA Jetbot USD URL pinning
 #   (URL on the Omniverse S3 bucket, version segment, SHA-256 digest, registry
@@ -252,13 +258,36 @@
 #   (test_default_driver.py). Live count is now 455.
 #
 #   Cross-container round-trip on the Jetbot asset (isaac#325): adds 4 hosted
-#   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459 --
-#   the enforced floor.
+#   tests (test_xc_roundtrip_asset_migration.py). Live count is now 459.
+#
+#   The build-scene adapter GPU test moving onto official assets (#325) adds 3
+#   (test_test_assets.py 9 -> 12: the pinned NVIDIA cube entry + a structural
+#   guard that the adapter test no longer reads example/ assets). Live count
+#   is now 462 -- the enforced floor.
+#   Planar-script extraction merged with main (isaac#342): main's 462 minus the 10
+#   removed planar guards = 452 (confirmed against the real hosted count).
+#
+#   The output-API helpers (#365 part 1) add 36: test_stamp.py (4, the
+#   nanosec-carry regression), test_buffers.py (7, the float32 depth byte
+#   regression + the C-contiguous contract), test_no_ros_import_in_devkit.py
+#   (21, AST guard for rclpy / rosidl_* / builtin_interfaces / isaacsim.ros2
+#   at module top, plus detector self-tests), and +2 each in
+#   test_import_safety.py and test_no_module_top_isaac_import.py for the two
+#   new modules. The hosted container now installs numpy. After the merge with
+#   main the live count is 452 + 36 = 488.
+#
+#   The output-mode resolver (#366 part 1, ADR-0025) adds 15:
+#   test_output_mode.py (12: unset -> python, the two valid values, six
+#   invalid spellings that raise ValueError naming the value and the allowed
+#   set, other variables ignored, os.environ default, constants), +1 each in
+#   test_import_safety.py / test_no_module_top_isaac_import.py /
+#   test_no_ros_import_in_devkit.py for the new module. Live count is now
+#   503 after the merge with main (488 + 15) -- the enforced floor.
 # isaac#326 unit 1: new-workspace.sh removed with its 23 hosted structure-check
 #   tests (test_new_workspace_scaffold.py) -- an intentional ratchet DOWN
-#   459 -> 436 (the real count), not lost coverage. Earlier #134 scaffold
+#   503 -> 480 (the real count), not lost coverage. Earlier #134 scaffold
 #   mentions above are historical.
-HOSTED_UNIT_BASELINE = 436
+HOSTED_UNIT_BASELINE = 480
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
