@@ -276,14 +276,12 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 ### Standalone Python workflow (alternative to Script Editor)
 
-`src/script/` ships in-kit Script Editor versions of the M1 / M2 demos and standalone equivalents. The standalone ones boot their own Kit through `SimulationApp`, following the stage's `ISAAC_LIVESTREAM` (`headless` 0, `stream` 2). `cmd_vel_planar_standalone.py` always runs Kit headless, because the livestream and the ROS 2 bridge in one standalone process have crashed Kit (IsaacSim#228). Each standalone script takes `--run-seconds N`, and it exits 1 on any error (it used to exit 0).
+`src/script/` ships in-kit Script Editor versions of the M1 / M2 demos and standalone equivalents. The standalone ones boot their own Kit through `SimulationApp`, following the stage's `ISAAC_LIVESTREAM` (`headless` 0, `stream` 2). Each standalone script takes `--run-seconds N`, and it exits 1 on any error (it used to exit 0).
 
 | In-kit (Script Editor → File → Open → Run) | Standalone (`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`) | Verified on 6.2.0 (headless) |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`: publishes `/isaac/test` once per second | `ros2 topic hz` 1.000 |
 | `ros2_test_sub.py` | `ros2_test_sub_standalone.py`: prints each `/host/test` message | 3/3 received |
-| `move_openbase_planar.py` | `move_openbase_planar_standalone.py`: fixed `CMD_VX/VY/WZ` planar move | x +0.5 m/s, z stays 0 |
-| (no in-kit equivalent) | `cmd_vel_planar_standalone.py`: subscribes `/cmd_vel` (geometry_msgs/Twist) and moves the OpenBase in the plane | still at 0 command, x +0.5 m/s at `linear.x: 0.5`, z stays 0 |
 
 Pattern:
 

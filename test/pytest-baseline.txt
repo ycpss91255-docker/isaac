@@ -237,6 +237,12 @@
 #   inlines the converged-render recipe it imported from viz_render.
 #   Baseline floor adjusts 440 -> 427 (live 441 -> 428).
 #
+#   Planar-script extraction (isaac#342): the move_openbase_planar and
+#   cmd_vel_planar scripts moved to ycpss91255-docker/isaac_physics_test, so
+#   their 10 parametrized guards in test_standalone_scripts.py (8 per-script
+#   structure checks + 2 gravity checks) leave with them.
+#   Baseline floor adjusts 427 -> 417 (live 428 -> 418); after the merge with main
+#   the floor is recomputed from the real hosted count.
 #   Official Isaac test-asset fetch helper (#324): adds 9 hosted unit tests
 #   (test/unit/pytest/test_test_assets.py): the NVIDIA Jetbot USD URL pinning
 #   (URL on the Omniverse S3 bucket, version segment, SHA-256 digest, registry
@@ -258,7 +264,9 @@
 #   (test_test_assets.py 9 -> 12: the pinned NVIDIA cube entry + a structural
 #   guard that the adapter test no longer reads example/ assets). Live count
 #   is now 462 -- the enforced floor.
-HOSTED_UNIT_BASELINE = 462
+#   Planar-script extraction merged with main (isaac#342): main's 462 minus the 10
+#   removed planar guards = 452 (confirmed against the real hosted count).
+HOSTED_UNIT_BASELINE = 452
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
