@@ -4,7 +4,7 @@ Robot models (URDF and USD) that were previously committed under
 `src/model/urdf/robot/` and `src/model/usd/robot/` have moved to a
 dedicated repository:
 
-  **[ycpss91255-docker/robot_model](https://github.com/ycpss91255-docker/robot_model)** (private)
+  **[ycpss91255-docker/sim_asset](https://github.com/ycpss91255-docker/sim_asset)** (private)
 
 The `sw/` and `object/` subdirectories remain here as placeholders for
 SolidWorks source files and object assets respectively.
@@ -21,4 +21,4 @@ SolidWorks source files and object assets respectively.
 
 The `openbase_minimal` URDF fixture used by the GPU model-import
 integration test lives at `test/fixtures/urdf/openbase_minimal/` and is
-self-contained (no dependency on the robot_model repository).
+self-contained (no dependency on the sim_asset repository).
