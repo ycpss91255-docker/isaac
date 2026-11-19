@@ -14,16 +14,13 @@
 
 Onboarding 成功的衡量标准是：scaffold 一个 workspace、跑起来、换机器人、
 换 sensor —— 全部只靠改这个 `example/` 内的文件，绝不靠读 `framework/`
-源码。下面三个任务正是 agent-proxy gate 所验的内容
-（`doc/onboarding/agent-proxy-gate.md`）。
+源码。下面三个任务就是这条路径。
 
 ### 1. 第一条 topic（scaffold -> run）
 
-Scaffold 一个 consumer workspace；base 示例已预填进 `src/isaac/`，开箱即跑：
+`new-workspace.sh` scaffold 已移除（#326）；从本 repo 根目录执行：
 
 ```bash
-script/new-workspace.sh my-robot-ws
-cd my-robot-ws
 just setup && just build && just run
 ```
 

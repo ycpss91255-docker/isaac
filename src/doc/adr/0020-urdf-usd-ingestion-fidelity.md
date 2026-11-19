@@ -251,9 +251,9 @@ drivers, logs committed beside them:
   decomposition is not "letting everything through", it is open where the pallet is open and solid
   where it is solid.
 - *The hard-coded `convexHull`, measured rather than read.*
-  `test/verify_urdf_mesh_collision_path.py` exports the same real pallet mesh to OBJ, wraps it in a
+  [`verify_urdf_mesh_collision_path.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_urdf_mesh_collision_path.py) (in `isaac_physics_test`) exports the same real pallet mesh to OBJ, wraps it in a
   URDF `<collision><mesh>`, and pushes it through `model_import._convert_urdf`
-  (`test/.verify-urdf-mesh-collision.json`): the produced USD comes back with approximation
+  ([`.verify-urdf-mesh-collision.json`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/.verify-urdf-mesh-collision.json)): the produced USD comes back with approximation
   `convexHull` and **0 open cells** on its entry face. There is no route for an author to request a
   different approximation from the URDF -- which is what makes box-union the only authoring form
   that survives our own pipeline.
@@ -263,10 +263,10 @@ drivers, logs committed beside them:
 - Multiple `<box>` `<collision>` per link are all preserved as analytic `UsdGeom.Cube` + plain
   `UsdPhysics.CollisionAPI` (`PxBoxGeometry`) -- no `MeshCollisionAPI` / `approximation` -- placed
   directly under the link (there is **no `colliders` Scope** in 6.0.1), no ghost/duplicate
-  colliders. (`test/verify_collision_import.py`)
+  colliders. ([`verify_collision_import.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_collision_import.py), in `isaac_physics_test`)
 - Link origin and CAD mass/inertia survive conversion unchanged: mass exact, `diagonalInertia`
   equals the URDF tensor (not recomputed), collider world origin equals the authored origin.
-  (`test/verify_import_fidelity.py`)
+  ([`verify_import_fidelity.py`](https://github.com/ycpss91255-docker/isaac_physics_test/blob/main/test/verify_import_fidelity.py), in `isaac_physics_test`)
 
 **Contact offset.** "The tine won't enter" has two independent causes with identical symptoms:
 (a) wrong geometry (pocket filled -- visible in the collision view) and (b) contact offset too

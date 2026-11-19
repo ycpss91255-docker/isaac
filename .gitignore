@@ -40,10 +40,6 @@ log/
 test/.gpu-pytest-report.xml
 test/.xc-pytest-report.xml
 
-# Scaffold GPU-smoke throwaway workspace (test_scaffold_smoke.py, #134).
-# The fixture writes + cleans this up; ignored as defense if a run aborts.
-test/.scaffold-smoke/
-
 .setup.conf.bak
 .setup.conf.local
 /deploy/
