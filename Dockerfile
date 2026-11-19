@@ -425,6 +425,9 @@ RUN shellcheck -S warning /lint/hooks/pre/*.sh /lint/hooks/post/*.sh
 # stream_smoke.sh -> stream_smoke_lib.sh.
 COPY script/ci /lint/ci
 RUN shellcheck -S warning -x /lint/ci/*.sh
+# [#368] Repo git helpers (script/git/).
+COPY script/git /lint/git
+RUN shellcheck -S warning -x /lint/git/*.sh
 WORKDIR /lint
 RUN hadolint Dockerfile
 
@@ -455,6 +458,9 @@ ENV BATS_LIB_PATH="/usr/lib/bats"
 COPY .base/dist/test/bats/smoke/shared/ /smoke_test/
 COPY .base/dist/test/bats/smoke/devel-test/ /smoke_test/
 COPY test/bats/smoke/ /smoke_test/
+# [isaac#402] Workflow files baked so workflow_pin_spec.bats cannot pass vacuously
+# on a missing directory (bats runs non-recursively, so this is not a spec).
+COPY .github/workflows/ /smoke_test/workflows/
 # [#104] Shared host.yaml parser, baked next to host_yaml_spec.bats.
 COPY script/host_yaml.sh /smoke_test/host_yaml.sh
 # [#233] Tier A stream-smoke decision logic (client-connect sequence +
@@ -491,6 +497,13 @@ COPY --chmod=0755 script/checkout_identity.sh /smoke_test/checkout_identity.sh
 # assert_pytest_baseline_isolation_spec.bats so the spec can exercise its
 # --gpu `run.sh -t test` invocation against a stub run.sh (no docker, no GPU).
 COPY --chmod=0755 test/assert_pytest_baseline.sh /smoke_test/assert_pytest_baseline.sh
+# [#368] Worktree-cleanup git helpers, baked next to
+# cleanup_merged_worktree_spec.bats (stub gh + throwaway repo, no network).
+COPY --chmod=0755 script/git/cleanup-merged-worktree.sh /smoke_test/cleanup-merged-worktree.sh
+# [#368] cleanup-merged-all.sh (the script behind `just cleanup-merged`).
+COPY --chmod=0755 script/git/cleanup-merged-all.sh /smoke_test/cleanup-merged-all.sh
+# [#368] merge-train.sh (stub gh / cleanup), baked next to merge_train_spec.bats.
+COPY --chmod=0755 script/git/merge-train.sh /smoke_test/merge-train.sh
 
 ARG USER="${USER_NAME}"
 USER "${USER}"
@@ -563,10 +576,14 @@ CMD ["sleep", "infinity"]
 # src/ is not carried by any base stage (it is bind-mounted at runtime for
 # the devel / headless / stream stages), so the single driver file is COPY'd
 # in explicitly here. COPY writes as the builder (not the image USER), so it
-# lands root-owned 0644 (world-readable) under /opt without a USER switch;
-# /isaac-sim/python.sh reads it fine. The driver reads PUBLIC_IP /
-# ISAAC_SIGNAL_PORT from env (its argparse defaults); ISAAC_LIVESTREAM=2 is
-# inherited from the stream stage.
+# lands root-owned under /opt without a USER switch.
+#
+# The COPY mode must keep the execute bit for group/other (0755, not 0644):
+# the published :0.0.1 image had /opt/isaac-producer at 0644, which the
+# non-root image USER could not traverse, so CMD exited 1 (isaac#244).
+#
+# The driver reads PUBLIC_IP / ISAAC_SIGNAL_PORT from env (its argparse
+# defaults); ISAAC_LIVESTREAM=2 is inherited from the stream stage.
 FROM stream AS producer
 
 # What this image is, in the image, so nobody has to run an 18 GB container to
@@ -588,7 +605,7 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.source="https://github.com/ycpss91255-docker/isaac"
 LABEL org.opencontainers.image.description="Deterministic WebRTC stream-source producer for downstream viewer e2e (isaac#223)"
 
-COPY --chmod=0644 src/script/stream_source_producer.py \
+COPY --chmod=0755 src/script/stream_source_producer.py \
      /opt/isaac-producer/stream_source_producer.py
 
 ENV PUBLIC_IP="" \

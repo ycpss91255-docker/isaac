@@ -28,6 +28,7 @@ is the import / CLI surface, which these tests pin:
 """
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -225,7 +226,7 @@ _PUBLISH_SCRIPT = _REPO_ROOT / "script" / "ci" / "publish_stream_source.sh"
 # Every self-hosted job in the org goes through this one reusable workflow
 # (the runner group is locked to it); it targets the self-hosted GPU pool.
 _GPU_REUSABLE = (
-    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.3.0"
+    "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0"
 )
 
 
@@ -336,3 +337,16 @@ def test_the_publish_script_refuses_a_bad_tag_before_docker(tmp_path):
         assert result.returncode == 2, (bad, result.stderr)
         assert "IMAGE_TAG must be a docker tag" in result.stderr
     assert not calls.exists(), calls.read_text()
+
+
+def test_the_producer_copy_is_traversable_by_the_image_user():
+    # isaac#244: `COPY --chmod=<mode>` also sets the implicitly created
+    # parent dir (/opt/isaac-producer); a directory needs x to be searched,
+    # so a mode without group+other r-x locks out the non-root image USER.
+    text = (_REPO_ROOT / "Dockerfile").read_text()
+    stage = text.split("FROM stream AS producer", 1)[1].split("\nFROM ", 1)[0]
+    modes = re.findall(r"^COPY\s+--chmod=(\d+)\s", stage, re.MULTILINE)
+    assert modes, "producer stage has no COPY --chmod"
+    for mode in modes:
+        # 0o055 = r-x for group and other (worked constant, not derived).
+        assert int(mode, 8) & 0o055 == 0o055, mode
