@@ -123,6 +123,6 @@ remains the same.
 
 - isaac#309 -- repo split tracking.
 - ADR-0023 -- Python as sole external interface.
-- ADR-0006 -- per-sensor YAML camera config.
-- ADR-0010 -- isaac_devkit standardized development environment.
+- ADR-0006 (in isaac_physics_test) -- per-sensor YAML camera config.
+- ADR-0010 (in isaac_physics_test) -- isaac_devkit standardized development environment.
 - ADR-0017 section 8 -- import-safety invariant.
