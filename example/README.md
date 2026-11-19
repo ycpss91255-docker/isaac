@@ -15,8 +15,7 @@ own robot, **without reading framework source**.
 
 The onboarding success metric is: scaffold a workspace, run it, swap the
 robot, swap a sensor -- all by editing files in this `example/`, never by
-reading `framework/` source. The three tasks below are exactly what the
-agent-proxy gate exercises (`doc/onboarding/agent-proxy-gate.md`).
+reading `framework/` source. The three tasks below walk that path.
 
 ### 1. First topic (scaffold -> run)
 

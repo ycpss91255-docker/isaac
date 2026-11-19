@@ -287,7 +287,10 @@
 #   tests (test_new_workspace_scaffold.py) -- an intentional ratchet DOWN
 #   503 -> 480 (the real count), not lost coverage. Earlier #134 scaffold
 #   mentions above are historical.
-HOSTED_UNIT_BASELINE = 480
+# isaac#326 unit 2: the onboarding agent-proxy gate removed with its 13 hosted
+#   structure-check tests (test_onboarding_gate.py) -- an intentional ratchet
+#   DOWN 480 -> 467 (the real count), not lost coverage.
+HOSTED_UNIT_BASELINE = 467
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
