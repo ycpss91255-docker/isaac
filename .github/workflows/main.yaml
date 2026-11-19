@@ -50,6 +50,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history: the AI-attribution check below walks base..head.
+          fetch-depth: 0
+
+      # isaac#413: no commit of the PR may carry an AI attribution. Range is
+      # base..head of the PR, so main's pre-existing history is not scanned.
+      - name: PR commits carry no AI attribution
+        if: github.event_name == 'pull_request'
+        run: >-
+          python3 script/ci/check_no_ai_attribution.py
+          "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
       # The four READMEs' producer version table is generated, not written.
       # They carried `:0.0.1` for as long as `:0.0.2` existed, which is what a

@@ -266,7 +266,10 @@
 #   is now 462 -- the enforced floor.
 #   Planar-script extraction merged with main (isaac#342): main's 462 minus the 10
 #   removed planar guards = 452 (confirmed against the real hosted count).
-HOSTED_UNIT_BASELINE = 452
+#
+#   PR commit AI-attribution check (isaac#413): adds 10 hosted tests
+#   (test_no_ai_attribution.py). Live count is now 462 -- the enforced floor.
+HOSTED_UNIT_BASELINE = 462
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
