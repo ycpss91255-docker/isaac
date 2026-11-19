@@ -15,8 +15,8 @@ Backward compatibility: ``load_config``, ``get_category``,
 callers (scene.py, example drivers, shim scripts) continue to work.
 
 Schema rules:
-  - ADR-0006 (camera): src/doc/adr/0006-per-sensor-yaml-camera-config.md
-  - ADR-0010 L3 (lidar/imu): src/doc/adr/0010-isaac-dev-kit-*.md
+  - ADR-0006 (camera): isaac_physics_test:src/doc/adr/0006-per-sensor-yaml-camera-config.md
+  - ADR-0010 L3 (lidar/imu): isaac_physics_test:src/doc/adr/0010-isaac-dev-kit-*.md
   - ADR-0024 (three-layer split): src/doc/adr/0024-sensor-three-layer-split.md
 
 Usage from a SimulationApp standalone driver:

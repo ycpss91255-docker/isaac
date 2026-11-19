@@ -115,7 +115,7 @@ After the four steps above, the dispatch in `script/camera_setup.py` should boot
 ```bash
 cd isaac_ws/src/docker
 just docker exec -t stream /isaac-sim/python.sh \
-    /home/yunchien/work/src/script/forklift_blocky_driver_wip.py \
+    /home/yunchien/work/src/script/<your_driver>.py \
     --config /home/yunchien/work/src/config/camera/zed.yaml
 ```
 
@@ -132,4 +132,4 @@ The driver log should show `camera graph created at /World/CameraGraphs/forklift
 - Stereolabs ZED Isaac Sim repo: <https://github.com/stereolabs/zed-isaac-sim>
 - Stereolabs ZED Sim extension overview: <https://www.stereolabs.com/docs/isaac-sim>
 - ZED ROS 2 wrapper: <https://github.com/stereolabs/zed-ros2-wrapper>
-- ADR-0006 — per-sensor-type YAML config (zed schema lives there)
+- ADR-0006 (in isaac_physics_test) — per-sensor-type YAML config (zed schema lives there)

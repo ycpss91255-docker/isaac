@@ -19,11 +19,12 @@ changing the YAML schema or this adapter contract.
 Usage from an IsaacDriver subclass:
 
     from isaac_devkit.scene import load_scene, build_scene
-    scene = load_scene("scene/warehouse_pushback.yaml", repo_root)
+    scene = load_scene("scene/sensor_test_bench.yaml", repo_root)
     build_scene(scene, stage, repo_root)
 """
 
 import math
+import os
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -85,30 +86,107 @@ def _validate_scene(scene, source):
             raise ValueError(f"{source}: objects[{i}] needs 'pose'")
 
 
-def resolve_model_path(model_rel, repo_root):
-    """Resolve a repo-relative model path to absolute.
+def _model_search_roots(repo_root):
+    """Return the list of directories to search for relative model paths.
 
-    model_rel is normally relative to ``model/usd/`` (e.g.
-    "robot/openbase/openbase.usd"). As a transition shim it also accepts a
-    value that already carries the ``model/usd/`` segment (the example
-    scene's robot entry uses "model/usd/robot/camera_bot/camera_bot.usd"
-    while its object entry uses the bare "object/prop_cube/prop_cube.usda"
-    -- both resolve correctly under ``<repo_root>/model/usd/``). #154
-    normalizes the example scene to the bare convention when it rewrites
-    the example driver onto this adapter.
+    When the ``MODEL_PATH`` environment variable is set, its colon-separated
+    entries are searched in order. Otherwise, the legacy
+    ``<repo_root>/model/usd/`` directory is used as the sole search root so
+    that existing callers continue to work without any configuration.
+    """
+    env = os.environ.get("MODEL_PATH", "")
+    if env:
+        return [Path(p) for p in env.split(":") if p]
+    return [Path(repo_root) / "model" / "usd"]
+
+
+def _resolve_package_uri(uri, roots):
+    """Resolve a ``package://<pkg>/<rel>`` URI under the MODEL_PATH roots.
+
+    For each root, checks whether ``<root>/<pkg>/package.xml`` exists (the
+    same ``package.xml``-required convention as
+    ``model_import._resolve_package_dir`` from #267). The first root whose
+    ``<pkg>/`` carries a ``package.xml`` **and** the target file is used.
+
+    PURE apart from filesystem existence checks -- no Isaac import.
+
+    Raises:
+        FileNotFoundError: naming the package and listing the searched roots.
+    """
+    # "package://my_pkg/urdf/robot.usd" -> pkg="my_pkg", rel="urdf/robot.usd"
+    stripped = uri[len("package://"):]
+    pkg, _, rel = stripped.partition("/")
+    if not pkg or not rel:
+        raise FileNotFoundError(
+            f"malformed package URI: '{uri}' "
+            "(expected package://<package>/<path>)"
+        )
+
+    for root in roots:
+        pkg_dir = root / pkg
+        if (pkg_dir / "package.xml").is_file():
+            candidate = pkg_dir / rel
+            if candidate.exists():
+                return candidate
+
+    searched = ", ".join(str(r) for r in roots)
+    raise FileNotFoundError(
+        f"model not found: package '{pkg}' (from '{uri}') not resolved "
+        f"under any search root (searched: {searched})"
+    )
+
+
+def resolve_model_path(model_rel, repo_root):
+    """Resolve a model path to absolute using the MODEL_PATH search roots.
+
+    Accepted forms:
+
+    * **absolute path** -- returned as-is if it exists.
+    * **package:// URI** -- ``package://<pkg>/<rel>`` is resolved by
+      scanning each MODEL_PATH root for a ``<pkg>/`` directory that
+      carries a ``package.xml`` (the same convention as
+      ``model_import._resolve_package_dir`` from #267).
+    * **relative path** -- searched under each MODEL_PATH root (or the
+      legacy ``<repo_root>/model/usd/`` fallback).
+
+    As a transition shim the function also accepts a relative path that
+    already carries the ``model/usd/`` segment; it strips the prefix
+    before searching so that the same relative tail is looked up
+    everywhere.
+
+    Raises:
+        FileNotFoundError: with a message that lists every root searched.
     """
     model_rel = str(model_rel)
-    base = Path(repo_root)
-    if model_rel.startswith("model/usd/"):
-        resolved = base / model_rel
-    else:
-        resolved = base / "model" / "usd" / model_rel
-    if not resolved.exists():
-        raise FileNotFoundError(
-            f"model not found: {resolved} "
-            f"(from model_rel='{model_rel}', repo_root='{repo_root}')"
-        )
-    return resolved
+
+    # Absolute paths bypass the search entirely.
+    if os.path.isabs(model_rel):
+        p = Path(model_rel)
+        if p.exists():
+            return p
+        raise FileNotFoundError(f"model not found: {p}")
+
+    roots = _model_search_roots(repo_root)
+
+    # package:// URIs are resolved via package.xml scanning.
+    if model_rel.startswith("package://"):
+        return _resolve_package_uri(model_rel, roots)
+
+    # Strip the legacy prefix so the search root can vary.
+    rel = model_rel
+    if rel.startswith("model/usd/"):
+        rel = rel[len("model/usd/"):]
+
+    for root in roots:
+        candidate = root / rel
+        if candidate.exists():
+            return candidate
+
+    searched = ", ".join(str(r) for r in roots)
+    raise FileNotFoundError(
+        f"model not found: '{rel}' not in any search root "
+        f"(searched: {searched})"
+    )
 
 
 def generate_instances(entry):
