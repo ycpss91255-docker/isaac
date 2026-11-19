@@ -1,6 +1,6 @@
 # TEST.md
 
-**146 tests** total.
+**154 tests** total.
 
 ## test/bats/smoke/host_yaml_spec.bats (16)
 
@@ -234,6 +234,21 @@ Behavioral guard for the self-hosted GPU job scripts (`script/ci/gpu_integration
 | `gpu_job_cache_dirs makes the workspace world-writable (rootless Docker)` | Creates a restricted-permission file and directory, runs the integration job, and asserts both are widened to include other-read-write (and execute for directories) by the `chmod -R a+rwX` at the end of `gpu_job_cache_dirs`. On a rootless Docker daemon the container's non-root user maps to a host subuid, so the mounted workspace must be world-writable. |
 | `stream smoke job: a failed smoke fails the job and prints the full kit log` | A failing smoke exits with its status and prints the kit log. |
 | `stream smoke job: a failed smoke with no kit log still fails with the smoke's status` | A failing smoke with no log file still exits with the smoke's exit code. |
+
+## test/bats/smoke/cleanup_merged_worktree_spec.bats (8)
+
+Behavioral guard for `script/git/cleanup-merged-worktree.sh` (#368). Hermetic: a throwaway repo (bare origin + clone + sibling `worktree/` dir) is built in `BATS_TEST_TMPDIR` and `gh` is a stub printing a canned `state<TAB>branch<TAB>oid` line. No docker, no network, no real worktree is touched.
+
+| Test | Description |
+|------|-------------|
+| `cleanup: dirty worktree -> SKIP dirty, nothing removed` | A modified tracked file yields `SKIP dirty`; the worktree and branch remain. |
+| `cleanup: untracked file also counts as dirty` | An untracked file also yields `SKIP dirty`. |
+| `cleanup: unpushed commit -> SKIP unpushed, nothing removed` | A local commit beyond the PR `headRefOid` yields `SKIP unpushed`. |
+| `cleanup: PR not merged -> SKIP not-merged, nothing removed` | An OPEN PR yields `SKIP not-merged`. |
+| `cleanup: all checks pass -> worktree and branch removed, removed=1` | The worktree directory, its `git worktree list` entry and the local branch are gone; output carries `removed=1`. |
+| `cleanup: root-owned files -> SKIP root-owned files + fix command, nothing else removed` | A `git worktree remove` that fails with "Permission denied" (stub) prints `SKIP root-owned files` and a `chown -R` fix command; worktree and branch remain. |
+| `cleanup: worktree outside the worktree root -> SKIP outside-worktree-root` | A worktree not under `<main>/../worktree` is left alone. |
+| `cleanup: no PR number -> usage, exit 2` | Missing argument prints usage and exits 2. |
 
 ## test/bats/smoke/workflow_pin_spec.bats (1)
 
