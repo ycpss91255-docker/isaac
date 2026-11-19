@@ -102,6 +102,7 @@ jobs:
     with:
       run-script: ./script/ci/gpu_integration_job.sh
       timeout-minutes: 30
+      reap-container-filter: label=com.docker.compose.project=isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}
 
   call-release:
     needs: call-docker-build

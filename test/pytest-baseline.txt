@@ -297,9 +297,17 @@
 #   user). Live count is now 468 after the merge with main -- the enforced floor.
 #
 #   Pinning every gpu-self-hosted.yml caller to @v0.4.0 (isaac#402) adds 2
-#   (test_workflow_pins.py, new). Live count is now 470 after the merge with
-#   main (468 + 2) -- the enforced floor.
-HOSTED_UNIT_BASELINE = 470
+#   (test_workflow_pins.py, new). Live count is now 454.
+#
+#   Run-scoped reap filter (isaac#344) adds 1 (test_workflow_pins.py 3 tests).
+#   Live count is now 455.
+#
+#   Run-scoped reap filter bound to the script's BASELINE_PROJECT (isaac#344)
+#   adds 1 (test_workflow_pins.py 4 tests). Live count is now 456 -- the
+#   enforced floor.
+#   Merged with main (470 + 2 from this PR): live count is now 472 -- the
+#   enforced floor.
+HOSTED_UNIT_BASELINE = 472
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is

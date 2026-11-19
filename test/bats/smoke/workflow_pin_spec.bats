@@ -57,3 +57,74 @@ setup() {
     return 1
   fi
 }
+
+# --- isaac#344: run-scoped reap-container-filter on gpu-integration ---------
+# The reusable's cancel-safe "Remove run containers" step only runs when the
+# caller passes reap-container-filter; unset, a cancelled run leaks its
+# containers.  The workflow is parsed with a real YAML loader (never grepped),
+# so a value under env:, in a comment or in another job cannot satisfy it.
+
+_yaml_python() {
+  local py
+  for py in /isaac-sim/python.sh python3; do
+    if "${py}" -c 'import yaml' >/dev/null 2>&1; then
+      echo "${py}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Print one field of the gpu-integration job in main.yaml.
+_gpu_integration_field() {
+  local py
+  py="$(_yaml_python)" || { echo "no python with PyYAML"; return 1; }
+  "${py}" -c '
+import sys, yaml
+job = yaml.safe_load(open(sys.argv[1]))["jobs"]["gpu-integration"]
+field = sys.argv[2]
+print(job["uses"] if field == "uses" else job["with"][field])
+' "${WORKFLOW_DIR}/main.yaml" "$1"
+}
+
+@test "gpu-integration passes the run-scoped reap-container-filter" {
+  run _gpu_integration_field uses
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0" ]
+
+  run _gpu_integration_field reap-container-filter
+  [ "${status}" -eq 0 ]
+  [ "${output}" = 'label=com.docker.compose.project=isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}' ]
+}
+
+@test "reap-container-filter names the BASELINE_PROJECT gpu_integration_job.sh runs" {
+  local src fake
+  if [ -f "${BATS_TEST_DIRNAME}/gpu_integration_job.sh" ]; then
+    src="${BATS_TEST_DIRNAME}"
+  else
+    src="${BATS_TEST_DIRNAME}/../../../script/ci"
+  fi
+  fake="$(mktemp -d)"
+  mkdir -p "${fake}/script/ci" "${fake}/test"
+  cp "${src}/gpu_job_lib.sh" "${src}/gpu_integration_job.sh" "${fake}/script/ci/"
+  printf '#!/usr/bin/env bash\nprintf "WS_PATH=/x\\n" > .env.generated\n' > "${fake}/script/setup.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${fake}/script/build.sh"
+  printf '#!/usr/bin/env bash\necho "${BASELINE_PROJECT}" > "${OBSERVED}"\n' \
+    > "${fake}/test/assert_pytest_baseline.sh"
+  chmod +x "${fake}"/script/*.sh "${fake}"/script/ci/*.sh "${fake}"/test/*.sh
+
+  GITHUB_WORKSPACE="${fake}" GITHUB_RUN_ID=111 GITHUB_RUN_ATTEMPT=2 \
+    OBSERVED="${fake}/observed.txt" \
+    bash "${fake}/script/ci/gpu_integration_job.sh" >/dev/null
+  local project
+  project="$(cat "${fake}/observed.txt")"
+  [ -n "${project}" ]
+
+  run _gpu_integration_field reap-container-filter
+  [ "${status}" -eq 0 ]
+  local rendered="${output}"
+  rendered="${rendered//'${{ github.run_id }}'/111}"
+  rendered="${rendered//'${{ github.run_attempt }}'/2}"
+  [ "${rendered}" = "label=com.docker.compose.project=${project}" ]
+  rm -rf "${fake}"
+}
