@@ -326,7 +326,8 @@
 #   now 519 -- the enforced floor.
 #   ISAAC_KIT_EXTRA_ARGS (isaac#422): +7 hosted (test_isaac_driver.py); live 526.
 #   ISAAC_IO_PLUGIN (isaac#423): +10 hosted (test_isaac_driver.py); live 536.
-HOSTED_UNIT_BASELINE = 536
+# isaac#427: test_stage_structure.py (4 tests) -- ratchet UP 536 -> 540.
+HOSTED_UNIT_BASELINE = 540
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
