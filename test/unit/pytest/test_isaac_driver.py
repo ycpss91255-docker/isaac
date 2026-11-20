@@ -398,3 +398,88 @@ class TestLifecycleOrderSpy:
 
         _OkDriver().run()
         assert "Traceback" not in capsys.readouterr().err
+
+
+class TestKitExtraArgs:
+    """``ISAAC_KIT_EXTRA_ARGS`` is split with ``str.split()`` and appended
+    to the argv ``AppLauncher`` sees, after the boot ``--enable`` args and
+    inside the save/restore window (isaac#422)."""
+
+    BOOT = id_mod.boot_extension_kit_args(id_mod.IsaacDriver.BOOT_EXTENSIONS)
+
+    def _run_capturing_argv(self, monkeypatch):
+        """Run a driver and return the sys.argv seen at AppLauncher time."""
+        seen = []
+        pkg = types.ModuleType("isaaclab")
+        pkg.__path__ = []
+        app_mod = types.ModuleType("isaaclab.app")
+
+        class _App:
+            def is_running(self):
+                return False
+
+            def update(self):
+                pass
+
+            def close(self):
+                pass
+
+        class _Launcher:
+            def __init__(self, _args):
+                seen.append(list(sys.argv))
+                self.app = _App()
+
+        app_mod.AppLauncher = _Launcher
+        monkeypatch.setitem(sys.modules, "isaaclab", pkg)
+        monkeypatch.setitem(sys.modules, "isaaclab.app", app_mod)
+        monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
+        monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
+        monkeypatch.setattr(sys, "argv", ["prog"])
+
+        class _Driver(id_mod.IsaacDriver):
+            USD = "model/usd/robot/foo/foo.usd"
+
+            def _open_stage(self):
+                return object()
+
+            def _ensure_scene_defaults(self, stage):
+                pass
+
+            def _play_timeline(self):
+                pass
+
+        _Driver().run()
+        assert len(seen) == 1
+        return seen[0]
+
+    def test_unset_adds_nothing(self, monkeypatch):
+        monkeypatch.delenv("ISAAC_KIT_EXTRA_ARGS", raising=False)
+        assert self._run_capturing_argv(monkeypatch) == ["prog"] + self.BOOT
+
+    @pytest.mark.parametrize("value", ["", "   ", " \t\n "])
+    def test_empty_or_whitespace_adds_nothing(self, monkeypatch, value):
+        monkeypatch.setenv("ISAAC_KIT_EXTRA_ARGS", value)
+        assert self._run_capturing_argv(monkeypatch) == ["prog"] + self.BOOT
+
+    def test_single_arg_follows_boot_args(self, monkeypatch):
+        monkeypatch.setenv("ISAAC_KIT_EXTRA_ARGS", "--/app/isaac_test/marker=1")
+        assert self._run_capturing_argv(monkeypatch) == (
+            ["prog"] + self.BOOT + ["--/app/isaac_test/marker=1"]
+        )
+
+    def test_multiple_args_split_on_whitespace(self, monkeypatch):
+        monkeypatch.setenv(
+            "ISAAC_KIT_EXTRA_ARGS", "  --/app/a=1\t--/app/b=2   --enable x "
+        )
+        got = self._run_capturing_argv(monkeypatch)
+        # 1 prog + boot tokens + 4 extra tokens.
+        assert len(got) == 1 + len(self.BOOT) + 4
+        assert got == (
+            ["prog"] + self.BOOT
+            + ["--/app/a=1", "--/app/b=2", "--enable", "x"]
+        )
+
+    def test_argv_restored_after_run(self, monkeypatch):
+        monkeypatch.setenv("ISAAC_KIT_EXTRA_ARGS", "--/app/a=1")
+        self._run_capturing_argv(monkeypatch)
+        assert sys.argv == ["prog"]

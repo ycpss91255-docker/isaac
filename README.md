@@ -291,6 +291,18 @@ The kit terminal should print `[ros2_test_sub] /host/test <- 'hello-from-host'`.
 
 `src/script/` ships in-kit Script Editor versions of the M1 / M2 demos and standalone equivalents. The standalone ones boot their own Kit through `SimulationApp`, following the stage's `ISAAC_LIVESTREAM` (`headless` 0, `stream` 2). Each standalone script takes `--run-seconds N`, and it exits 1 on any error (it used to exit 0).
 
+
+#### Extra Kit arguments (`ISAAC_KIT_EXTRA_ARGS`)
+
+`IsaacDriver.run` reads `ISAAC_KIT_EXTRA_ARGS`, splits it on whitespace, and appends the tokens to the Kit arguments it boots with (after the built-in boot arguments). Unset, empty or whitespace-only leaves behaviour unchanged. Only `IsaacDriver` reads this variable; `example_driver.py`, `model_import`, `stream_source_producer` and the scripts under `src/script/` do not support it.
+
+```bash
+export ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1'
+/isaac-sim/python.sh my_driver.py
+# or, on one line:
+ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1' /isaac-sim/python.sh my_driver.py
+```
+
 | In-kit (Script Editor → File → Open → Run) | Standalone (`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`) | Verified on 6.2.0 (headless) |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`: publishes `/isaac/test` once per second | `ros2 topic hz` 1.000 |

@@ -250,6 +250,9 @@ class IsaacDriver:
         # else parsing argv.
         _saved_argv = list(sys.argv)
         sys.argv += boot_extension_kit_args(self.BOOT_EXTENSIONS)
+        # ISAAC_KIT_EXTRA_ARGS: extra Kit args (whitespace-split) appended
+        # after the boot args, inside the same restore window (isaac#422).
+        sys.argv += os.environ.get("ISAAC_KIT_EXTRA_ARGS", "").split()
         try:
             self._app_launcher = AppLauncher(launcher_args)
         finally:
