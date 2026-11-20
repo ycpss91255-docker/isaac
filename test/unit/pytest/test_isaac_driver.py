@@ -483,3 +483,116 @@ class TestKitExtraArgs:
         monkeypatch.setenv("ISAAC_KIT_EXTRA_ARGS", "--/app/a=1")
         self._run_capturing_argv(monkeypatch)
         assert sys.argv == ["prog"]
+
+
+class TestIoPlugin:
+    """``ISAAC_IO_PLUGIN=module:function`` is imported and called once with
+    ``(stage, robot_prim, config)`` after the stage is built and before the
+    timeline plays (isaac#423)."""
+
+    USD = "model/usd/robot/foo/foo.usd"
+
+    class _Prim:
+        def __init__(self, path):
+            self._path = path
+
+        def GetPath(self):
+            return self._path
+
+    class _Stage:
+        def GetDefaultPrim(self):
+            return TestIoPlugin._Prim("/foo")
+
+    def _run(self, monkeypatch, calls):
+        pkg, app_mod = TestLifecycleOrderSpy._fake_isaaclab_app(calls)
+        monkeypatch.setitem(sys.modules, "isaaclab", pkg)
+        monkeypatch.setitem(sys.modules, "isaaclab.app", app_mod)
+        monkeypatch.delenv("ISAAC_LIVESTREAM", raising=False)
+        monkeypatch.setattr(id_mod.signal, "signal", lambda *_args: None)
+        stage = self._Stage()
+        usd = self.USD
+
+        class _Driver(id_mod.IsaacDriver):
+            USD = usd
+
+            def _open_stage(self):
+                calls.append("open_stage")
+                return stage
+
+            def _ensure_scene_defaults(self, _stage):
+                calls.append("ensure_scene_defaults")
+
+            def _play_timeline(self):
+                calls.append("play_timeline")
+
+            def setup(self, _stage):
+                calls.append("setup")
+
+        _Driver().run()
+        return stage
+
+    def _install_plugin(self, monkeypatch, calls, name="fake_io_plugin"):
+        mod = types.ModuleType(name)
+
+        def plugin(stage, robot_prim, config):
+            calls.append(("plugin", stage, robot_prim, config))
+
+        mod.plugin = plugin
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    def test_unset_does_not_call_plugin(self, monkeypatch):
+        calls = []
+        self._install_plugin(monkeypatch, calls)
+        monkeypatch.delenv("ISAAC_IO_PLUGIN", raising=False)
+        self._run(monkeypatch, calls)
+        assert not [c for c in calls if isinstance(c, tuple)]
+
+    def test_empty_does_not_call_plugin(self, monkeypatch):
+        calls = []
+        self._install_plugin(monkeypatch, calls)
+        monkeypatch.setenv("ISAAC_IO_PLUGIN", "")
+        self._run(monkeypatch, calls)
+        assert not [c for c in calls if isinstance(c, tuple)]
+
+    def test_called_once_before_play_with_expected_args(self, monkeypatch):
+        calls = []
+        self._install_plugin(monkeypatch, calls)
+        monkeypatch.setenv("ISAAC_IO_PLUGIN", "fake_io_plugin:plugin")
+        stage = self._run(monkeypatch, calls)
+
+        plugin_calls = [c for c in calls if isinstance(c, tuple)]
+        assert len(plugin_calls) == 1
+        _, got_stage, robot_prim, config = plugin_calls[0]
+        assert got_stage is stage
+        assert robot_prim == "/foo"
+        assert isinstance(config, dict)
+        assert config["robot_prim"] == "/foo"
+        names = [c if isinstance(c, str) else "plugin" for c in calls]
+        assert names.index("ensure_scene_defaults") < names.index("plugin")
+        assert names.index("plugin") < names.index("play_timeline")
+        assert names.index("plugin") < names.index("setup")
+
+    @pytest.mark.parametrize("value", [
+        "no_colon", ":func", "mod:", "a:b:c", "mod :func",
+    ])
+    def test_bad_format_fails_with_clear_message(self, monkeypatch, value):
+        calls = []
+        monkeypatch.setenv("ISAAC_IO_PLUGIN", value)
+        with pytest.raises(RuntimeError, match="ISAAC_IO_PLUGIN.*module:function"):
+            self._run(monkeypatch, calls)
+        assert "play_timeline" not in calls
+
+    def test_missing_module_fails_with_clear_message(self, monkeypatch):
+        calls = []
+        monkeypatch.setenv("ISAAC_IO_PLUGIN", "no_such_io_module_423:f")
+        with pytest.raises(RuntimeError, match="no_such_io_module_423.*import"):
+            self._run(monkeypatch, calls)
+        assert "play_timeline" not in calls
+
+    def test_missing_function_fails_with_clear_message(self, monkeypatch):
+        calls = []
+        self._install_plugin(monkeypatch, calls)
+        monkeypatch.setenv("ISAAC_IO_PLUGIN", "fake_io_plugin:nope")
+        with pytest.raises(RuntimeError, match="nope.*fake_io_plugin"):
+            self._run(monkeypatch, calls)
+        assert "play_timeline" not in calls
