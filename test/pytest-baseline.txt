@@ -325,7 +325,8 @@
 #   (test_no_ai_attribution.py). Merged with main (509 + 10) live count is
 #   now 519 -- the enforced floor.
 #   ISAAC_KIT_EXTRA_ARGS (isaac#422): +7 hosted (test_isaac_driver.py); live 526.
-HOSTED_UNIT_BASELINE = 526
+#   ISAAC_IO_PLUGIN (isaac#423): +10 hosted (test_isaac_driver.py); live 536.
+HOSTED_UNIT_BASELINE = 536
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -476,7 +477,9 @@ HOSTED_UNIT_BASELINE = 526
 #   -- intentional ratchet DOWN 35 -> 32.
 # isaac#422: test_kit_extra_args_integration.py (2 tests) -- ratchet UP 36 -> 38.
 #   NOT executed locally; first proof is the CI gpu-integration job.
-GPU_INTEGRATION_BASELINE = 38
+# isaac#423: test_io_plugin_integration.py (2 tests) -- ratchet UP 38 -> 40.
+#   NOT executed locally; first proof is the CI gpu-integration job.
+GPU_INTEGRATION_BASELINE = 40
 
 # AGGREGATE_TARGET -- the PRD parity baseline (115 unit + 11 integration =
 #   126). Recorded for traceability; after the ingestion work + the owv#55

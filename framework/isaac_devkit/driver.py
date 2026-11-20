@@ -41,6 +41,7 @@ constructing the class outside Kit does not raise.
 
 from __future__ import annotations
 
+import importlib
 import os
 import signal
 import sys
@@ -52,6 +53,35 @@ from typing import Any, Dict, Optional
 # ---------------------------------------------------------------------------
 # Pure-Python helpers (host-runnable, no Isaac Sim dependency).
 # ---------------------------------------------------------------------------
+
+
+def load_io_plugin(spec: str):
+    """Resolve an ``ISAAC_IO_PLUGIN`` value (``module:function``) to a callable.
+
+    Raises ``RuntimeError`` with a message naming the variable on a bad
+    format, an unimportable module, or a missing / non-callable function.
+    """
+    parts = spec.split(":")
+    if len(parts) != 2 or not all(p and p == p.strip() and " " not in p
+                                  for p in parts):
+        raise RuntimeError(
+            f"ISAAC_IO_PLUGIN={spec!r} is malformed; expected "
+            "module:function (e.g. my_pkg.io:setup_io)"
+        )
+    module_name, func_name = parts
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise RuntimeError(
+            f"ISAAC_IO_PLUGIN: module {module_name!r} import failed: {exc}"
+        ) from exc
+    func = getattr(module, func_name, None)
+    if not callable(func):
+        raise RuntimeError(
+            f"ISAAC_IO_PLUGIN: callable {func_name!r} not found in module "
+            f"{module_name!r}"
+        )
+    return func
 
 
 def parse_livestream_env(env_value: Optional[str]) -> Dict[str, Any]:
@@ -267,6 +297,7 @@ class IsaacDriver:
         try:
             stage = self._open_stage()
             self._ensure_scene_defaults(stage)
+            self._run_io_plugin(stage)
             self._play_timeline()
             self.setup(stage)
             self.main()
@@ -345,6 +376,26 @@ class IsaacDriver:
         else:
             raise RuntimeError(f"stage at {abs_path} never reached OPENED")
         return ctx.get_stage()
+
+    def _run_io_plugin(self, stage: Any) -> None:
+        """Call the ``ISAAC_IO_PLUGIN`` hook once, before the timeline plays.
+
+        No-op when the variable is unset or empty (isaac#423). Format,
+        import and lookup errors raise here, i.e. at startup.
+        """
+        spec = os.environ.get("ISAAC_IO_PLUGIN", "")
+        if not spec:
+            return
+        plugin = load_io_plugin(spec)
+        default_prim = stage.GetDefaultPrim()
+        robot_prim = str(default_prim.GetPath()) if default_prim else "/World"
+        config = {
+            "usd_path": str(
+                resolve_repo_relative_usd(self.USD, module_file=__file__)
+            ),
+            "robot_prim": robot_prim,
+        }
+        plugin(stage, robot_prim, config)
 
     def _ensure_scene_defaults(self, stage: Any) -> None:
         """Add a SunLight if the scene does not already bring a light.

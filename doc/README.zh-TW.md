@@ -303,6 +303,17 @@ export ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1'
 ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1' /isaac-sim/python.sh my_driver.py
 ```
 
+#### 啟動插件（`ISAAC_IO_PLUGIN`）
+
+`IsaacDriver.run` 會讀取 `ISAAC_IO_PLUGIN`（`module:function`）。在 stage 建好之後、timeline play 之前，import 該 module 並呼叫一次 `function(stage, robot_prim, config)`。`config` 是 opaque dict（目前含 `usd_path` 與 `robot_prim`，即 stage 的 default prim 路徑）。未設定或空字串時不呼叫、也不 import 任何 ROS 模組。格式錯誤、module 無法 import、找不到 function，各自在啟動時失敗並指出原因。只有 `IsaacDriver.run` 支援；`example_driver.py`、`model_import`、`stream_source_producer` 與 `src/script/` 下的腳本不支援。
+
+```bash
+export ISAAC_IO_PLUGIN='my_pkg.io:setup_io'
+/isaac-sim/python.sh my_driver.py
+# 或寫成同一行：
+ISAAC_IO_PLUGIN='my_pkg.io:setup_io' /isaac-sim/python.sh my_driver.py
+```
+
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 驗證結果（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒發布一次 `/isaac/test` | `ros2 topic hz` 1.000 |

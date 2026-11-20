@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **`ISAAC_IO_PLUGIN`：IsaacDriver 在 stage 建好之後、play 之前呼叫外部插件（isaac#423）。** 變數格式 `module:function`；`IsaacDriver.run` 在 `_ensure_scene_defaults` 之後、`_play_timeline` 之前 import 該 module 並呼叫一次 `function(stage, robot_prim, config)`，`config` 為 opaque dict（目前含 `usd_path`、`robot_prim`）。未設定或空字串時不呼叫、不 import 任何 ROS 模組；格式錯誤、找不到 module、找不到 function 各自在啟動時以 `RuntimeError` 失敗並指出原因。只有 `IsaacDriver.run` 支援（README 已註明）。疊在 #422（#424）上。Hosted baseline 526 -> 536；GPU baseline 38 -> 40。
 - **`ISAAC_KIT_EXTRA_ARGS`：IsaacDriver 啟動 Kit 時可追加參數（isaac#422）。** `IsaacDriver.run` 讀取該環境變數，用 `str.split()` 切開後接在內建 boot 參數之後、同一個 `sys.argv` save/restore 範圍內；未設定、空字串或只有空白時行為與之前相同。只有 `IsaacDriver` 支援，`example_driver.py`、`model_import`、`stream_source_producer`、`src/script/` 不支援（README 已註明）。Hosted baseline 519 -> 526（`test_isaac_driver.py` +7）；GPU baseline 36 -> 38（`test_kit_extra_args_integration.py`：設定 `--/app/isaac_test/marker=1` 後以 carb settings 讀回，另有未設定時讀不到的對照）。
 - **CI 檢查：PR 的 commit 帶 AI 署名時失敗（isaac#413）。** 新增 `script/ci/check_no_ai_attribution.py`，`main.yaml` 的 `hosted-unit` 在 `pull_request` 時對 `base.sha..head.sha` 逐一檢查 commit 訊息與 author / committer：`Co-authored-by:` 後接 Claude 或 anthropic.com、`Generated with Claude Code`、`Claude-Session`（不分大小寫）、anthropic.com 的作者 / committer 信箱，命中即印出 commit sha 並以非 0 結束。範圍只含 PR 的 commit，main 上既有的 `52978e2` 不處理。checkout 改 `fetch-depth: 0` 以取得範圍。Hosted-unit baseline 452 -> 462（`test_no_ai_attribution.py` 10 個測試）。
 ### Fixed
