@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Unit guard for script/runheadless-host-config.sh -- the single place
 # that builds the Isaac Sim livestream Kit invocation (base #465/#440;

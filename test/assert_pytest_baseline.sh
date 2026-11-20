@@ -280,16 +280,28 @@ docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
     --cov=isaac_devkit --cov-report=term-missing --cov-fail-under=80
 '
 
-# Re-derive the collected count for the ratchet assertion.
-collected="$(
+# Re-derive the collected counts for the ratchet assertion: the total, and one
+# count per scope group (isaac#434, `-m <group>`). Each group has its own
+# floor, so a test deleted from one group cannot hide behind another group's
+# growth. A group with no tests makes pytest exit 5 (nothing collected); that
+# counts as 0.
+GROUPS_LIST="core gui stream headless docs"
+counts="$(
   docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
     -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
     set -eu
     pip install --quiet --user pyyaml pytest xacro numpy >/dev/null
-    python -m pytest test/unit/pytest/ --collect-only -q -p no:cacheprovider \
-      2>/dev/null | grep -c "::"
+    total="$(python -m pytest test/unit/pytest/ --collect-only -q -p no:cacheprovider \
+      2>/dev/null | grep -c "::" || true)"
+    echo "total ${total}"
+    for g in '"${GROUPS_LIST}"'; do
+      n="$(python -m pytest test/unit/pytest/ --collect-only -q -m "${g}" \
+        -p no:cacheprovider 2>/dev/null | grep -c "::" || true)"
+      echo "${g} ${n}"
+    done
   '
 )"
+collected="$(awk '$1 == "total" {print $2}' <<<"${counts}")"
 echo "hosted-unit collected = ${collected}"
 
 if (( collected < baseline )); then
@@ -297,4 +309,27 @@ if (( collected < baseline )); then
     "(ratchet violation)" >&2
   exit 1
 fi
-echo "OK: hosted-unit ${collected} >= baseline ${baseline}, all green, coverage >= 80%"
+
+group_sum=0
+for g in ${GROUPS_LIST}; do
+  key="HOSTED_UNIT_BASELINE_${g^^}"
+  floor="$(_baseline_val "${key}")"
+  if [[ -z "${floor}" ]]; then
+    echo "error: ${key} not found in ${BASELINE_FILE}" >&2
+    exit 1
+  fi
+  n="$(awk -v g="${g}" '$1 == g {print $2}' <<<"${counts}")"
+  echo "hosted-unit group ${g}: collected ${n} >= floor ${floor}"
+  if (( n < floor )); then
+    echo "error: group ${g} collected ${n} < baseline ${floor}" \
+      "(ratchet violation)" >&2
+    exit 1
+  fi
+  group_sum=$(( group_sum + n ))
+done
+if (( group_sum != collected )); then
+  echo "error: groups sum to ${group_sum} but ${collected} tests collected;" \
+    "some test has no group (set pytestmark = pytest.mark.<group>)" >&2
+  exit 1
+fi
+echo "OK: hosted-unit ${collected} >= baseline ${baseline}, every group >= its floor, all green, coverage >= 80%"

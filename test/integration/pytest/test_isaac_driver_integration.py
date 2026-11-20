@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest  # noqa: F401  (kept for fixture style consistency)
 
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_minimal_driver_runner.py"
 SCRIPT_DIR = REPO_ROOT / "framework"

@@ -11,6 +11,10 @@ import configparser
 import pathlib
 import re
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _DOCKERFILE = _REPO_ROOT / "Dockerfile"
 _SETUP_CONF = _REPO_ROOT / ".setup.conf"

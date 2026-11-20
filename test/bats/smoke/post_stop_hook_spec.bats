@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Unit guard for script/hooks/post/stop.sh (base #440 post-stop hook).
 #

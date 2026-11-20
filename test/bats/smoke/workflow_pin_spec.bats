@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Guard: every reusable-workflow reference to the org's gpu-self-hosted.yml
 # must be pinned to a release tag, never @main.

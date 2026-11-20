@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Unit guard for script/hooks/post/run.sh (base #440 post-run hook).
 #

@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import default_driver as dd  # noqa: E402
 from isaac_devkit import driver as id_mod  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 
 class TestConstruction:
     def test_is_an_isaac_driver(self):

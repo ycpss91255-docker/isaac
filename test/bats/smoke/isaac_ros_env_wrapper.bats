@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Unit tests for /usr/local/bin/isaac-ros-env-wrapper.sh — runs in
 # the test stage (FROM devel), where the wrapper has been COPY'd in

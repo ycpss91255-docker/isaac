@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Behavioral guard for test/assert_pytest_baseline.sh --gpu (owv#55 second
 # axis; the first axis was isaac#239).

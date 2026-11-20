@@ -37,6 +37,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRAMEWORK_DIR = REPO_ROOT / "framework"
 RUNNER = Path(__file__).parent / "_joint_drive_runner.py"

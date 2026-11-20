@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Behavioral guard for script/ci/stream_smoke.sh compose-project isolation
 # (remaining axis of ycpss91255-docker/omniverse_web_viewer#55).

@@ -21,6 +21,8 @@ from isaac_devkit.output_mode import (  # noqa: E402
     resolve_output_mode,
 )
 
+pytestmark = pytest.mark.core
+
 
 def test_unset_defaults_to_python():
     assert resolve_output_mode({}) == "python"

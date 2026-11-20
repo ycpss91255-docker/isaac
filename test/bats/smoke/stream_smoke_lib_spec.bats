@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Unit guard for script/ci/stream_smoke_lib.sh -- the pass/fail decision
 # logic of the Tier A stream smoke (#233).

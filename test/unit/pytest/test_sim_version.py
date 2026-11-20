@@ -20,6 +20,8 @@ sys.path.insert(0, str(_REPO_ROOT / "framework"))
 
 from isaac_devkit import sim_version  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize(
     ("content", "expected"),

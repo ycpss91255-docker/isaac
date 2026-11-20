@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Behavioral guard for script/git/merge-train.sh (#368).
 #

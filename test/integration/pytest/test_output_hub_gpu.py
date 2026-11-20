@@ -26,6 +26,8 @@ if str(_TEST_DIR) not in sys.path:
 
 from test_assets import fetch_test_asset  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = Path(__file__).parent / "_output_hub_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"

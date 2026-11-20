@@ -385,6 +385,8 @@ container は health status を報告しない（`HEALTHCHECK NONE`）。NGC bas
 
 詳細は [doc/test/TEST.md](test/TEST.md) を参照。
 
+すべてのテストはちょうど 1 つの範囲グループ（`core`、`gui`、`stream`、`headless`、`docs`）に属します。pytest モジュールは `pytestmark = pytest.mark.<グループ>`（1 グループだけ実行するには `pytest -m <グループ>`）、bats spec は `# bats file_tags=<グループ>` を書きます。グループのないテストは収集時に失敗します。`test/pytest-baseline.txt` にはグループごとの下限があります。件数は TEST.md のグループ表を参照。
+
 ## Python テストツールキット（devel-test ステージ）
 
 `devel-test` ステージには `pytest`、`pyyaml`、`pytest-cov` が Isaac Sim 同梱の Python（`/isaac-sim/python.sh`）にインストールされており、consumer repos がコンテナ内で Python unit / integration test を実行できる。runtime `devel` ステージにはこれらの依存を入れないため、軽量なまま — テストツールのサイズコストは `devel-test` だけで負担する。

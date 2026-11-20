@@ -22,6 +22,8 @@ if str(_TEST_DIR) not in sys.path:
 
 import test_assets  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 
 # -- Pinning tests --------------------------------------------------------
 

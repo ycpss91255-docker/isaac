@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 
 from isaac_devkit import driver as id_mod  # noqa: E402  (path injection before import)
 
+pytestmark = pytest.mark.core
+
 
 # ---------- parse_livestream_env ----------
 

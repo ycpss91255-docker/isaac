@@ -14,6 +14,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import scene as scene_builder
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def repo_root(tmp_path):

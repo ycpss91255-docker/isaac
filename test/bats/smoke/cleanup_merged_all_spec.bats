@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Behavioral guard for script/git/cleanup-merged-all.sh, the script behind
 # `just cleanup-merged` (#368).

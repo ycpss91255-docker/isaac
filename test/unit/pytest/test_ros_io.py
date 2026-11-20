@@ -20,6 +20,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import ros_io
 
+pytestmark = pytest.mark.core
+
 
 class TestParseRos2IoConfig:
     def test_missing_section_is_empty(self):

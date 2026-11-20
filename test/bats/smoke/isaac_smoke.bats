@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Isaac Sim image smoke. Image-side; runs in /smoke_test/ inside the
 # test stage built atop the Dockerfile's BASE_IMAGE (nvcr.io/nvidia/isaac-sim).

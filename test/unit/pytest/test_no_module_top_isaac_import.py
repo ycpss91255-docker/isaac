@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 _PACKAGE_DIR = (
     Path(__file__).resolve().parents[3] / "framework" / "isaac_devkit"
 )
