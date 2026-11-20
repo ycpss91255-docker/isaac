@@ -291,6 +291,18 @@ Kit terminal 應印出 `[ros2_test_sub] /host/test <- 'hello-from-host'`。
 
 `src/script/` 同時放 M1 / M2 demo 的 in-kit Script Editor 版本與 standalone 版本。standalone 版本透過 `SimulationApp` 啟動自己的 Kit，並依 stage 的 `ISAAC_LIVESTREAM` 決定模式（`headless` 為 0、`stream` 為 2）。每支 standalone 腳本都接受 `--run-seconds N`，遇到任何錯誤會以 exit 1 結束（以前是 exit 0）。
 
+
+#### 額外 Kit 參數（`ISAAC_KIT_EXTRA_ARGS`）
+
+`IsaacDriver.run` 會讀取 `ISAAC_KIT_EXTRA_ARGS`，以空白切開後接在啟動 Kit 的既有參數（內建 boot 參數）之後。未設定、空字串或只有空白時行為不變。只有 `IsaacDriver` 會讀這個變數；`example_driver.py`、`model_import`、`stream_source_producer` 與 `src/script/` 底下的腳本不支援。
+
+```bash
+export ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1'
+/isaac-sim/python.sh my_driver.py
+# 或寫成同一行：
+ISAAC_KIT_EXTRA_ARGS='--/app/isaac_test/marker=1' /isaac-sim/python.sh my_driver.py
+```
+
 | In-kit（Script Editor → File → Open → Run） | Standalone（`just docker exec -t headless /isaac-sim/python.sh src/script/<name>`） | 6.2.0 驗證結果（headless） |
 |---|---|---|
 | `ros2_test_pub.py` | `ros2_test_pub_standalone.py`：每秒發布一次 `/isaac/test` | `ros2 topic hz` 1.000 |
