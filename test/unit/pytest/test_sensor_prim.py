@@ -18,6 +18,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import sensor_prim
 
+pytestmark = pytest.mark.core
+
 
 # -- Fixtures (identical shape to test_sensor_setup.py originals) --
 

@@ -28,6 +28,8 @@ sys.path.insert(0, str(REPO_ROOT / "example" / "sim"))
 
 import example_driver as ed  # noqa: E402  (path injection before import)
 
+pytestmark = pytest.mark.core
+
 EXAMPLE_SCENE = REPO_ROOT / "example" / "sim" / "scene" / "scene.yaml"
 
 

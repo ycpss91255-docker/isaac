@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest  # noqa: F401  (kept for fixture style consistency)
 
+pytestmark = pytest.mark.core
+
 RUNNER_SCRIPT = Path(__file__).parent / "_isaaclab_available_runner.py"
 PYTHON_SH = "/isaac-sim/python.sh"
 

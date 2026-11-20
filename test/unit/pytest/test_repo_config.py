@@ -15,6 +15,10 @@ Pure file reads.
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 

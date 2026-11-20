@@ -16,6 +16,10 @@ sys.path.insert(0, str(_FRAMEWORK_DIR))
 
 from isaac_devkit.stamp import split_stamp  # noqa: E402
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 _NS = 1_000_000_000
 
 

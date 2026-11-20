@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Python testing toolkit smoke tests for the devel-test stage.
 # Asserts that pytest + pyyaml + pytest-cov are installed into Isaac Sim's

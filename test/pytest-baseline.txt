@@ -327,7 +327,25 @@
 #   ISAAC_KIT_EXTRA_ARGS (isaac#422): +7 hosted (test_isaac_driver.py); live 526.
 #   ISAAC_IO_PLUGIN (isaac#423): +10 hosted (test_isaac_driver.py); live 536.
 # isaac#427: test_stage_structure.py (4 tests) -- ratchet UP 536 -> 540.
-HOSTED_UNIT_BASELINE = 540
+HOSTED_UNIT_BASELINE = 565
+
+# Per-group floors (isaac#434). CI runs per scope, so each group has its own
+#   floor: a deleted test cannot hide behind another group's growth. Every
+#   hosted unit test belongs to exactly one group (pytestmark at module level,
+#   enforced at collection by test/group_markers.py and statically by
+#   script/ci/scope_groups.py), so the six floors below sum to
+#   HOSTED_UNIT_BASELINE (test_test_groups.py pins that). assert_pytest_baseline.sh
+#   collects each group with `-m <group>` and checks it against its own floor.
+#   A group with no tests yet (gui / headless) has floor 0.
+#   core     -- framework, shared Docker layers, shared scripts, CI tooling
+#   stream   -- test_stream_source_producer.py
+#   docs     -- test_producer_versions.py, test_no_ai_attribution.py
+#   The 25 new tests of test_test_groups.py (isaac#434) are core: 540 -> 565.
+HOSTED_UNIT_BASELINE_CORE = 530
+HOSTED_UNIT_BASELINE_GUI = 0
+HOSTED_UNIT_BASELINE_STREAM = 19
+HOSTED_UNIT_BASELINE_HEADLESS = 0
+HOSTED_UNIT_BASELINE_DOCS = 16
 
 # GPU_INTEGRATION_BASELINE -- the self-hosted GPU integration suite
 #   (test/integration/pytest/). NOT enforced at M1 (a skipped GPU job is
@@ -490,3 +508,15 @@ GPU_INTEGRATION_BASELINE = 40
 #   runs (see assert_pytest_baseline.sh --gpu); a SKIPPED GPU job does not
 #   count toward it.
 AGGREGATE_TARGET = 126
+
+# BATS_BASELINE_<GROUP> -- floors for the devel-test bats specs, per group
+#   (isaac#434). A spec's group is its `# bats file_tags=<group>` line. These
+#   are counted statically from the spec files (test_test_groups.py), so a
+#   spec deleted from one group cannot be hidden by another group's growth.
+#   stream = host_yaml, runheadless_host_config, post_run_hook, post_stop_hook,
+#   stream_smoke_isolation, stream_smoke_lib; every other spec is core.
+BATS_BASELINE_CORE = 90
+BATS_BASELINE_GUI = 0
+BATS_BASELINE_STREAM = 80
+BATS_BASELINE_HEADLESS = 0
+BATS_BASELINE_DOCS = 0

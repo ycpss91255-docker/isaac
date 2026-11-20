@@ -20,6 +20,8 @@ sys.path.insert(0, str(_FRAMEWORK_DIR))
 
 from isaac_devkit.buffers import to_u8_buffer  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 
 def test_float32_depth_bytes():
     d = np.zeros((480, 640), np.float32)

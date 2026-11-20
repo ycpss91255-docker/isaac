@@ -12,6 +12,8 @@ sys.path.insert(0, str(_FRAMEWORK_DIR))
 
 from isaac_devkit.output_hub import KINDS, OutputHub  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 _H, _W = 4, 6
 
 

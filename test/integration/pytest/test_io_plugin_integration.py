@@ -16,6 +16,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from test.test_assets import fetch_test_asset  # noqa: E402
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 HERE = Path(__file__).parent
 RUNNER_SCRIPT = HERE / "_io_plugin_runner.py"
 SCRIPT_DIR = REPO_ROOT / "framework"

@@ -10,6 +10,10 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_kit_extra_args_runner.py"
 SCRIPT_DIR = REPO_ROOT / "framework"

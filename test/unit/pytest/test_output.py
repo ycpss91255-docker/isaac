@@ -17,6 +17,8 @@ from isaac_devkit.output import (  # noqa: E402
     setup_output,
 )
 
+pytestmark = pytest.mark.core
+
 
 def test_output_mode_error_is_a_devkit_error():
     assert issubclass(OutputModeError, IsaacDevkitError)

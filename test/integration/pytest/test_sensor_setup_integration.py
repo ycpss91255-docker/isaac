@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER_SCRIPT = Path(__file__).parent / "_sensor_setup_runner.py"
 FRAMEWORK_DIR = REPO_ROOT / "framework"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Behavioral guard for the self-hosted GPU job scripts:
 #   script/ci/gpu_integration_job.sh  (main.yaml gpu-integration)

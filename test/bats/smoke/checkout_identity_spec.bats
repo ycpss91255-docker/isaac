@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Unit guard for script/checkout_identity.sh and the pre build/run/stop hooks
 # that call it.

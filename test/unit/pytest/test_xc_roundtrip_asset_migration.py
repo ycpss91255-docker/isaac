@@ -19,6 +19,10 @@ import importlib.util
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 XC_DIR = REPO_ROOT / "test" / "integration" / "pytest"
 XC_MODULE_PATH = XC_DIR / "test_cross_container_roundtrip.py"

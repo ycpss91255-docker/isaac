@@ -21,6 +21,8 @@ _FRAMEWORK = Path(__file__).resolve().parents[3] / "framework"
 sys.path.insert(0, str(_FRAMEWORK))
 from isaac_devkit import sensors as camera_setup
 
+pytestmark = pytest.mark.core
+
 _REPO_CAMERA_CONFIG = (
     Path(__file__).resolve().parents[3] / "src" / "config" / "camera"
 )

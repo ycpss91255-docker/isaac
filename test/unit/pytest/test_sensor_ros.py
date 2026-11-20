@@ -16,6 +16,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import sensor_ros
 
+pytestmark = pytest.mark.core
+
 
 class TestBuildGraphTopology:
     """``build_graph_topology`` builds OmniGraph topology specs for the

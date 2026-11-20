@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Unit tests for script/init_isaac_dirs.sh — the host-side mkdir helper
 # that pre-creates Isaac Sim cache dirs so the container's non-root user

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=stream
 #
 # Unit guard for script/host_yaml.sh -- the shared host.yaml public_ip
 # parser used by both the post-run hook (host) and

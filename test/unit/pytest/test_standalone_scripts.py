@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCRIPT_DIR = _REPO_ROOT / "src" / "script"
 _HELPER = _SCRIPT_DIR / "standalone_common.py"

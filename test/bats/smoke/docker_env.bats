@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=core
 #
 # Repo-specific runtime smoke tests. Exercise the `devel` image built
 # from this repo's Dockerfile, via the `test` stage. Use the shared

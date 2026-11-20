@@ -15,6 +15,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "framework"))
 from isaac_devkit import sensors as sensor_setup
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def lidar_3d_cfg(tmp_path):

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **測試依範圍分組：core / gui / stream / headless / docs（isaac#434，PR1）。** 每個 pytest 模組以模組層級 `pytestmark = pytest.mark.<組別>` 宣告唯一組別（可用 `pytest -m <組別>` 只收集該組），每個 bats spec 以 `# bats file_tags=<組別>` 宣告（`bats --filter-tags <組別>`）。沒有組別或有兩個組別的測試會讓收集直接失敗（`test/group_markers.py`，由 `test/unit/pytest/conftest.py` 與 `test/integration/pytest/conftest.py` 載入），並有靜態檢查 `script/ci/scope_groups.py check`。歸組：`test_stream_source_producer.py` 與 6 個 stream 相關 bats spec 為 stream；`test_producer_versions.py`、`test_no_ai_attribution.py` 為 docs；其餘（含全部 GPU integration）為 core；gui / headless 目前沒有測試。`test/pytest-baseline.txt` 新增每組下限 `HOSTED_UNIT_BASELINE_<組別>` 與 `BATS_BASELINE_<組別>`，`assert_pytest_baseline.sh` 以 `-m <組別>` 逐組檢查並要求各組總和等於收集總數；`doc/test/TEST.md` 新增「Tests by group」表。Hosted baseline 540 -> 565（`test_test_groups.py` 25 個測試，core 530 / stream 19 / docs 16）。CI 依組別分跑與 required check 調整在後續 PR（#434 PR2）。
+
 ### Changed
 - **Dockerfile stage 結構：`devel` 為共用層，下接 `gui` / `stream` / `headless` 三支（isaac#427）。** 新增 `gui` stage（`FROM devel`），Dockerfile 開頭的 stage 註解與樹狀圖同步（補上 `gui`、`producer`、`test-tools-stage`）。X11 掛載改成只有 `gui` service 有：`.setup.conf` 頂層 `[gui] mode` 由 `auto` 改為 `off`（base 保留 `[stage:devel]`，devel 只能靠頂層設定），新增 `[stage:gui] gui.mode = auto`；`stream` / `headless` / `devel-test` 維持 `off`。**行為變更**：原本 `devel` 預設會掛 X11，現在要 GUI 請用 `just docker run -t gui`。ROS 部分與 `producer` 不動（#430 / #432）。Hosted baseline 536 -> 540（`test_stage_structure.py` 4 個測試）。
 

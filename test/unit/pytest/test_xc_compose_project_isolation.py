@@ -28,6 +28,10 @@ non-docker host (its ``requires_xc`` skip marker resolves ``docker`` absent via
 import importlib.util
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 XC_MODULE_PATH = (
     REPO_ROOT

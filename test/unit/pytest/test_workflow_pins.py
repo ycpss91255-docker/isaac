@@ -14,6 +14,10 @@ import subprocess
 
 import yaml
 
+import pytest
+
+pytestmark = pytest.mark.core
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 _REUSABLE = "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml"

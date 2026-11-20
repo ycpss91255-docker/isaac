@@ -59,6 +59,8 @@ if str(_TEST_DIR) not in sys.path:
 
 from test_assets import fetch_test_asset  # noqa: E402
 
+pytestmark = pytest.mark.core
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ISAAC_RUNNER = Path(__file__).parent / "_cross_container_runner.py"
 ROS2_WS = REPO_ROOT / "example" / "ros2"
