@@ -46,7 +46,7 @@ just docker run -t stream -d                               # sim + WebRTC stream
 just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> 2 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（pure sim、`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC、`ISAAC_LIVESTREAM=2`）。両者とも起動時は `CMD ["sleep","infinity"]` で idle（`runheadless.sh -v` ENTRYPOINT は無い）— container は起動したまま、`just docker exec -t <stage> <cmd>` で driver スクリプト（`/isaac-sim/python.sh <driver.py>`、`ISAAC_LIVESTREAM=2` を読んで stream を有効化）または一回限りの `/usr/local/bin/runheadless-host-config.sh` を送り込む；streaming 起動後は web-viewer が `:5173` で接続する。`just docker run -t <stage> -d` で起動。
+> Stage ツリー：`devel-base` -> `devel`（共通層：isaac コードと共通設定）-> `gui` / `stream` / `headless`。X11 を mount するのは `gui` service のみ（`.setup.conf` の `[stage:gui] gui.mode = auto`。トップレベル `[gui]` は `off` なので `devel` と他の stage は mount しない）：`just docker run -t gui`。2 つの stage が [base #215](https://github.com/ycpss91255-docker/base/issues/215) により profile-gated compose service として auto-emit される：`headless`（pure sim、`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC、`ISAAC_LIVESTREAM=2`）。両者とも起動時は `CMD ["sleep","infinity"]` で idle（`runheadless.sh -v` ENTRYPOINT は無い）— container は起動したまま、`just docker exec -t <stage> <cmd>` で driver スクリプト（`/isaac-sim/python.sh <driver.py>`、`ISAAC_LIVESTREAM=2` を読んで stream を有効化）または一回限りの `/usr/local/bin/runheadless-host-config.sh` を送り込む；streaming 起動後は web-viewer が `:5173` で接続する。`just docker run -t <stage> -d` で起動。
 
 ### Headless：Isaac を起動してシーンを実行する
 

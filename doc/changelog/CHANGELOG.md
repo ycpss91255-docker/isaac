@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Dockerfile stage 結構：`devel` 為共用層，下接 `gui` / `stream` / `headless` 三支（isaac#427）。** 新增 `gui` stage（`FROM devel`），Dockerfile 開頭的 stage 註解與樹狀圖同步（補上 `gui`、`producer`、`test-tools-stage`）。X11 掛載改成只有 `gui` service 有：`.setup.conf` 頂層 `[gui] mode` 由 `auto` 改為 `off`（base 保留 `[stage:devel]`，devel 只能靠頂層設定），新增 `[stage:gui] gui.mode = auto`；`stream` / `headless` / `devel-test` 維持 `off`。**行為變更**：原本 `devel` 預設會掛 X11，現在要 GUI 請用 `just docker run -t gui`。ROS 部分與 `producer` 不動（#430 / #432）。Hosted baseline 536 -> 540（`test_stage_structure.py` 4 個測試）。
+
 ### Added
 - **`ISAAC_IO_PLUGIN`：IsaacDriver 在 stage 建好之後、play 之前呼叫外部插件（isaac#423）。** 變數格式 `module:function`；`IsaacDriver.run` 在 `_ensure_scene_defaults` 之後、`_play_timeline` 之前 import 該 module 並呼叫一次 `function(stage, robot_prim, config)`，`config` 為 opaque dict（目前含 `usd_path`、`robot_prim`）。未設定或空字串時不呼叫、不 import 任何 ROS 模組；格式錯誤、找不到 module、找不到 function 各自在啟動時以 `RuntimeError` 失敗並指出原因。只有 `IsaacDriver.run` 支援（README 已註明）。疊在 #422（#424）上。Hosted baseline 526 -> 536；GPU baseline 38 -> 40。
 - **`ISAAC_KIT_EXTRA_ARGS`：IsaacDriver 啟動 Kit 時可追加參數（isaac#422）。** `IsaacDriver.run` 讀取該環境變數，用 `str.split()` 切開後接在內建 boot 參數之後、同一個 `sys.argv` save/restore 範圍內；未設定、空字串或只有空白時行為與之前相同。只有 `IsaacDriver` 支援，`example_driver.py`、`model_import`、`stream_source_producer`、`src/script/` 不支援（README 已註明）。Hosted baseline 519 -> 526（`test_isaac_driver.py` +7）；GPU baseline 36 -> 38（`test_kit_extra_args_integration.py`：設定 `--/app/isaac_test/marker=1` 後以 carb settings 讀回，另有未設定時讀不到的對照）。

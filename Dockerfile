@@ -6,15 +6,28 @@
 # baseline so a future `.base/upgrade.sh` diff is easy to read. The
 # isaac-specific insertions are flagged inline.
 #
+# Stage tree (isaac#427): devel is the shared layer (isaac code + common
+# config); gui / stream / headless are the three leaves, each `FROM devel`.
+# Only the gui service mounts X11 (see `[gui]` / `[stage:gui]` in
+# .setup.conf); the Dockerfile itself carries no X11 packages.
+#
+#   sys -> devel-base -> devel -+-> gui
+#                               +-> stream -> producer
+#                               +-> headless
+#                               +-> devel-test (lint + smoke)
+#
 # Stages:
 #   sys           - User/group, locale, timezone (+ isaac-sim group join)
 #   devel-base    - Development tools and packages
 #   builder       - Compile/build stage (optional; opt-in for runtime split, keeps source)
 #   devel         - Application-specific tools + entrypoint
 #                   (+ fastdds.xml, ROS_DISTRO bake, env-wrapper shim)
+#   test-tools-stage - Lint binaries (shellcheck / hadolint / bats) for devel-test
 #   devel-test    - Lint + bats smoke test (ephemeral, discarded after build)
+#   gui           - Isaac Sim desktop GUI (the only stage whose service mounts X11)
 #   headless      - Isaac Sim, no streaming (ISAAC_LIVESTREAM=0; pure inference / batch)
 #   stream        - Isaac Sim + WebRTC streaming (ISAAC_LIVESTREAM=2; devel observation)
+#   producer      - Baked WebRTC stream-source producer (FROM stream; published image)
 #   runtime-base  - Minimal runtime base (sudo + tini + ldd-driven libs), optional
 #   runtime       - Minimal runtime image (COPY --from=builder install trees), optional
 #   runtime-test  - Runtime install-check smoke (ephemeral, optional)
@@ -526,6 +539,19 @@ WORKDIR "${HOME}/work"
 # immediately because the emitted test service sets stdin_open/tty to
 # false ("container is not running", PR #84). Same idle pattern as the
 # headless / stream stages below.
+CMD ["sleep", "infinity"]
+
+############################## gui ##############################
+# [isaac #427] Desktop GUI variant. The image is the same as devel; what
+# makes it the GUI stage is its compose service: `[stage:gui] gui.mode =
+# auto` in .setup.conf mounts X11 / DISPLAY here and nowhere else.
+#
+# Usage:
+#   just docker run -t gui
+#   just docker exec -t gui /isaac-sim/isaac-sim.sh
+FROM devel AS gui
+
+ENV ISAAC_LIVESTREAM=0
 CMD ["sleep", "infinity"]
 
 ############################## headless ##############################

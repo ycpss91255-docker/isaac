@@ -46,7 +46,7 @@ just docker run -t stream -d                               # sim + WebRTC stream
 just docker exec -t stream /isaac-sim/python.sh <script>   # run a driver script
 ```
 
-> 两个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。两者启动后都 `CMD ["sleep","infinity"]` idle（没有 `runheadless.sh -v` ENTRYPOINT）— container 持续存活，由你用 `just docker exec -t <stage> <cmd>` 把 driver 脚本（`/isaac-sim/python.sh <driver.py>`，读 `ISAAC_LIVESTREAM=2` 开 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送进去；streaming 起来后 web-viewer 连 `:5173`。使用 `just docker run -t <stage> -d` 启动。
+> Stage 树：`devel-base` -> `devel`（共用层：isaac 程序与共用设置）-> `gui` / `stream` / `headless`。只有 `gui` service 挂载 X11（`.setup.conf` 的 `[stage:gui] gui.mode = auto`；顶层 `[gui]` 为 `off`，所以 `devel` 与其他 stage 都不挂载）：`just docker run -t gui`。两个 stage 透过 [base #215](https://github.com/ycpss91255-docker/base/issues/215) auto-emit 为 profile-gated compose service：`headless`（pure sim，`ISAAC_LIVESTREAM=0`）、`stream`（sim + WebRTC，`ISAAC_LIVESTREAM=2`）。两者启动后都 `CMD ["sleep","infinity"]` idle（没有 `runheadless.sh -v` ENTRYPOINT）— container 持续存活，由你用 `just docker exec -t <stage> <cmd>` 把 driver 脚本（`/isaac-sim/python.sh <driver.py>`，读 `ISAAC_LIVESTREAM=2` 开 stream）或一次性 `/usr/local/bin/runheadless-host-config.sh` 送进去；streaming 起来后 web-viewer 连 `:5173`。使用 `just docker run -t <stage> -d` 启动。
 
 ### Headless：启动 Isaac 并跑一个场景
 
