@@ -71,7 +71,7 @@ else
 fi
 # Isaac stream container: base-fixed name (compose.yaml container_name, no
 # suffix) unless the caller renamed it and says so via ISAAC_STREAM_CONTAINER
-# (the nightly smoke gives its stream container a per-run name so it cannot
+# (the stream smoke gives its stream container a per-run name so it cannot
 # collide with a co-hosted stack on the fixed one, isaac#291). Viewer:
 # isaac-owned, per-project.
 isaac_container="${ISAAC_STREAM_CONTAINER:-${USER_NAME}-${IMAGE_NAME}-stream}"

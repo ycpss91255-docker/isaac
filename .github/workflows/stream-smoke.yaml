@@ -9,25 +9,32 @@ name: Stream Smoke (GPU)
 # before that this only checked the signaling port, so a Kit that died on
 # first client attach passed green). Hosted runners have no GPU, so this
 # is the only place that path is exercised in CI.
-# Heavy (minutes) + occasionally flaky -> nightly + manual, NOT per-PR.
-# Tier B (browser frames) builds on this: isaac#173 + omniverse_web_viewer#48.
+#
+# Heavy (minutes), so it runs as the stream group's GPU job (isaac#434): from
+# main.yaml's `stream-smoke` job when stream files change in a PR, and on
+# every push to main and release tag. There is no nightly run: over its last
+# 100 scheduled runs it failed 86 times and nobody acted on it. It can still
+# be started by hand (workflow_dispatch). Tier B (browser frames) builds on
+# this: isaac#173 + omniverse_web_viewer#48.
 
 on:
-  schedule:
-    - cron: '0 19 * * *'   # nightly (UTC)
+  workflow_call:
   workflow_dispatch:
 
-# Only one Isaac on the GPU at a time; never cancel a run mid-teardown
-# (would orphan a GPU-holding container).
-concurrency:
-  group: stream-smoke
-  cancel-in-progress: false
+permissions:
+  contents: read
+
+# No `concurrency:` here: a pending run replaced by a newer one would be
+# cancelled, which turns main.yaml's `gate` red for a commit that did nothing
+# wrong. One Isaac at a time on the GPU is guaranteed by the single self-hosted
+# GPU runner, which runs one job at a time; stream_smoke.sh reaps the leftover
+# `isaac-smoke-` projects of a run whose teardown never ran (isaac#291).
 
 jobs:
   # Runs through the org reusable workflow gpu-self-hosted.yml, which owns the
   # runner labels, the fork-PR gate, the pre-checkout workspace reclaim and
-  # the checkout (schedule / workflow_dispatch are non-PR events, so the gate
-  # always passes here). The step logic lives in script/ci/stream_smoke_job.sh
+  # the checkout (the fork-PR gate lives on main.yaml's `stream-smoke` caller job;
+  # a manual dispatch is a non-PR event, so the gate passes). The step logic lives in script/ci/stream_smoke_job.sh
   # (guard: test/bats/smoke/gpu_job_scripts_spec.bats).
   #
   # The kit log used to be uploaded as the `stream-smoke-kit-log` artifact on

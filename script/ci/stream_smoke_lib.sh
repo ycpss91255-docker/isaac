@@ -4,9 +4,9 @@
 # /smoke_test/ next to stream_smoke_lib_spec.bats by the devel-test stage.
 #
 # Everything here is GPU-free and side-effect-free (reads a Kit log, calls
-# the `smoke_alive` hook, sleeps). That is deliberate: the GPU path stays
-# nightly-only, but the assertions it makes are unit-tested on every build
-# (test/bats/smoke/stream_smoke_lib_spec.bats).
+# the `smoke_alive` hook, sleeps). That is deliberate: the GPU path runs only
+# in the stream group's CI job, but the assertions it makes are unit-tested on
+# every build (test/bats/smoke/stream_smoke_lib_spec.bats).
 #
 # Why it exists: before #233 the smoke asserted only "Streaming server
 # started." -- a liveness probe. "Port is listening" and "streaming

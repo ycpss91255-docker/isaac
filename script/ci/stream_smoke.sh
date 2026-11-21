@@ -36,7 +36,7 @@
 #
 # The pass/fail decision logic lives in stream_smoke_lib.sh so it is unit
 # tested on every image build (test/bats/smoke/stream_smoke_lib_spec.bats)
-# even though this GPU path only runs nightly.
+# even though this GPU path only runs in the stream group's CI job.
 #
 # Env knobs:
 #   SMOKE_TIMEOUT          seconds to wait for the ready markers (default 600)
@@ -130,7 +130,7 @@ WS_PATH=""
 [ -f "${repo_root}/.env" ] && . "${repo_root}/.env"
 
 # Compose-project isolation (owv#55). base v0.42.0 removed --instance
-# (base#666); isolation is now a DISTINCT resolved PROJECT_NAME. The nightly
+# (base#666); isolation is now a DISTINCT resolved PROJECT_NAME. The stream smoke
 # smoke pins one (default `<derived>-smoke`, override SMOKE_PROJECT for a
 # per-run-unique value e.g. the CI run id) into the derived .env.generated
 # cache run.sh reads, brings the stack up with a plain `run.sh -t stream -d`
