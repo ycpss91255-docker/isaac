@@ -26,7 +26,9 @@ readonly REPO="${REPO:-ycpss91255-docker/isaac}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly CLEANUP_SCRIPT="${CLEANUP_SCRIPT:-${SCRIPT_DIR}/cleanup-merged-worktree.sh}"
-readonly REQUIRED_CHECKS=("call-docker-build / docker-build" "gpu-integration / gpu")
+# `gate` is the one required check (isaac#434): it summarizes every scoped job and
+# passes when each one succeeded or was skipped.
+readonly REQUIRED_CHECKS=("gate")
 
 LAST=""
 
@@ -86,8 +88,8 @@ main() {
         say "PR${pr}: FAIL checks=${checks}"
         exit 1
       fi
-      # Any other failed check (e.g. hosted-unit) can skip the GPU job,
-      # leaving the required check absent and the PR BLOCKED forever.
+      # A failed check other than the required one is still a red PR even if
+      # the gate has not reported yet; stop instead of waiting on it.
       if [[ -n "${other}" ]]; then
         say "PR${pr}: FAIL non-required checks=${other}"
         exit 1
@@ -100,7 +102,7 @@ main() {
           sleep 90
           ;;
         CLEAN)
-          if [[ "${checks}" == "SUCCESS,SUCCESS" ]]; then
+          if [[ "${checks}" == "SUCCESS" ]]; then
             # Use the method the repo allows: squash when enabled, else a
             # merge commit.
             method="merge"

@@ -5,7 +5,7 @@ stream-smoke.yaml, publish-stream-source.yaml) must all pin the same
 release tag.  Callers are discovered by parsing every workflow file, so a
 new caller is covered without editing this list; a second test pins the
 discovered set so a rename or an empty discovery cannot pass vacuously.
-isaac#344 adds two tests for the run-scoped reap filter of gpu-integration.
+isaac#344 adds two tests for the run-scoped reap filter of core-gpu.
 """
 
 import pathlib
@@ -42,11 +42,11 @@ def _callers():
 
 
 def _gpu_integration_job():
-    """Parsed `gpu-integration` job of main.yaml."""
+    """Parsed `core-gpu` job of main.yaml."""
     doc = yaml.safe_load(
         (_WORKFLOWS / "main.yaml").read_text(encoding="utf-8")
     )
-    return doc["jobs"]["gpu-integration"]
+    return doc["jobs"]["core-gpu"]
 
 
 def test_every_gpu_reusable_caller_is_pinned_to_v040():

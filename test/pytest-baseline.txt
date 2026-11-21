@@ -327,7 +327,7 @@
 #   ISAAC_KIT_EXTRA_ARGS (isaac#422): +7 hosted (test_isaac_driver.py); live 526.
 #   ISAAC_IO_PLUGIN (isaac#423): +10 hosted (test_isaac_driver.py); live 536.
 # isaac#427: test_stage_structure.py (4 tests) -- ratchet UP 536 -> 540.
-HOSTED_UNIT_BASELINE = 565
+HOSTED_UNIT_BASELINE = 627
 
 # Per-group floors (isaac#434). CI runs per scope, so each group has its own
 #   floor: a deleted test cannot hide behind another group's growth. Every
@@ -341,7 +341,9 @@ HOSTED_UNIT_BASELINE = 565
 #   stream   -- test_stream_source_producer.py
 #   docs     -- test_producer_versions.py, test_no_ai_attribution.py
 #   The 25 new tests of test_test_groups.py (isaac#434) are core: 540 -> 565.
-HOSTED_UNIT_BASELINE_CORE = 530
+#   The scoped CI (isaac#434 PR2) adds test_changed_groups.py (38), test_ci_gate.py
+#   (9) and test_main_workflow_scope.py (15), all core: 565 -> 627 (core 592).
+HOSTED_UNIT_BASELINE_CORE = 592
 HOSTED_UNIT_BASELINE_GUI = 0
 HOSTED_UNIT_BASELINE_STREAM = 19
 HOSTED_UNIT_BASELINE_HEADLESS = 0
@@ -514,8 +516,10 @@ AGGREGATE_TARGET = 126
 #   are counted statically from the spec files (test_test_groups.py), so a
 #   spec deleted from one group cannot be hidden by another group's growth.
 #   stream = host_yaml, runheadless_host_config, post_run_hook, post_stop_hook,
-#   stream_smoke_isolation, stream_smoke_lib; every other spec is core.
-BATS_BASELINE_CORE = 90
+#   stream_smoke_isolation, stream_smoke_lib; every other spec is core. PR2 adds
+#   run_bats_spec (8), assert_pytest_baseline_group_spec (7) and one merge_train
+#   test, all core: 90 -> 106.
+BATS_BASELINE_CORE = 106
 BATS_BASELINE_GUI = 0
 BATS_BASELINE_STREAM = 80
 BATS_BASELINE_HEADLESS = 0
