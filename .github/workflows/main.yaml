@@ -201,11 +201,25 @@ jobs:
       timeout-minutes: 30
       reap-container-filter: label=com.docker.compose.project=isaac-baseline-${{ github.run_id }}-${{ github.run_attempt }}
 
+  # Stream group GPU job (isaac#434, formerly the nightly stream-smoke.yaml
+  # schedule): boots the stream stage on the GPU runner and asserts the WebRTC
+  # livestream serves a client (isaac#172 / #233). Runs when the stream group
+  # is selected -- stream files changed, a shared layer changed, or push to
+  # main / a release tag. Same fork guard as core-gpu. `workflow_dispatch` with
+  # groups=stream (or running stream-smoke.yaml itself) starts it by hand.
+  stream-smoke:
+    needs: [changes, stream-unit]
+    if: >-
+      needs.changes.outputs.stream == 'true' &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/stream-smoke.yaml
+
   # The single required check. Runs always() so a skipped scope cannot hold
   # it pending, and fails when any job failed or was cancelled, or when
   # `changes` itself did not succeed (script/ci/gate_result.py).
   gate:
-    needs: [changes, docs-unit, core-unit, stream-unit, core-build, core-gpu]
+    needs: [changes, docs-unit, core-unit, stream-unit, core-build, core-gpu, stream-smoke]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

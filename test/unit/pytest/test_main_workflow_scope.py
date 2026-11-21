@@ -27,6 +27,7 @@ SCOPED = {
     "stream-unit": "stream",
     "core-gpu": "core",
     "core-build": "build",
+    "stream-smoke": "stream",
 }
 
 
@@ -94,6 +95,16 @@ def test_docs_unit_always_runs_after_changes(jobs):
     cfg = jobs["docs-unit"]
     assert "if" not in cfg
     assert "changes" in (cfg["needs"] if isinstance(cfg["needs"], list) else [cfg["needs"]])
+
+
+def test_stream_smoke_is_a_stream_group_job_that_waits_for_stream_unit(jobs):
+    cfg = jobs["stream-smoke"]
+    assert "stream-unit" in cfg["needs"]
+    assert cfg["uses"] == "./.github/workflows/stream-smoke.yaml"
+    # Same fork guard as core-gpu: fork code never reaches the GPU host.
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in str(
+        cfg["if"]
+    )
 
 
 def test_gpu_job_waits_for_core_unit_and_keeps_the_fork_guard(jobs):

@@ -4,7 +4,7 @@
 # Behavioral guard for script/ci/stream_smoke.sh compose-project isolation
 # (remaining axis of ycpss91255-docker/omniverse_web_viewer#55).
 #
-# The nightly Tier A GPU smoke brings up its own stream stack and tears it
+# The Tier A GPU smoke brings up its own stream stack and tears it
 # down. Before this fix it (a) brought the stack up in the DEFAULT compose
 # project (`./script/run.sh -t stream -d`) and (b) tore it down BY NAME with
 # `docker rm -f "${USER}-${IMAGE}-stream" owv` -- the exact name a
@@ -205,7 +205,7 @@ teardown() {
 
   # Dedicated default project `<derived>-smoke`, so a bare manual
   # `run.sh -t stream -d` (the default stack, project alice-isaac) never
-  # collides with the nightly smoke.
+  # collides with the stream smoke.
   grep -qE '^PROJECT_NAME=alice-isaac-smoke$' "${FAKE}/.env.generated"
   grep -qE 'compose -p alice-isaac-smoke .* down' "${DOCKER_ARGS_FILE}"
   grep -qE 'rm -f alice-isaac-owv-smoke' "${DOCKER_ARGS_FILE}"

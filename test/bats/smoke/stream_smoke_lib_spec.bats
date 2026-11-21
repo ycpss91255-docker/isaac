@@ -10,7 +10,7 @@
 # attaches a client, asserts the stream-start sequence, then holds a dwell
 # window asserting the Kit is still alive and the streams have not stopped.
 # That decision logic is GPU-free, so it lives in a sourceable library and
-# is unit-tested here; the GPU path itself stays nightly-only.
+# is unit-tested here; the GPU path itself stays a GPU-only CI job.
 #
 # The liveness probe is the overridable `smoke_alive` hook: the real script
 # binds it to `docker ps`, these specs bind it to stubs (including one that

@@ -174,7 +174,7 @@ teardown() {
 }
 
 @test "post-run: ISAAC_STREAM_CONTAINER retargets the Isaac cp (per-run smoke name, isaac#291)" {
-  # The nightly smoke renames its own stream container per run so it cannot
+  # The stream smoke renames its own stream container per run so it cannot
   # collide with a co-hosted stack on the base-fixed name; the hook must then
   # copy host.yaml + the port env file into THAT container, not the fixed
   # name (which may be someone else's container, or none).
