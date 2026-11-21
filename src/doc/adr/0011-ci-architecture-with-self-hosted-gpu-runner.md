@@ -170,3 +170,19 @@ There is no bypass. The fix for a down runner is to make the runner reliable, no
 
 - **ycpss91255-docker/isaac#61**: GPU CI implementation issue (python-tests job)
 - **ycpss91255-docker/isaac#62**: ADR-0011 adoption coordination issue
+
+## Update (2026-11-21) -- CI per scope, one required check (isaac#434)
+
+CI now runs per scope group (`core`, `gui`, `stream`, `headless`, `docs`) instead of running everything on every PR. The `changes` job (`script/ci/changed_groups.py`) maps a PR's changed paths to groups: a shared layer (Dockerfile, compose, `.setup.conf`, config, the base subtree, `main.yaml`, the CI scripts) runs every group, a docs-only change runs only `docs`, push to `main`, a release tag and a manual dispatch run every group. The filtering is in a job, not in `paths:` on the triggers, because a workflow skipped by a trigger filter leaves a required check pending forever.
+
+Jobs of `main.yaml`: `changes`, `docs-unit`, `core-unit`, `stream-unit`, `core-build`, `core-gpu`, `gate`, `release`. Branch protection requires only `gate`, which runs `always()` after every other job and passes when each one succeeded or was skipped (GitHub's recommended pattern for path-filtered required checks); it fails when a job failed or was cancelled, or when `changes` did not succeed.
+
+This replaces the two required checks recorded in the 2026-11-10 update above:
+
+| Before | After |
+|---|---|
+| `call-docker-build / docker-build` (required) | `gate` (required); the build is `core-build / docker-build`, no longer listed itself |
+| `gpu-integration / gpu` (required) | `gate` (required); the GPU job is `core-gpu / gpu`, no longer listed itself |
+
+`strict` mode stays on. The fork-PR note above still holds: a skipped job counts as passing, and `gate` treats `skipped` as success.
+

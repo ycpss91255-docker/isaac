@@ -50,7 +50,7 @@ EOF
 seq_lines() { printf '%s\n' "$@" >"${GH_SEQ}"; }
 
 @test "merge-train: cleanup runs once with the PR number after its own merge" {
-  seq_lines 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||'
+  seq_lines 'OPEN|CLEAN|SUCCESS|' 'MERGED|||'
   run "${SCRIPT}" 1
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"PR1: MERGED"* ]]
@@ -69,21 +69,21 @@ seq_lines() { printf '%s\n' "$@" >"${GH_SEQ}"; }
 }
 
 @test "merge-train: gh merge error but PR ends MERGED still triggers cleanup once" {
-  seq_lines 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||'
+  seq_lines 'OPEN|CLEAN|SUCCESS|' 'MERGED|||'
   GH_MERGE_RC=1 run "${SCRIPT}" 1
   [ "${status}" -eq 0 ]
   [ "$(cat "${CLEANUP_LOG}")" = "1" ]
 }
 
 @test "merge-train: cleanup SKIP does not change the exit code; each merged PR is cleaned" {
-  seq_lines 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||' 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||'
+  seq_lines 'OPEN|CLEAN|SUCCESS|' 'MERGED|||' 'OPEN|CLEAN|SUCCESS|' 'MERGED|||'
   run "${SCRIPT}" 1 2
   [ "${status}" -eq 0 ]
   [ "$(cat "${CLEANUP_LOG}")" = "$(printf '1\n2')" ]
 }
 
 @test "merge-train: a failing required check stops with FAIL and no cleanup" {
-  seq_lines 'OPEN|BLOCKED|FAILURE,SUCCESS|'
+  seq_lines 'OPEN|BLOCKED|FAILURE|'
   run "${SCRIPT}" 1
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"PR1: FAIL"* ]]
@@ -91,13 +91,13 @@ seq_lines() { printf '%s\n' "$@" >"${GH_SEQ}"; }
 }
 
 @test "merge-train: merge method comes from the repo setting (squash allowed)" {
-  seq_lines 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||'
+  seq_lines 'OPEN|CLEAN|SUCCESS|' 'MERGED|||'
   run "${SCRIPT}" 1
   grep -q -e "--squash" "${GH_LOG}"
 }
 
 @test "merge-train: merge method falls back to a merge commit when squash is off" {
-  seq_lines 'OPEN|CLEAN|SUCCESS,SUCCESS|' 'MERGED|||'
+  seq_lines 'OPEN|CLEAN|SUCCESS|' 'MERGED|||'
   GH_SQUASH=false run "${SCRIPT}" 1
   grep -q -e "--merge" "${GH_LOG}"
   ! grep -q -e "--squash" "${GH_LOG}"
@@ -107,4 +107,11 @@ seq_lines() { printf '%s\n' "$@" >"${GH_SEQ}"; }
   run grep -n -e "--squash" "${SCRIPT}"
   [ "${status}" -eq 1 ]
   [ -z "${output}" ]
+}
+
+@test "merge-train: the one required check is the summary job gate (isaac#434)" {
+  run grep -n 'REQUIRED_CHECKS=("gate")' "${SCRIPT}"
+  [ "${status}" -eq 0 ]
+  run grep -n 'call-docker-build / docker-build\|gpu-integration / gpu' "${SCRIPT}"
+  [ "${status}" -eq 1 ]
 }

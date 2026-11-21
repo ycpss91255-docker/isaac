@@ -29,15 +29,48 @@
 # Usage:
 #   test/assert_pytest_baseline.sh           # hosted-unit (M1 gate)
 #   test/assert_pytest_baseline.sh --gpu     # GPU aggregate (M2 gate)
+#   test/assert_pytest_baseline.sh --group <g>
+#       hosted-unit for ONE scope group (isaac#434): runs `pytest -m <g>` and
+#       checks that group against its own floor HOSTED_UNIT_BASELINE_<G>. The
+#       framework coverage gate applies to `core` (the group that exercises
+#       isaac_devkit); the total and group-sum checks need every group, so they
+#       only run in the default full mode. Not valid with --gpu.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE_FILE="${REPO_ROOT}/test/pytest-baseline.txt"
 PY_IMAGE="${PY_IMAGE:-python:3.12-slim}"
 
+ALL_GROUPS="core gui stream headless docs"
 MODE="hosted"
-if [[ "${1:-}" == "--gpu" ]]; then
-  MODE="gpu"
+GROUP=""
+while (( $# > 0 )); do
+  case "$1" in
+    --gpu) MODE="gpu" ;;
+    --group)
+      if [[ -z "${2:-}" ]]; then
+        echo "error: --group needs a value (one of: ${ALL_GROUPS})" >&2
+        exit 2
+      fi
+      GROUP="$2"
+      shift
+      ;;
+    *)
+      echo "usage: $0 [--gpu | --group <${ALL_GROUPS// /|}>]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+if [[ -n "${GROUP}" ]]; then
+  if [[ "${MODE}" == "gpu" ]]; then
+    echo "error: --group cannot be combined with --gpu" >&2
+    exit 2
+  fi
+  if [[ " ${ALL_GROUPS} " != *" ${GROUP} "* ]]; then
+    echo "error: unknown group '${GROUP}' (one of: ${ALL_GROUPS})" >&2
+    exit 2
+  fi
 fi
 
 if [[ ! -f "${BASELINE_FILE}" ]]; then
@@ -270,14 +303,27 @@ echo "hosted-unit baseline = ${baseline}"
 # checkout's clean step removes it. pip installs into a per-run --user
 # prefix under HOME=/tmp (writable for the non-root UID).
 RUN_AS="$(id -u):$(id -g)"
+# Marker selection and coverage depend on the mode: the full run covers every
+# group and the framework coverage gate; `--group core` keeps the coverage gate
+# (core is what exercises isaac_devkit); any other single group has nothing to
+# cover, and an empty group (gui / headless) makes pytest exit 5, which is not
+# a failure.
+PYTEST_SELECT=""
+PYTEST_COV="--cov=isaac_devkit --cov-report=term-missing --cov-fail-under=80"
+if [[ -n "${GROUP}" ]]; then
+  PYTEST_SELECT="-m ${GROUP}"
+  [[ "${GROUP}" == "core" ]] || PYTEST_COV=""
+fi
 docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
   -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
   set -eu
   pip install --quiet --user pyyaml pytest pytest-cov xacro numpy
   cd framework
-  python -m pytest ../test/unit/pytest/ \
-    -p no:cacheprovider \
-    --cov=isaac_devkit --cov-report=term-missing --cov-fail-under=80
+  rc=0
+  python -m pytest ../test/unit/pytest/ '"${PYTEST_SELECT}"' \
+    -p no:cacheprovider '"${PYTEST_COV}"' || rc=$?
+  # rc 5: no tests collected (an empty group); checked against its floor below.
+  [ "${rc}" -eq 0 ] || [ "${rc}" -eq 5 ] || exit "${rc}"
 '
 
 # Re-derive the collected counts for the ratchet assertion: the total, and one
@@ -285,7 +331,7 @@ docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
 # floor, so a test deleted from one group cannot hide behind another group's
 # growth. A group with no tests makes pytest exit 5 (nothing collected); that
 # counts as 0.
-GROUPS_LIST="core gui stream headless docs"
+GROUPS_LIST="${GROUP:-${ALL_GROUPS}}"
 counts="$(
   docker run --rm --user "${RUN_AS}" -e HOME=/tmp \
     -v "${REPO_ROOT}":/w -w /w "${PY_IMAGE}" sh -c '
@@ -304,7 +350,7 @@ counts="$(
 collected="$(awk '$1 == "total" {print $2}' <<<"${counts}")"
 echo "hosted-unit collected = ${collected}"
 
-if (( collected < baseline )); then
+if [[ -z "${GROUP}" ]] && (( collected < baseline )); then
   echo "error: hosted-unit collected ${collected} < baseline ${baseline}" \
     "(ratchet violation)" >&2
   exit 1
@@ -327,6 +373,10 @@ for g in ${GROUPS_LIST}; do
   fi
   group_sum=$(( group_sum + n ))
 done
+if [[ -n "${GROUP}" ]]; then
+  echo "OK: hosted-unit group ${GROUP} >= its floor, all green"
+  exit 0
+fi
 if (( group_sum != collected )); then
   echo "error: groups sum to ${group_sum} but ${collected} tests collected;" \
     "some test has no group (set pytestmark = pytest.mark.<group>)" >&2

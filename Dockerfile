@@ -518,10 +518,17 @@ COPY --chmod=0755 script/git/cleanup-merged-all.sh /smoke_test/cleanup-merged-al
 # [#368] merge-train.sh (stub gh / cleanup), baked next to merge_train_spec.bats.
 COPY --chmod=0755 script/git/merge-train.sh /smoke_test/merge-train.sh
 
+# [isaac#434] bats runs through run_bats.sh so CI can skip the spec groups a PR
+# did not touch (BATS_SKIP_GROUPS, a comma list; empty runs everything, which
+# is also what a local `just docker build` does). Specs with no group -- the
+# base-owned ones above -- always run.
+COPY --chmod=0755 script/ci/run_bats.sh /smoke_test/run_bats.sh
+
 ARG USER="${USER_NAME}"
 USER "${USER}"
 
-RUN bats /smoke_test/
+ARG BATS_SKIP_GROUPS=""
+RUN BATS_SKIP_GROUPS="${BATS_SKIP_GROUPS}" /smoke_test/run_bats.sh /smoke_test/
 
 # Restore the runtime working directory to the workspace mount. The
 # hadolint step above uses `WORKDIR /lint` (base v0.42.0's declarative

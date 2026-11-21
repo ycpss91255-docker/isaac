@@ -5,7 +5,7 @@
 # must be pinned to a release tag, never @main.
 #
 # Motivation: when .github's main branch is broken even briefly, every isaac
-# push/PR that reaches gpu-integration or stream-smoke fails with "workflow
+# push/PR that reaches core-gpu or stream-smoke fails with "workflow
 # file issue" and 0 jobs (run 42776185240, 2026-11-10).  Pinning to a release
 # tag insulates callers from upstream breakage.  Dependabot (github-actions
 # ecosystem, weekly) creates bump PRs when a new tag is cut, so we still
@@ -59,7 +59,7 @@ setup() {
   fi
 }
 
-# --- isaac#344: run-scoped reap-container-filter on gpu-integration ---------
+# --- isaac#344: run-scoped reap-container-filter on core-gpu ---------
 # The reusable's cancel-safe "Remove run containers" step only runs when the
 # caller passes reap-container-filter; unset, a cancelled run leaks its
 # containers.  The workflow is parsed with a real YAML loader (never grepped),
@@ -76,19 +76,19 @@ _yaml_python() {
   return 1
 }
 
-# Print one field of the gpu-integration job in main.yaml.
+# Print one field of the core-gpu job in main.yaml.
 _gpu_integration_field() {
   local py
   py="$(_yaml_python)" || { echo "no python with PyYAML"; return 1; }
   "${py}" -c '
 import sys, yaml
-job = yaml.safe_load(open(sys.argv[1]))["jobs"]["gpu-integration"]
+job = yaml.safe_load(open(sys.argv[1]))["jobs"]["core-gpu"]
 field = sys.argv[2]
 print(job["uses"] if field == "uses" else job["with"][field])
 ' "${WORKFLOW_DIR}/main.yaml" "$1"
 }
 
-@test "gpu-integration passes the run-scoped reap-container-filter" {
+@test "core-gpu passes the run-scoped reap-container-filter" {
   run _gpu_integration_field uses
   [ "${status}" -eq 0 ]
   [ "${output}" = "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@v0.4.0" ]
