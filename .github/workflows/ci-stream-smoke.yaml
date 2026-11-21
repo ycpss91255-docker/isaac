@@ -1,4 +1,4 @@
-name: Stream Smoke (GPU)
+name: "CI: Stream Smoke"
 
 # Tier A producer-side smoke (isaac#172): boot the stream stage on a
 # self-hosted GPU runner and assert Isaac's WebRTC livestream actually

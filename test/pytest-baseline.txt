@@ -327,7 +327,7 @@
 #   ISAAC_KIT_EXTRA_ARGS (isaac#422): +7 hosted (test_isaac_driver.py); live 526.
 #   ISAAC_IO_PLUGIN (isaac#423): +10 hosted (test_isaac_driver.py); live 536.
 # isaac#427: test_stage_structure.py (4 tests) -- ratchet UP 536 -> 540.
-HOSTED_UNIT_BASELINE = 633
+HOSTED_UNIT_BASELINE = 676
 
 # Per-group floors (isaac#434). CI runs per scope, so each group has its own
 #   floor: a deleted test cannot hide behind another group's growth. Every
@@ -346,7 +346,9 @@ HOSTED_UNIT_BASELINE = 633
 #   Moving the stream smoke into main.yaml (isaac#434 PR3) adds
 #   test_workflow_triggers.py (4) and 2 in test_main_workflow_scope.py (15 -> 17),
 #   all core: 627 -> 633 (core 598).
-HOSTED_UNIT_BASELINE_CORE = 598
+#   The workflow naming lint (isaac#443) adds test_workflow_naming.py (42) and 1 in
+#   test_changed_groups.py (38 -> 39), all core: 633 -> 676 (core 641).
+HOSTED_UNIT_BASELINE_CORE = 641
 HOSTED_UNIT_BASELINE_GUI = 0
 HOSTED_UNIT_BASELINE_STREAM = 19
 HOSTED_UNIT_BASELINE_HEADLESS = 0

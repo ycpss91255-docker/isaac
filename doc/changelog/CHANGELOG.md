@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+### Changed
+- **Workflow / job 命名規則與 lint（isaac#443，#434 PR4）。** 規則寫在 `doc/workflow-naming.md`：檔名 `<category>-<feature>.yaml`（category 為 ci / release / bot / tool）、顯示名稱 `<Category>: <Feature Words>`、job id 小寫 kebab-case、不加 job 層 `name:`、CI job id 為 `changes` / `gate` / `release` 或以組別開頭（`core-` `gui-` `stream-` `headless-` `docs-`）。`script/ci/lint_workflow_names.py` 檢查 `.github/workflows/*.yaml`，並掃文件有沒有殘留已改掉的名稱；它在 `docs-unit` job 執行，也由 `test_workflow_naming.py` 固定。改名：`stream-smoke.yaml` -> `ci-stream-smoke.yaml`、顯示名稱 `Stream Smoke (GPU)` -> `CI: Stream Smoke`（`main.yaml` 的 `uses:`、路徑規則 `ci-stream-*`、文件與測試同步）。**Required check 不受影響**：required 只有 `gate`，job 名稱變動不碰 branch protection。**例外（精確檔名）**：`main.yaml`（org 通用入口、base 的 `init.sh` 建立）；`base-version-monitor.yaml`（`init.sh` 的 `_sync_base_monitor_workflow` 在該路徑不存在時產生，改檔名會在下次 base 升級時於旁邊重新產生一份；`init.sh` 只建立不覆蓋，所以內容不會被蓋回去，但檔名會，故保留原名與內容，原因寫在文件裡）；`publish-stream-source.yaml`（isaac#432 會刪，不改）。Hosted baseline 633 -> 676（core 641）。
 ### Removed
 - **每晚排程移除：stream smoke 改成 stream 組的 GPU job（isaac#434，PR3）。** `stream-smoke.yaml` 不再有 `schedule`（最近 100 次排程跑 86 次失敗、沒有人處理，排程沒有發揮作用）。它改為 `workflow_call` + `workflow_dispatch`：`main.yaml` 新增 `stream-smoke` job（`needs: stream-unit`，stream 組被選中時才跑，即 PR 改到 stream 相關檔案或共用層、push main、release tag；與 `core-gpu` 相同的 fork 防護），`gate` 的 needs 加入它；手動仍可用 `workflow_dispatch`（`stream-smoke.yaml` 本身，或 `main.yaml` 的 `groups=stream`）。移除原本的 `concurrency` 群組：被取代的 pending run 會被取消而讓 `gate` 變紅，GPU 一次一個 job 由單一 self-hosted runner 保證。現在 `.github/workflows/` 唯一的 `schedule` 是 `base-version-monitor.yaml`（base 的 `init.sh` 產生、每週追蹤 base 新版，不跑測試）。`script/ci/stream_smoke*.sh`、Dockerfile 與 spec 內「nightly」的註解同步改掉。Hosted baseline 627 -> 633（core 598）。
 ### Changed

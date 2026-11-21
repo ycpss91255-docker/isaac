@@ -3,7 +3,7 @@
 #
 # Behavioral guard for the self-hosted GPU job scripts:
 #   script/ci/gpu_integration_job.sh  (main.yaml gpu-integration)
-#   script/ci/stream_smoke_job.sh     (stream-smoke.yaml stream-smoke)
+#   script/ci/stream_smoke_job.sh     (ci-stream-smoke.yaml stream-smoke)
 #
 # Both jobs now run through the org reusable workflow
 # ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml, which owns

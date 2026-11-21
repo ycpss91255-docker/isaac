@@ -81,11 +81,11 @@ _PATH_RULES = (
         "script/host_yaml.sh",
         "script/hooks/post/*",
         "src/script/stream_source_producer.py",
-        ".github/workflows/stream-smoke.yaml",
+        ".github/workflows/ci-stream-*",
         ".github/workflows/publish-stream-source.yaml",
     )),
-    ("gui", ("script/ci/gui_*", ".github/workflows/gui-*")),
-    ("headless", ("script/ci/headless_*", ".github/workflows/headless-*")),
+    ("gui", ("script/ci/gui_*", ".github/workflows/ci-gui-*")),
+    ("headless", ("script/ci/headless_*", ".github/workflows/ci-headless-*")),
 )
 
 

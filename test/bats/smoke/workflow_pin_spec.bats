@@ -43,7 +43,7 @@ setup() {
 
 @test "every gpu-self-hosted.yml caller is pinned to @v0.4.0" {
   local f
-  for f in main.yaml stream-smoke.yaml publish-stream-source.yaml; do
+  for f in main.yaml ci-stream-smoke.yaml publish-stream-source.yaml; do
     [ -f "${WORKFLOW_DIR}/${f}" ] || { echo "missing caller: ${f}"; return 1; }
     grep -q 'gpu-self-hosted\.yml@v0\.4\.0' "${WORKFLOW_DIR}/${f}" \
       || { echo "${f} is not pinned to gpu-self-hosted.yml@v0.4.0"; return 1; }

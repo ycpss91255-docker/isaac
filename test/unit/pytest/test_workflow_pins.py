@@ -1,7 +1,7 @@
 """Hosted guard: every caller of the org GPU reusable workflow is pinned.
 
 isaac#402.  The callers of `gpu-self-hosted.yml` (main.yaml,
-stream-smoke.yaml, publish-stream-source.yaml) must all pin the same
+ci-stream-smoke.yaml, publish-stream-source.yaml) must all pin the same
 release tag.  Callers are discovered by parsing every workflow file, so a
 new caller is covered without editing this list; a second test pins the
 discovered set so a rename or an empty discovery cannot pass vacuously.
@@ -24,7 +24,7 @@ _REUSABLE = "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml"
 _PINNED_TAG = "v0.4.0"
 _EXPECTED_CALLERS = {
     "main.yaml",
-    "stream-smoke.yaml",
+    "ci-stream-smoke.yaml",
     "publish-stream-source.yaml",
 }
 

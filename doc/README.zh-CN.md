@@ -387,6 +387,8 @@ out.step(sim_time_seconds)
 
 每个测试只属于一个范围组别（`core`、`gui`、`stream`、`headless`、`docs`）：pytest 模块设置 `pytestmark = pytest.mark.<组别>`（用 `pytest -m <组别>` 只跑一组），bats spec 写 `# bats file_tags=<组别>`。没有组别的测试会让收集失败。`test/pytest-baseline.txt` 每组各有一个下限。各组数量见 TEST.md 的组别表。
 
+Workflow 与 job 的命名规则见 [doc/workflow-naming.md](workflow-naming.md)，由 `script/ci/lint_workflow_names.py` 检查。
+
 ## Python 测试工具链（devel-test 阶段）
 
 `devel-test` 阶段内置 `pytest`、`pyyaml`、`pytest-cov`，安装在 Isaac Sim 自带的 Python 环境（`/isaac-sim/python.sh`）里，让 consumer repos 可以在容器内跑 Python unit / integration test。runtime `devel` 阶段不装这些依赖，保持精简 — 测试工具只在 `devel-test` 才付出大小成本。
