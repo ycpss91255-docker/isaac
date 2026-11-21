@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # stream_smoke_job.sh -- the Tier A producer-side stream smoke (isaac#172),
-# run by stream-smoke.yaml through the org reusable workflow
+# run by ci-stream-smoke.yaml through the org reusable workflow
 # gpu-self-hosted.yml (which owns the runner, the fork-PR gate, the workspace
 # reclaim and the checkout).
 #

@@ -387,6 +387,8 @@ See [doc/test/TEST.md](doc/test/TEST.md).
 
 Every test belongs to exactly one scope group (`core`, `gui`, `stream`, `headless`, `docs`): a pytest module sets `pytestmark = pytest.mark.<group>` (run one group with `pytest -m <group>`), a bats spec carries `# bats file_tags=<group>`. A test with no group fails collection. `test/pytest-baseline.txt` keeps one floor per group. See the group table in TEST.md.
 
+Workflow and job names follow [doc/workflow-naming.md](doc/workflow-naming.md); `script/ci/lint_workflow_names.py` checks them.
+
 ## Python testing toolkit (devel-test stage)
 
 The `devel-test` stage ships `pytest`, `pyyaml`, and `pytest-cov` installed into Isaac Sim's bundled Python (`/isaac-sim/python.sh`), so consumer repos can run Python unit / integration tests inside the container. The runtime `devel` stage stays lean — the testing dependencies are only paid for in `devel-test`.

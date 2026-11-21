@@ -484,7 +484,7 @@ COPY script/ci/stream_smoke_lib.sh /smoke_test/stream_smoke_lib.sh
 # project isolation (distinct PROJECT_NAME bring-up + project-scoped
 # teardown; base v0.42.0 removed --instance, base#666) against stub
 # run.sh / docker -- behavioral, no docker, no GPU. The GPU path stays
-# host-side and runs only in the stream group's CI job (stream-smoke.yaml).
+# host-side and runs only in the stream group's CI job (ci-stream-smoke.yaml).
 COPY --chmod=0755 script/ci/stream_smoke.sh /smoke_test/stream_smoke.sh
 # The self-hosted GPU job scripts the org reusable workflow runs
 # (gpu-self-hosted.yml), baked next to gpu_job_scripts_spec.bats so their

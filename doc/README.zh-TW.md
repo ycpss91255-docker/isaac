@@ -387,6 +387,8 @@ container 不回報 health 狀態（`HEALTHCHECK NONE`）。NGC base image 的 h
 
 每個測試只屬於一個範圍組別（`core`、`gui`、`stream`、`headless`、`docs`）：pytest 模組設 `pytestmark = pytest.mark.<組別>`（用 `pytest -m <組別>` 只跑一組），bats spec 寫 `# bats file_tags=<組別>`。沒有組別的測試會讓收集失敗。`test/pytest-baseline.txt` 每組各有一個下限。各組數量見 TEST.md 的組別表。
 
+Workflow 與 job 的命名規則見 [doc/workflow-naming.md](workflow-naming.md)，由 `script/ci/lint_workflow_names.py` 檢查。
+
 ## Python 測試工具鏈（devel-test 階段）
 
 `devel-test` 階段內建 `pytest`、`pyyaml`、`pytest-cov`，安裝在 Isaac Sim 自帶的 Python 環境（`/isaac-sim/python.sh`）裡，讓 consumer repos 可以在容器內跑 Python unit / integration test。runtime `devel` 階段不裝這些依賴，保持精簡 — 測試工具只在 `devel-test` 才付出大小成本。

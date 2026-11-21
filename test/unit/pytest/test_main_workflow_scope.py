@@ -100,7 +100,7 @@ def test_docs_unit_always_runs_after_changes(jobs):
 def test_stream_smoke_is_a_stream_group_job_that_waits_for_stream_unit(jobs):
     cfg = jobs["stream-smoke"]
     assert "stream-unit" in cfg["needs"]
-    assert cfg["uses"] == "./.github/workflows/stream-smoke.yaml"
+    assert cfg["uses"] == "./.github/workflows/ci-stream-smoke.yaml"
     # Same fork guard as core-gpu: fork code never reaches the GPU host.
     assert "github.event.pull_request.head.repo.full_name == github.repository" in str(
         cfg["if"]

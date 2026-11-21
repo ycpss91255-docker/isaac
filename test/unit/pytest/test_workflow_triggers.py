@@ -40,17 +40,17 @@ def test_only_the_upstream_tracking_bot_has_a_schedule():
 
 
 def test_stream_smoke_has_no_schedule_but_keeps_manual_dispatch():
-    triggers = _triggers(_load("stream-smoke.yaml"))
+    triggers = _triggers(_load("ci-stream-smoke.yaml"))
     assert "schedule" not in triggers
     assert "workflow_dispatch" in triggers
 
 
 def test_stream_smoke_is_callable_from_main():
-    assert "workflow_call" in _triggers(_load("stream-smoke.yaml"))
+    assert "workflow_call" in _triggers(_load("ci-stream-smoke.yaml"))
 
 
 def test_stream_smoke_still_runs_the_stream_smoke_script_on_the_gpu_runner():
-    doc = _load("stream-smoke.yaml")
+    doc = _load("ci-stream-smoke.yaml")
     job = doc["jobs"]["stream-smoke"]
     assert job["uses"].startswith(
         "ycpss91255-docker/.github/.github/workflows/gpu-self-hosted.yml@"

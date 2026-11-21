@@ -118,6 +118,14 @@ def test_a_deleted_or_unknown_test_path_is_core(cg):
     assert _pr(cg, "test/unit/pytest/test_removed_long_ago.py") == ["core", "docs"]
 
 
+def test_ci_workflow_files_follow_their_group_in_the_name(cg):
+    # The naming rule (isaac#443) puts the group in the file name, so the
+    # path rule needs no per-file list.
+    assert _pr(cg, ".github/workflows/ci-stream-smoke.yaml") == ["stream", "docs"]
+    assert _pr(cg, ".github/workflows/ci-gui-smoke.yaml") == ["gui", "docs"]
+    assert _pr(cg, ".github/workflows/ci-headless-smoke.yaml") == ["headless", "docs"]
+
+
 def test_gui_and_headless_scripts(cg):
     assert _pr(cg, "script/ci/gui_smoke.sh") == ["gui", "docs"]
     assert _pr(cg, "script/ci/headless_smoke.sh") == ["headless", "docs"]
